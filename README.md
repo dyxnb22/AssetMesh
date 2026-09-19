@@ -20,7 +20,9 @@ The project is **not** primarily a system monitor or control panel. Runtime stat
 
 ## Initial scope
 
-The first vertical slice is **Media Records**. It validates the shared application shell, domain conventions, storage layer, import/export, search/filtering, activity events, external-reference matching, and module boundaries before expanding into software and services.
+The first vertical slice is **Media Records**. It validates the shared application layer, domain conventions, storage layer, import/export, search/filtering, activity events, external-reference matching, and module boundaries before expanding into software and services.
+
+The roadmap is intentionally **headless-first**: after Media Records, the next milestones expand Software, Services, relations, and unified-library application contracts before the desktop shell is built. This keeps presentation concerns from prematurely defining domain or application boundaries.
 
 ```mermaid
 graph TD
@@ -47,7 +49,7 @@ graph TD
 ```text
 AssetMesh
 ├── apps/
-│   ├── desktop/        # future Tauri + React desktop client
+│   ├── desktop/        # Phase 5: future Tauri + React desktop client
 │   └── web/            # optional future web client
 ├── crates/
 │   ├── core/           # kernel + domain modules + application services + ports
@@ -127,12 +129,10 @@ What works today:
 - rebuildable FTS5 search projection (with CJK/substring fallback);
 - JSON/CSV legacy import with dry-run, matching precedence, and non-merging conflict reports;
 - portable export/import with independent DB / export / module-schema versions and round-trip tests;
-- CLI exercising the same application layer a future desktop UI will call.
+- CLI exercising the same application layer future desktop, HTTP, or agent adapters can call.
 
-Run `cargo test --workspace` and see [DEVELOPMENT.md](DEVELOPMENT.md) for
-setup, commands, and the contracts the implementation established.
+The next milestone is **Phase 2 — Software Inventory vertical slice**. It remains headless-first: software discovery, canonical adoption, search projection, relations, portability, migrations, and CLI/application coverage come before graphical presentation. The desktop shell is intentionally deferred until Phase 5, after Media, Software, Services, and unified-library contracts have been proven across multiple domains.
 
-Still deliberately absent: desktop/React UI, HTTP/MCP servers, providers and
-runtime discovery, attachments/blobs (boundary defined by ADR 0009 only),
-tags/collections beyond the shared tag system, sync, plugins, and background
-jobs.
+Run `cargo test --workspace` and see [DEVELOPMENT.md](DEVELOPMENT.md) for setup, commands, and the contracts the implementation established.
+
+Still deliberately absent: desktop/React UI, HTTP/MCP servers, providers beyond the next planned discovery adapters, runtime discovery/monitoring outside Phase 2 software discovery scope, attachments/blobs (boundary defined by ADR 0009 only), sync, plugins, and background jobs.
