@@ -15,25 +15,31 @@ The project is **not** primarily a system monitor or control panel. Runtime stat
 - **Modular** — media, software, services, knowledge, and future domains are independent modules on a shared core.
 - **UI-independent core** — the domain and application layers should be reusable by desktop, CLI, HTTP, or agent adapters.
 - **Deterministic first** — AI may assist discovery and enrichment later, but it must not be the source of truth.
+- **Rebuildable derived state** — search indexes, provider cache, and discovery snapshots must never become irreplaceable user data.
+- **Explicit identity** — AssetMesh owns canonical IDs; external provider IDs are namespaced references and duplicate merges are explicit operations.
 
 ## Initial scope
 
-The first vertical slice is **Media Records**. It validates the shared application shell, domain conventions, storage layer, import/export, search/filtering, activity events, and module boundaries before expanding into software and services.
+The first vertical slice is **Media Records**. It validates the shared application shell, domain conventions, storage layer, import/export, search/filtering, activity events, external-reference matching, and module boundaries before expanding into software and services.
 
 ```mermaid
 graph TD
-  A[AssetMesh Core] --> M[Media Module]
+  A[AssetMesh Kernel] --> M[Media Module]
   A --> S[Software Module]
   A --> V[Services Module]
   A --> K[Knowledge / Projects]
   A --> R[Relations]
   A --> E[Activity Events]
+  A --> X[External Refs]
+  A --> Q[Search Projection]
   M --> DB[(SQLite)]
   S --> DB
   V --> DB
   K --> DB
   R --> DB
   E --> DB
+  X --> DB
+  Q --> DB
 ```
 
 ## Planned architecture
@@ -44,16 +50,45 @@ AssetMesh
 │   ├── desktop/        # future Tauri + React desktop client
 │   └── web/            # optional future web client
 ├── crates/
-│   ├── core/           # domain + application services
+│   ├── core/           # kernel + domain modules + application services + ports
 │   ├── storage-sqlite/ # SQLite adapter
 │   ├── providers/      # macOS / metadata / external providers
 │   ├── cli/            # headless local interface
-│   └── server/         # optional HTTP adapter; not required for V1
+│   └── server/         # optional HTTP/local-service adapter; not required for V1
 ├── docs/
 └── migrations/
 ```
 
-The exact code layout may evolve, but one rule should remain stable: **business rules do not depend on Tauri, React, HTTP, or SQLite-specific APIs.**
+The exact code layout may evolve, but these rules should remain stable:
+
+- business rules do not depend on Tauri, React, HTTP, or SQLite-specific APIs;
+- modules own typed domain details and migrations;
+- cross-module relationships use shared Asset identities rather than private-table coupling;
+- external IDs do not replace AssetMesh identity;
+- search/provider cache are rebuildable projections/cache;
+- portable export remains independent from the physical SQLite schema.
+
+## Foundation contracts
+
+The Phase 0/0.5 baseline now defines:
+
+- shared `Asset` identity + module-owned typed details;
+- namespaced `AssetExternalRef` aliases;
+- explicit asset merge semantics;
+- relation registry/inverse semantics;
+- rebuildable `SearchDocument` projection;
+- SQLite WAL / busy-timeout / short-transaction policy;
+- independent DB, portable-export, and module schema versions;
+- canonical attachment/blob boundary vs provider/derived cache;
+- local-first adapters that can evolve from direct SQLite access to an optional coordinating daemon without rewriting the core.
+
+Deliberately **not** implemented or frozen yet:
+
+- multi-device sync / CRDTs;
+- third-party plugin ABI;
+- durable background-job architecture;
+- external/semantic search infrastructure;
+- mandatory localhost backend server.
 
 ## Documentation
 
@@ -66,10 +101,30 @@ The exact code layout may evolve, but one rule should remain stable: **business 
 - [Module System](docs/06-module-system.md)
 - [Roadmap](docs/07-roadmap.md)
 - [Media Records V1](docs/08-media-records-v1.md)
-- [Architecture Decisions](docs/adr/)
+- [Architecture Decisions](docs/adr/README.md)
 
 ## Current status
 
-**Phase 0 — architecture and foundation design.**
+**Phase 0.5 — foundation hardening complete; ready for the Media Records vertical slice.**
 
-No production implementation is committed yet. The next milestone is a thin Media Records vertical slice with import of existing historical data.
+No production implementation is committed yet. The next milestone is intentionally narrow:
+
+```text
+Asset + MediaRecord
+        ↓
+SQLite migrations/repositories
+        ↓
+Application use cases + activity
+        ↓
+External-ref-aware legacy import
+        ↓
+Search Projection
+        ↓
+Portable export round-trip
+        ↓
+CLI/minimal harness
+        ↓
+Desktop Media UI
+```
+
+The goal of Phase 1 is not to implement every future subsystem. It is to prove that the foundation can safely carry real historical media data without locking future modules into Media-specific assumptions.
