@@ -1,0 +1,13 @@
+.DS_Store
+.idea/
+.vscode/
+node_modules/
+target/
+dist/
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
