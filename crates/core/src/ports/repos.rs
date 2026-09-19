@@ -1,0 +1,171 @@
+//! Repository contracts, split into read (query) and write capabilities.
+//!
+//! Read scopes (`QueryUnitOfWork`) hand out only `*Reader` trait objects, so
+//! mutation methods are unavailable at the type level; write scopes
+//! (`UnitOfWork`) hand out the full repositories (ADR 0007).
+//!
+//! Implementations live in infrastructure adapters (SQLite) and test doubles;
+//! application services never touch SQL.
+
+use crate::domain::activity::ActivityEvent;
+use crate::domain::asset::Asset;
+use crate::domain::external_ref::AssetExternalRef;
+use crate::domain::ids::{AssetId, ExternalRefId, TagId};
+use crate::domain::media::{MediaEntry, MediaRecord, MediaStatus, MediaType};
+use crate::domain::tag::Tag;
+use crate::{AppError, AppResult};
+
+/// Filter for base-asset listing.
+#[derive(Debug, Clone, Default)]
+pub struct AssetFilter {
+    pub kind: Option<crate::domain::asset::AssetKind>,
+    pub lifecycle: Option<LifecycleFilter>,
+}
+
+/// Lifecycle filter. `Active` (the default) excludes merged tombstones and
+/// archived assets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LifecycleFilter {
+    All,
+    #[default]
+    Active,
+    ActiveOrArchived,
+}
+
+pub trait AssetReader {
+    fn get(&mut self, id: AssetId) -> AppResult<Option<Asset>>;
+    fn list(&mut self, filter: &AssetFilter) -> AppResult<Vec<Asset>>;
+}
+
+pub trait AssetRepository: AssetReader {
+    fn insert(&mut self, asset: &Asset) -> AppResult<()>;
+    fn update(&mut self, asset: &Asset) -> AppResult<()>;
+}
+
+/// Sort orders for media listing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MediaSort {
+    /// Most recently updated first.
+    #[default]
+    UpdatedDesc,
+    TitleAsc,
+    RatingDesc,
+    CompletedDesc,
+}
+
+/// Typed media queries. Structured filtering remains typed application
+/// behavior; full-text search never replaces these filters (ADR 0006).
+#[derive(Debug, Clone, Default)]
+pub struct MediaFilter {
+    pub media_type: Option<MediaType>,
+    pub status: Option<MediaStatus>,
+    pub tag: Option<String>,
+    pub platform: Option<String>,
+    pub sort: MediaSort,
+}
+
+/// Media list rows are pre-joined with their tags so list views avoid N+1
+/// lookups at the application layer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MediaListRow {
+    pub entry: MediaEntry,
+    pub tags: Vec<String>,
+}
+
+pub trait MediaReader {
+    fn get(&mut self, asset_id: AssetId) -> AppResult<Option<MediaRecord>>;
+    fn list(&mut self, filter: &MediaFilter) -> AppResult<Vec<MediaListRow>>;
+    /// All media records, unsorted — used by projection rebuild and export.
+    fn list_all(&mut self) -> AppResult<Vec<MediaRecord>>;
+}
+
+pub trait MediaRepository: MediaReader {
+    fn upsert(&mut self, record: &MediaRecord) -> AppResult<()>;
+    fn delete(&mut self, asset_id: AssetId) -> AppResult<()>;
+}
+
+pub trait ExternalRefReader {
+    fn get(&mut self, id: ExternalRefId) -> AppResult<Option<AssetExternalRef>>;
+    /// Deterministic lookup used by import/discovery matching (ADR 0005).
+    fn find_asset_by_ref(
+        &mut self,
+        namespace: &str,
+        external_id: &str,
+    ) -> AppResult<Option<AssetId>>;
+    fn list_for_asset(&mut self, asset_id: AssetId) -> AppResult<Vec<AssetExternalRef>>;
+    fn list_all(&mut self) -> AppResult<Vec<AssetExternalRef>>;
+}
+
+pub trait ExternalRefRepository: ExternalRefReader {
+    /// Inserts a reference. Fails with [`AppError::Conflict`] when the
+    /// `(namespace, external_id)` pair is already attached to any asset.
+    fn insert(&mut self, reference: &AssetExternalRef) -> AppResult<()>;
+    /// Re-points an existing reference at a different asset (merge move).
+    fn update(&mut self, reference: &AssetExternalRef) -> AppResult<()>;
+    fn delete(&mut self, id: ExternalRefId) -> AppResult<()>;
+}
+
+pub trait ActivityReader {
+    fn list_for_asset(&mut self, asset_id: AssetId, limit: usize) -> AppResult<Vec<ActivityEvent>>;
+    /// Most recent events first.
+    fn list_recent(&mut self, limit: usize) -> AppResult<Vec<ActivityEvent>>;
+    /// Every event, oldest first — used by export.
+    fn list_all(&mut self) -> AppResult<Vec<ActivityEvent>>;
+    fn get(&mut self, id: crate::domain::ids::ActivityId) -> AppResult<Option<ActivityEvent>>;
+}
+
+pub trait ActivityRepository: ActivityReader {
+    fn append(&mut self, event: &ActivityEvent) -> AppResult<()>;
+    /// Replaces an event wholesale (portable import upsert by id).
+    fn upsert(&mut self, event: &ActivityEvent) -> AppResult<()>;
+}
+
+pub trait TagReader {
+    fn find_by_name(&mut self, name: &str) -> AppResult<Option<Tag>>;
+    fn get(&mut self, id: TagId) -> AppResult<Option<Tag>>;
+    fn list_for_asset(&mut self, asset_id: AssetId) -> AppResult<Vec<Tag>>;
+    fn list_all(&mut self) -> AppResult<Vec<Tag>>;
+    /// `(asset_id, tag_id)` membership pairs — used by export and merge.
+    fn list_memberships(&mut self) -> AppResult<Vec<(AssetId, TagId)>>;
+}
+
+pub trait TagRepository: TagReader {
+    /// Returns the tag with exactly this name, creating it if needed.
+    fn ensure(&mut self, name: &str) -> AppResult<Tag>;
+    /// Inserts a tag with a specific id (portable import preserves identity).
+    fn insert(&mut self, tag: &Tag) -> AppResult<()>;
+    /// Replaces a tag by id.
+    fn update(&mut self, tag: &Tag) -> AppResult<()>;
+    fn attach(&mut self, asset_id: AssetId, tag_id: TagId) -> AppResult<()>;
+    fn detach(&mut self, asset_id: AssetId, tag_id: TagId) -> AppResult<()>;
+    fn insert_membership(&mut self, asset_id: AssetId, tag_id: TagId) -> AppResult<()>;
+}
+
+pub trait SearchReader {
+    /// Full-text query with relevance ordering; implementations must serve
+    /// substring/CJK queries too and never silently drop storage errors.
+    fn search(
+        &mut self,
+        query: &str,
+        limit: usize,
+    ) -> AppResult<Vec<crate::domain::search::SearchHit>>;
+}
+
+/// Search index writer, implemented by the SQLite adapter over an FTS5
+/// table; the index is derived state and must be droppable/rebuildable.
+pub trait SearchIndex: SearchReader {
+    fn upsert(&mut self, document: &crate::domain::search::SearchDocument) -> AppResult<()>;
+    fn remove(&mut self, asset_id: AssetId) -> AppResult<()>;
+    /// Removes every document. The index must be rebuildable afterwards.
+    fn clear(&mut self) -> AppResult<()>;
+    /// Atomically replaces the whole projection (rebuild path).
+    fn replace_all(&mut self, documents: &[crate::domain::search::SearchDocument])
+        -> AppResult<()>;
+}
+
+/// Helper for repositories that check uniqueness of external refs.
+pub fn ref_conflict(namespace: &str, external_id: &str) -> AppError {
+    AppError::conflict(format!(
+        "external ref {namespace}:{external_id} is already attached to another asset"
+    ))
+}

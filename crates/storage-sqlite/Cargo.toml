@@ -1,0 +1,13 @@
+[package]
+name = "assetmesh-storage-sqlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+assetmesh-core = { workspace = true }
+chrono = { workspace = true }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }

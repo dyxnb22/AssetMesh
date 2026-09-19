@@ -102,29 +102,37 @@ Deliberately **not** implemented or frozen yet:
 - [Roadmap](docs/07-roadmap.md)
 - [Media Records V1](docs/08-media-records-v1.md)
 - [Architecture Decisions](docs/adr/README.md)
+- [Developer Setup & Implementation Notes](DEVELOPMENT.md)
 
 ## Current status
 
-**Phase 0.5 — foundation hardening complete; ready for the Media Records vertical slice.**
-
-No production implementation is committed yet. The next milestone is intentionally narrow:
+**Phase 1 — Media Records vertical slice implemented** (headless core, no UI yet).
 
 ```text
-Asset + MediaRecord
-        ↓
-SQLite migrations/repositories
-        ↓
-Application use cases + activity
-        ↓
-External-ref-aware legacy import
-        ↓
-Search Projection
-        ↓
-Portable export round-trip
-        ↓
-CLI/minimal harness
-        ↓
-Desktop Media UI
+AssetMesh/
+├── crates/
+│   ├── core/            # domain + ports + application services (no infra deps)
+│   ├── storage-sqlite/  # SQLite adapter: migrations, repositories, FTS5 search
+│   └── cli/             # assetmesh binary (thin adapter over application services)
+└── migrations/          # checksummed, ordered SQL migrations
 ```
 
-The goal of Phase 1 is not to implement every future subsystem. It is to prove that the foundation can safely carry real historical media data without locking future modules into Media-specific assumptions.
+What works today:
+
+- shared `Asset` identity (UUIDv7) with Media module-owned typed details;
+- namespaced `AssetExternalRef` aliases with `UNIQUE(namespace, external_id)`;
+- explicit merge with tombstone/redirect (`merged_into`) semantics;
+- Media CRUD/use cases with status/progress/rating invariants;
+- atomic canonical-write + activity + projection commits (single short SQLite transaction);
+- rebuildable FTS5 search projection (with CJK/substring fallback);
+- JSON/CSV legacy import with dry-run, matching precedence, and non-merging conflict reports;
+- portable export/import with independent DB / export / module-schema versions and round-trip tests;
+- CLI exercising the same application layer a future desktop UI will call.
+
+Run `cargo test --workspace` and see [DEVELOPMENT.md](DEVELOPMENT.md) for
+setup, commands, and the contracts the implementation established.
+
+Still deliberately absent: desktop/React UI, HTTP/MCP servers, providers and
+runtime discovery, attachments/blobs (boundary defined by ADR 0009 only),
+tags/collections beyond the shared tag system, sync, plugins, and background
+jobs.
