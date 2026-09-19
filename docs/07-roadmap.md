@@ -43,6 +43,8 @@ Relevant ADRs: 0005–0009.
 
 ## Phase 1 — Media Records vertical slice
 
+Status: **complete as a headless vertical slice**. Desktop presentation is intentionally deferred to Phase 5.
+
 Deliverables:
 
 - Asset + MediaRecord schema;
@@ -56,8 +58,7 @@ Deliverables:
 - activity events;
 - JSON/CSV legacy import with preview;
 - portable export with module schema version;
-- CLI or minimal test harness;
-- desktop Media page after core behavior is stable.
+- CLI/test harness exercising the same application layer future adapters will use.
 
 Not required unless real migration data needs them:
 
@@ -66,58 +67,108 @@ Not required unless real migration data needs them:
 - external metadata providers;
 - merge UI beyond import conflict review.
 
-Exit criteria: historical media data can be imported, edited, searched, exported, and round-tripped safely, and the search index can be rebuilt from canonical data.
+Exit criteria: historical media data can be imported, edited, searched, exported, and round-tripped safely, and the search index can be rebuilt from canonical data without requiring a desktop client.
 
-## Phase 2 — Application shell
+## Phase 2 — Software Inventory vertical slice
 
-Deliverables:
-
-- desktop shell;
-- global navigation;
-- global library search using Search Projection;
-- shared list/detail patterns;
-- settings;
-- activity page;
-- import/export UI;
-- typed Rust <-> UI transport contracts rather than duplicated handwritten payload shapes where practical.
-
-## Phase 3 — Software inventory
+Purpose: validate that the shared AssetMesh kernel can support a second substantially different asset domain without introducing UI-specific assumptions or weakening the contracts established by Media Records.
 
 Deliverables:
 
-- Software asset kind;
+- Software asset kind and module-owned schema;
+- Software CRUD application services;
 - macOS application discovery;
-- Homebrew/CLI discovery;
-- namespaced identifiers such as bundle ID / Homebrew identity;
-- install source and location;
+- Homebrew / CLI tool discovery;
+- namespaced identifiers such as bundle ID, Homebrew formula/cask identity, and package identity;
+- install source and location metadata;
 - purpose / “why installed” field;
-- manual confirmation of discovered assets;
-- exact external-ref matching before heuristic matching;
+- discovery snapshots kept separate from canonical asset state;
+- manual confirmation / adoption of discovered software;
+- exact external-reference matching before heuristic matching;
+- duplicate/conflict reporting without implicit canonical merges;
 - basic relations such as `installed_via`, `uses`, and `depends_on`;
-- search projection and module migration fixtures.
+- Software -> SearchDocument projection;
+- portable Software module export/import;
+- module migrations and fixtures;
+- CLI commands or test harness covering all application services.
 
-## Phase 4 — Services and subscriptions
+Explicitly deferred:
+
+- desktop UI;
+- graphical software inventory;
+- runtime process monitoring;
+- install/uninstall actions;
+- automatic destructive reconciliation;
+- durable background-job infrastructure unless discovery workloads prove it necessary.
+
+Exit criteria: installed software and CLI tools can be discovered, reviewed, adopted into canonical AssetMesh records, searched, related to other assets, exported/imported, and rebuilt without requiring a desktop client.
+
+## Phase 3 — Services and Subscriptions vertical slice
 
 Deliverables:
 
-- API/SaaS/local-service/VPS/domain kinds;
+- API / SaaS / local-service / VPS / domain asset kinds;
+- service CRUD application services;
 - endpoint/provider/account metadata without secret leakage;
 - renewal/cost metadata where useful;
-- provider/external references;
-- relations between software, projects, and services;
-- search projection and portable module schema.
+- namespaced provider/external references;
+- relations between software, projects, accounts, domains, and services;
+- search projection;
+- portable module schema;
+- CLI/test coverage.
 
-## Phase 5 — Relationship graph
+Exit criteria: Media, Software, and Services coexist on the same shared Asset identity, search, activity, relation, migration, and portability contracts without cross-module table coupling.
+
+## Phase 4 — Cross-module Relations and Library Core
+
+Purpose: stabilize the capabilities needed by a unified asset library before committing to presentation-layer patterns.
 
 Deliverables:
 
-- relation explorer;
+- relation query services;
+- incoming/outgoing relation traversal;
+- inverse and symmetric relation behavior;
+- dependency / impact queries such as “what depends on this?”;
+- cross-module asset lookup;
+- global Search Projection queries;
+- shared filtering / sorting / pagination contracts;
+- duplicate and merge review application services;
+- activity querying across modules;
+- stable DTO/view-model boundaries suitable for CLI, desktop, HTTP, or agent adapters.
+
+Explicitly deferred:
+
 - graph visualization;
-- relation registry/inverse rendering;
-- filters by relation/asset kind;
-- impact view (“what depends on this?”);
-- relation suggestions from discovery;
-- explicit duplicate/merge review where useful.
+- desktop navigation;
+- shared React list/detail components;
+- visual relation explorer.
+
+Exit criteria: the application layer exposes a stable unified-library contract over Media, Software, Services, Search, Relations, Activity, Import/Export, and Merge operations.
+
+## Phase 5 — Application Shell / Desktop UI
+
+Purpose: add the primary graphical client only after multiple asset domains and the unified library contract have proven which presentation patterns are genuinely shared.
+
+Deliverables:
+
+- Tauri desktop shell;
+- global navigation;
+- global asset library;
+- global search using Search Projection;
+- shared list/detail patterns;
+- Media pages;
+- Software pages;
+- Services pages;
+- relation explorer and graph visualization;
+- activity page;
+- import/export UI;
+- duplicate/merge review UI;
+- settings;
+- typed Rust <-> UI transport contracts generated or shared where practical.
+
+Architecture rule: the desktop client remains an adapter over the existing application layer. Business rules, identity semantics, migrations, discovery rules, search behavior, import matching, and merge behavior must not be reimplemented in the UI.
+
+Exit criteria: all major AssetMesh V1 capabilities already available headlessly can be operated through the desktop application without duplicating domain or application logic.
 
 ## Phase 6 — Runtime enrichment
 
