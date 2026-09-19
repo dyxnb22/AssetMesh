@@ -4,7 +4,7 @@
 
 Media Records is a strong first vertical slice because it has real historical data, meaningful CRUD/search/filter workflows, and low-risk domain behavior. It can validate AssetMesh's core without requiring privileged macOS integration.
 
-Media V1 should validate the long-lived foundation contracts while remaining intentionally small. It is not the place to implement sync, jobs, plugin APIs, or runtime discovery.
+Media V1 should validate the long-lived foundation contracts while remaining intentionally small. It is not the place to implement sync, jobs, plugin APIs, runtime discovery, or the desktop application shell.
 
 ## Supported media types
 
@@ -62,7 +62,7 @@ paused
 dropped
 ```
 
-UI labels may differ by media type (“Watching”, “Playing”), but storage should avoid unnecessary type-specific status enums unless behavior genuinely differs.
+Future UI labels may differ by media type (“Watching”, “Playing”), but storage should avoid unnecessary type-specific status enums unless behavior genuinely differs.
 
 ## Progress
 
@@ -245,7 +245,11 @@ Media export must include:
 
 Search indexes/provider caches are excluded because they are rebuildable.
 
-## V1 UI
+## Deferred desktop presentation
+
+The Media desktop experience is intentionally deferred to the shared Application Shell / Desktop UI phase rather than being part of the Media V1 exit criteria.
+
+A future Media surface is expected to expose capabilities such as:
 
 ```text
 Media
@@ -256,7 +260,7 @@ Media
 └── Detail panel/page
 ```
 
-Detail view:
+A future detail view may include:
 
 ```text
 Title
@@ -270,9 +274,9 @@ Activity
 Edit / Complete / Archive
 ```
 
-The UI calls application use cases. It must not implement import matching, canonical merge behavior, or SQL search joins itself.
+These are presentation expectations, not Media-domain requirements. The desktop adapter must call existing application use cases and must not implement import matching, canonical merge behavior, domain invariants, or SQL search joins itself.
 
-## Required tests before UI polish
+## Required tests before declaring Media V1 complete
 
 1. domain invariant tests for status/progress/rating;
 2. application use-case tests with fake ports;
@@ -284,8 +288,11 @@ The UI calls application use cases. It must not implement import matching, canon
 8. search projection rebuild test;
 9. activity + canonical write atomicity test.
 
+UI polish is not a prerequisite for Media V1 completion.
+
 ## Explicitly deferred from Media V1
 
+- desktop/application-shell implementation;
 - metadata-provider integration;
 - poster/thumbnail system unless migration requires it;
 - durable background job queue;
@@ -303,4 +310,5 @@ Media V1 is done when real historical data can replace the old host-specific imp
 - uncertain matches are reviewable rather than auto-merged;
 - search can be rebuilt from canonical data;
 - portable export/import preserves stable identity and Media schema version;
-- desktop/CLI adapters can use the same application services without domain duplication.
+- CLI and future desktop/HTTP/agent adapters can use the same application services without domain duplication;
+- no desktop client is required to satisfy the Media V1 exit criteria.
