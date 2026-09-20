@@ -129,7 +129,7 @@ What works today:
 
 - shared `Asset` identity (UUIDv7) with Media, Software, and Services module-owned typed details;
 - namespaced `AssetExternalRef` aliases with `UNIQUE(namespace, external_id)` (`bundle_id`, `homebrew_formula`, `homebrew_cask`, `npm`, `pipx`, ...);
-- explicit merge with tombstone/redirect (`merged_into`) semantics across Media and Software, including relation re-pointing;
+- explicit merge with tombstone/redirect (`merged_into`) semantics across Media, Software, and Services, including relation re-pointing; Service conflicts are resolved field-by-field or rejected for review rather than silently choosing a survivor;
 - Media CRUD/use cases with status/progress/rating invariants;
 - Software CRUD/use cases with category/install-source/location/purpose ("why installed") fields;
 - read-only discovery providers — macOS applications, Homebrew, npm/pipx CLI tools — producing advisory candidates that are classified (new / exact match / potential duplicate / conflict) and only become canonical through explicit adoption that never overwrites user-owned purpose/notes;
@@ -140,7 +140,7 @@ What works today:
 - atomic canonical-write + activity + projection commits (single short SQLite transaction);
 - rebuildable FTS5 search projection covering Media, Software, and Services (with CJK/substring fallback);
 - JSON/CSV legacy import with dry-run, matching precedence, and non-merging conflict reports;
-- portable export/import with independent DB / export / module-schema versions, round-trip tests, and documented Phase 1-bundle compatibility;
+- portable export/import with independent DB / export / module-schema versions, round-trip tests, and backward-compatible handling for bundles that predate newer modules;
 - migration 0003 verified against a real database written by the Phase 2 binary, so historical Media/Software/Relation data is proven to survive the upgrade; migration 0004 widens the stored relation-type CHECK to the Phase 3 service types (`hosted_on`, `points_to`) while leaving already-applied migrations immutable;
 - CLI exercising the same application layer future desktop, HTTP, or agent adapters can call.
 
