@@ -1,9 +1,14 @@
 # Developer Setup & Implementation Notes
 
-This document covers how to build, test, and use the implementation (Phase 1
-Media Records + Phase 2 Software Inventory + Phase 3 Services and
+This document covers how to build, test, and use the implemented headless core
+(Phase 1 Media Records + Phase 2 Software Inventory + Phase 3 Services and
 Subscriptions), and records the concrete contracts the implementation
 established on top of the architecture docs and ADRs.
+
+**Current implementation target:** Phase 4 — Unified Library Core. See
+`docs/11-unified-library-core.md` for the implementation contract and
+`docs/07-roadmap.md` for phase boundaries. Phase 4 is not described below as
+already implemented unless a capability is explicitly listed as existing.
 
 ## Requirements
 
@@ -104,6 +109,10 @@ assetmesh import <dir>              # restore canonical data by canonical ID
 
 IDs may be given in full or as a unique prefix (≥4 chars).
 
+Phase 4 will add unified-library and graph-query CLI coverage only as a thin
+adapter over the new application services. Do not implement Phase 4 semantics
+inside CLI command handlers.
+
 ## Version axes (ADR 0008)
 
 | Axis | Location | Current value |
@@ -148,9 +157,9 @@ assetmesh-export/
   untouched, while a section file present WITHOUT its manifest declaration
   fails loudly. The software section additionally enforces
   kind/category compatibility; relations enforce endpoint existence,
-  and services enforce kind ↔ service type compatibility.
   no self-relations, and unique triples (symmetric `related_to` is stored in
-  canonical endpoint order).
+  canonical endpoint order); services enforce kind ↔ service type
+  compatibility.
 - Every import (dry-run or commit) runs the same preflight: all declared
   files must be present, decoded row counts must match the manifest,
   identities (asset/media/software/ref/event/tag/relation ids, ref pairs,
@@ -291,25 +300,50 @@ transactions.
   unstable).
 - **Relations**: shared `relations` table over Asset IDs. Registry:
   `depends_on ↔ dependency_of`, `uses ↔ used_by`, `installed_via ↔ installs`,
-  `related_to` (symmetric). Every fact has exactly one canonical row:
-  inverse-pair types are never stored (a fact stated via `dependency_of` is
-  stored as `depends_on` with endpoints swapped; `related_to` is stored in
-  canonical endpoint order), and migration 0002 CHECK-constrains stored
-  types to the canonical set so duplicates are unrepresentable even to
-  direct SQL. Re-stating a fact from either endpoint is a conflict.
-  Relation IDs are application-generated (injected generator). Merge
-  re-points relations to the winner in canonical form, dropping duplicates
-  and self-loops.
+  `hosted_on ↔ hosts`, `points_to ↔ pointed_to_by`, and `related_to`
+  (symmetric). Every fact has exactly one canonical row: inverse-pair types
+  are never stored (a fact stated via an inverse type is stored in its primary
+  direction with endpoints swapped; `related_to` is stored in canonical
+  endpoint order). Migration 0002 established the original stored-type CHECK;
+  migration 0004 widens that CHECK for the Phase 3 service relation types
+  without modifying the already-applied migration. Re-stating a fact from
+  either endpoint is a conflict. Relation IDs are application-generated
+  (injected generator). Merge re-points relations to the winner in canonical
+  form, dropping duplicates and self-loops.
 - **Activity events**: `asset.created`, `asset.archived`, `asset.merged`,
   `media.created`, `media.started`, `media.paused`, `media.dropped`,
   `media.completed`, `media.progress_changed`, `media.rating_changed`,
   `media.imported` (actor `import`), `software.created`,
-  `software.adopted`, `relation.created`, `relation.removed`. Metadata-only
-  edits deliberately emit no event; discovery scans emit no event.
+  `software.adopted`, `service.created`, `service.renewed`,
+  `relation.created`, `relation.removed`. Metadata-only edits deliberately
+  emit no event; discovery scans emit no event. Renewal history contains only
+  caller-supplied factual renewal data; it is not an invoice ledger.
 - **Search**: FTS5 (`unicode61`) over the projected `SearchDocument`; queries
   fall back to substring `LIKE` when tokenization cannot serve them (e.g. CJK,
   short substrings). The projection is rebuildable via the `SearchService`
-  rebuild use case and is tested to survive deletion.
+  rebuild use case and is tested to survive deletion. Media, Software, and
+  Services all project into this shared derived index.
+
+## Current Phase 4 implementation target
+
+Phase 4 consolidates existing module capabilities rather than adding a fourth
+asset domain. The detailed contract is in `docs/11-unified-library-core.md`.
+Implementation work should proceed in this order:
+
+1. **4A — Unified Library Query:** stable typed summary/detail DTOs, shared
+   filtering/sorting/pagination, cross-module list/detail/search behavior.
+2. **4B — Relation Traversal and Impact:** incoming/outgoing/neighbors,
+   dependency/dependent traversal, bounded cycle-safe impact queries with
+   explainable paths.
+3. **4C — Search/Activity/Duplicate Review:** application query boundaries
+   around the existing Search Projection and activity log, plus deterministic
+   review-only duplicate evidence that never auto-merges.
+4. **4D — Contract Hardening:** CLI and cross-module end-to-end coverage over
+   the same transport-neutral application services Phase 5 Desktop will use.
+
+Phase 4 must not introduce Tauri/React UI, graph visualization, HTTP/MCP
+servers, semantic/vector search, runtime monitoring, plugin ABI, sync/CRDTs,
+or speculative background-job infrastructure.
 
 ## Concurrency & consistency
 
@@ -365,7 +399,7 @@ transactions.
   JSON), read-only command assertions. No test depends on the host machine's
   installed software.
 - SQLite contract tests: `storage-sqlite/tests/` — pragmas, migrations
-  (fresh/reopen/tamper/1→2→3 upgrades with Media/Software/Relation data
+  (fresh/reopen/tamper/1→2→3→4 upgrades with Media/Software/Relation data
   intact), CRUD, FK/unique enforcement, transaction atomicity, search +
   rebuild, portable round trip on a real database, relation constraints.
   The upgrade tests run against **real historical databases**:
