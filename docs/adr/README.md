@@ -17,6 +17,7 @@ An ADR is used when changing the decision later would materially affect data own
 | [0007](0007-sqlite-concurrency-policy.md) | SQLite uses a shared concurrency/connection policy and short transactions |
 | [0008](0008-module-schema-versioning.md) | DB, portable-export, and module schema versions are independent |
 | [0009](0009-canonical-attachments-vs-provider-cache.md) | Canonical attachments are durable; provider/derived cache is rebuildable |
+| [0010](0010-service-billing-and-secret-boundary.md) | Service subscriptions stay on the Service asset; money uses minor units; credentials stay outside canonical data |
 
 ## Deferred decisions
 
