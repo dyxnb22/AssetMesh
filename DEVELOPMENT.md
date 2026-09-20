@@ -266,8 +266,10 @@ transactions.
   a silent survivor pick — and the transaction rolls back leaving both records
   intact. Because a successful merge discards nothing, there is no
   `loser_service_details` payload (unlike Media/Software, whose survivor-wins
-  rule really does drop the loser's record). Relations/collections/attachment
-  merges are deferred until those subsystems exist (ADR 0005).
+  rule really does drop the loser's record). Relations are re-pointed to the
+  winner in canonical form with duplicate/self-loop cleanup; collection and
+  attachment merge handling remains deferred until those subsystems exist
+  (ADR 0005).
 - **Asset kind vs module discriminator**: the typed detail's own discriminator
   (media type / software category / service type) is only consistent with the
   kind assigned at creation, and no application write path ever re-types an
