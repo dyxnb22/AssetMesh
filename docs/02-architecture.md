@@ -21,11 +21,13 @@ flowchart TB
 
   subgraph App[Application Layer]
     CQ[Commands / Queries]
-    AssetSvc[Asset Service]
-    RelationSvc[Relation Service]
-    MediaSvc[Media Service]
-    ActivitySvc[Activity Service]
+    LibrarySvc[Unified Library Query]
+    AssetSvc[Asset / Merge Service]
+    RelationSvc[Relation Command + Query]
+    SearchSvc[Search Service]
+    ActivitySvc[Activity Query]
     ImportSvc[Import / Export Service]
+    ModuleSvc[Module Use Cases]
   end
 
   subgraph Modules[Domain Modules]
@@ -67,11 +69,13 @@ flowchart TB
   CLI --> CQ
   HTTP --> CQ
   MCP --> CQ
+  CQ --> LibrarySvc
   CQ --> AssetSvc
   CQ --> RelationSvc
-  CQ --> MediaSvc
+  CQ --> SearchSvc
   CQ --> ActivitySvc
   CQ --> ImportSvc
+  CQ --> ModuleSvc
   App --> Modules
   App --> Kernel
   App --> Ports
@@ -108,23 +112,31 @@ Contain business concepts and invariants specific to Media, Software, Services, 
 
 ### Application
 
-Coordinates use cases and transactions. Examples:
+Coordinates use cases, query composition, and transactions. Examples:
 
 - create asset;
 - update media progress;
 - attach a tag;
 - create relation;
+- list the unified asset library;
+- open a complete typed asset detail view;
+- traverse relations and compute dependency/impact views;
+- query cross-module activity;
+- review duplicate evidence;
 - import records;
 - explicitly merge duplicate assets;
 - produce portable export;
-- rebuild search projection;
-- record activity event.
+- rebuild/search the shared Search Projection.
 
 Application services decide when provider/discovery output becomes canonical data.
+
+Phase 4 adds a stable unified-library query boundary over existing modules. That boundary is an application concern, not a new kernel or storage identity model. See `docs/11-unified-library-core.md`.
 
 ### Ports
 
 Interfaces the application depends on, such as repositories, search, providers, blob storage, clock/ID generation, secure-secret references, and portable export.
+
+Repositories remain inward-facing ports. Interface adapters should call application services rather than use repositories directly to assemble cross-module views.
 
 ### Infrastructure adapters
 
@@ -134,7 +146,32 @@ Concrete implementations: SQLite, filesystem/blob store, macOS discovery, Docker
 
 Desktop, CLI, HTTP, or MCP. They translate external input into application commands/queries and application results back to the caller.
 
-Interface adapters do not implement domain decisions such as duplicate matching policy, asset merge semantics, or canonical provider promotion.
+Interface adapters do not implement domain decisions such as duplicate matching policy, asset merge semantics, canonical provider promotion, relation traversal semantics, or lifecycle filtering defaults.
+
+## Unified library boundary
+
+Media, Software, and Services own typed module details, but callers should not need to branch into private repositories to build the global library.
+
+Conceptually:
+
+```text
+MediaRecord ------\
+SoftwareRecord ----> Unified Library Query -> typed AssetSummary / AssetDetailView
+ServiceRecord ----/
+
+Shared Asset / Tags / ExternalRefs / Relations / Search / Activity
+                         ↑
+                         └──────── same read snapshot
+```
+
+Important rules:
+
+- canonical `AssetId` remains the primary identity;
+- module detail records remain typed rather than becoming unstructured JSON;
+- a unified detail query that touches several repositories executes in one read snapshot;
+- list/search results share one summary vocabulary instead of defining unrelated UI models;
+- normal library pagination and graph traversal must have deterministic ordering;
+- interface adapters never query SQLite tables directly to fill missing fields.
 
 ## Command / query boundary
 
@@ -145,24 +182,33 @@ Conceptually:
 ```text
 Command
   create_media
-  complete_media
+  create_service
+  attach_relation
   merge_assets
   resolve_import_conflict
 
 Query
   get_asset
-  list_media
+  list_assets
   search_assets
+  relation_neighbors
+  relation_dependencies
   relation_impact
+  recent_activity
+  duplicate_candidates
 ```
 
 The exact code organization does not need full CQRS infrastructure. The purpose is to prevent UI/CLI transports from becoming business-logic owners.
+
+Read-only graph/search/duplicate queries must not repair or mutate canonical data as a side effect. A merge remains an explicit command.
 
 ## Rust <-> UI contract
 
 If the desktop client uses React/TypeScript, transport DTOs should be generated or validated from a single source of truth where practical rather than maintained as unrelated handwritten Rust and TypeScript shapes.
 
 Domain types still must not depend on Tauri payload annotations. Adapter DTOs map at the boundary.
+
+The Phase 4 unified-library application DTOs are the semantic source for Phase 5 transport shapes; SQLite rows are not a UI contract.
 
 ## Why no mandatory backend server
 
@@ -189,6 +235,26 @@ HTTP/MCP ┘
 
 This is a deployment/adapter evolution, not a replacement architecture. See ADR 0007.
 
+## Relation query architecture
+
+The canonical relation table stores one row per fact. Inverse relation types are view-time semantics, and symmetric relations use canonical endpoint ordering.
+
+Phase 4 query services build bounded graph views over those canonical rows:
+
+```text
+Canonical Relation rows
+        ↓
+Relation Query Service
+        ↓
+neighbors / incoming / outgoing
+        ↓
+bounded dependency traversal
+        ↓
+impact result with path + depth evidence
+```
+
+A graph database is not required. Traversal must be cycle-safe, deterministic, and bounded by application options.
+
 ## Search architecture
 
 Modules project canonical data into a shared rebuildable `SearchDocument` representation. Search storage/indexes are infrastructure and may be rebuilt from canonical state.
@@ -203,7 +269,11 @@ SearchDocument
 SQLite FTS / index
       ↓
 SearchPort
+      ↓
+Unified application summary DTO
 ```
+
+Structured filters and lifecycle rules remain application behavior. Search does not replace typed filtering or become a second identity source.
 
 See ADR 0006.
 
@@ -226,6 +296,8 @@ Canonical write
 ```
 
 This preserves deterministic ownership and keeps provider churn outside the domain model.
+
+Duplicate review follows the same principle: detection/evidence is advisory, while canonical merge is explicit.
 
 ## Background work
 
@@ -266,6 +338,8 @@ No domain type should depend on Tauri command payloads or SQL row structures.
 
 No module may reach into another module's private tables to implement cross-module behavior.
 
+No interface adapter may compensate for a missing unified-library application contract by joining repositories or SQLite tables itself.
+
 ## Architecture guardrails
 
 1. **Canonical data is deterministic.** AI/discovery may suggest; application rules decide writes.
@@ -274,4 +348,7 @@ No module may reach into another module's private tables to implement cross-modu
 4. **External IDs are aliases.** AssetMesh owns primary identity.
 5. **Transactions stay short.** No external I/O while holding write locks.
 6. **Portable export is a product contract.** SQLite layout is not the user's only representation.
-7. **Do not freeze speculative extension points.** Prove three first-party modules before plugin ABI design.
+7. **Do not freeze speculative extension points.** Prove first-party needs before plugin ABI design.
+8. **Unified reads are application behavior.** Adapters do not own cross-module joins or graph semantics.
+9. **Graph queries are bounded and explainable.** No hidden risk/confidence score is required to answer impact questions.
+10. **Presentation stays outside the core.** Desktop navigation, graph coordinates, and React state are not domain/application concepts.
