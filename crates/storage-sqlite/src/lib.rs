@@ -13,7 +13,9 @@ mod uow;
 pub use migrations::latest_db_version;
 pub use uow::{SharedSqlite, SqliteFactory};
 
-use assetmesh_core::application::portable::{MEDIA_SCHEMA_VERSION, SOFTWARE_SCHEMA_VERSION};
+use assetmesh_core::application::portable::{
+    MEDIA_SCHEMA_VERSION, SERVICES_SCHEMA_VERSION, SOFTWARE_SCHEMA_VERSION,
+};
 use assetmesh_core::AppError;
 use rusqlite::Connection;
 
@@ -59,6 +61,7 @@ fn validate_module_versions(conn: &Connection) -> Result<(), AppError> {
     let expected: &[(&str, i64)] = &[
         ("media", MEDIA_SCHEMA_VERSION),
         ("software", SOFTWARE_SCHEMA_VERSION),
+        ("services", SERVICES_SCHEMA_VERSION),
     ];
     for (module_id, current) in expected {
         check_module_version(&versions, module_id, *current)?;

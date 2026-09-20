@@ -5,8 +5,9 @@
 
 use crate::domain::asset::AssetKind;
 use crate::domain::ids::AssetId;
+use crate::domain::validation::{bounded, optional_text};
 use crate::domain::Timestamp;
-use crate::{AppError, AppResult};
+use crate::AppResult;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -212,7 +213,7 @@ impl SoftwareRecord {
     pub fn validate(&mut self) -> AppResult<()> {
         self.version = optional_text(&self.version, "version")?;
         if let Some(text) = self.version.as_deref() {
-            Self::bounded(text, 128, "version")?;
+            bounded(text, 128, "version")?;
         }
         for (value, name, max) in [
             (&mut self.install_location, "install_location", 1024),
@@ -223,39 +224,10 @@ impl SoftwareRecord {
         ] {
             *value = optional_text(value, name)?;
             if let Some(text) = value.as_deref() {
-                Self::bounded(text, max, name)?;
+                bounded(text, max, name)?;
             }
         }
         Ok(())
-    }
-
-    fn bounded(text: &str, max: usize, field: &str) -> AppResult<()> {
-        if text.len() > max {
-            return Err(AppError::validation(format!(
-                "{field} must be at most {max} characters"
-            )));
-        }
-        Ok(())
-    }
-}
-
-/// Trims an optional free-text field; `None`/whitespace-only collapse to
-/// `None` so empty strings never become meaningful state.
-pub fn optional_text(value: &Option<String>, field: &str) -> AppResult<Option<String>> {
-    match value {
-        None => Ok(None),
-        Some(text) => {
-            let trimmed = text.trim();
-            if trimmed.is_empty() {
-                return Ok(None);
-            }
-            if trimmed.chars().any(|c| c.is_control()) {
-                return Err(AppError::validation(format!(
-                    "{field} must not contain control characters"
-                )));
-            }
-            Ok(Some(trimmed.to_string()))
-        }
     }
 }
 

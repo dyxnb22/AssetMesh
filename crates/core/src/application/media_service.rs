@@ -45,12 +45,12 @@ pub struct CreateMedia {
     pub completed_at: Option<Timestamp>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ExternalRefInput {
-    pub namespace: String,
-    pub external_id: String,
-    pub source_url: Option<String>,
-}
+// External-ref commands, tag normalization, and the active-asset precondition
+// are kernel capabilities shared by every module: they live in `shared`, and
+// are re-exported here so existing import paths keep resolving.
+pub use crate::application::shared::{
+    ensure_ref_available, load_active_asset, normalize_tags, ExternalRefInput,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateMediaMetadata {
@@ -359,15 +359,6 @@ impl<F: UnitOfWorkFactory> MediaService<F> {
     }
 }
 
-pub(crate) fn load_active_asset(uow: &mut dyn UnitOfWork, asset_id: AssetId) -> AppResult<Asset> {
-    let asset = uow
-        .assets()
-        .get(asset_id)?
-        .ok_or_else(|| AppError::not_found("asset", asset_id))?;
-    asset.ensure_mutable()?;
-    Ok(asset)
-}
-
 pub(crate) fn load_media_record(
     uow: &mut dyn UnitOfWork,
     asset_id: AssetId,
@@ -377,26 +368,8 @@ pub(crate) fn load_media_record(
         .ok_or_else(|| AppError::not_found("media record", asset_id))
 }
 
-pub(crate) fn ensure_ref_available(
-    uow: &mut dyn UnitOfWork,
-    reference: &AssetExternalRef,
-) -> AppResult<()> {
-    if let Some(existing) = uow
-        .external_refs()
-        .find_asset_by_ref(&reference.namespace, &reference.external_id)?
-    {
-        if existing != reference.asset_id {
-            return Err(AppError::conflict(format!(
-                "external ref {}:{} is already attached to asset {}",
-                reference.namespace, reference.external_id, existing
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// Rebuilds and stores the search projection for one asset from canonical
-/// state, inside the caller's transaction.
+/// Rebuilds and stores the media search projection for one asset from
+/// canonical state, inside the caller's transaction.
 pub(crate) fn update_projection(
     uow: &mut dyn UnitOfWork,
     asset: &Asset,
@@ -432,23 +405,6 @@ pub(crate) fn build_view(uow: &mut dyn QueryUnitOfWork, asset_id: AssetId) -> Ap
         tags,
         activity,
     })
-}
-
-pub(crate) fn normalize_tags(tags: &[String]) -> Vec<String> {
-    let mut normalized: Vec<String> = Vec::new();
-    for tag in tags {
-        let name = tag.trim();
-        if name.is_empty() {
-            continue;
-        }
-        if !normalized
-            .iter()
-            .any(|n: &String| n.eq_ignore_ascii_case(name))
-        {
-            normalized.push(name.to_string());
-        }
-    }
-    normalized
 }
 
 pub(crate) fn progress_payload(progress: &Progress) -> serde_json::Value {

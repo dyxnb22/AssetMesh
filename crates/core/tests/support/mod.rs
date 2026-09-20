@@ -11,6 +11,7 @@ use assetmesh_core::domain::ids::{ActivityId, AssetId, RelationId, TagId};
 use assetmesh_core::domain::media::{MediaEntry, MediaRecord};
 use assetmesh_core::domain::relation::Relation;
 use assetmesh_core::domain::search::{SearchDocument, SearchHit};
+use assetmesh_core::domain::service::{ServiceEntry, ServiceRecord};
 use assetmesh_core::domain::software::{SoftwareEntry, SoftwareRecord};
 use assetmesh_core::domain::tag::Tag;
 use assetmesh_core::domain::Timestamp;
@@ -19,8 +20,9 @@ use assetmesh_core::ports::ids::IdGenerator;
 use assetmesh_core::ports::repos::{
     ActivityReader, ActivityRepository, AssetFilter, AssetReader, AssetRepository,
     ExternalRefReader, ExternalRefRepository, LifecycleFilter, MediaFilter, MediaListRow,
-    MediaReader, MediaRepository, MediaSort, RelationReader, RelationRepository, SoftwareFilter,
-    SoftwareListRow, SoftwareReader, SoftwareRepository, SoftwareSort, TagReader, TagRepository,
+    MediaReader, MediaRepository, MediaSort, RelationReader, RelationRepository, ServiceFilter,
+    ServiceListRow, ServiceReader, ServiceRepository, ServiceSort, SoftwareFilter, SoftwareListRow,
+    SoftwareReader, SoftwareRepository, SoftwareSort, TagReader, TagRepository,
 };
 use assetmesh_core::ports::search::{SearchIndex, SearchReader};
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
@@ -40,6 +42,7 @@ pub struct MemStore {
     pub assets: BTreeMap<String, Asset>,
     pub media: BTreeMap<String, MediaRecord>,
     pub software: BTreeMap<String, SoftwareRecord>,
+    pub services: BTreeMap<String, ServiceRecord>,
     pub refs: BTreeMap<String, AssetExternalRef>,
     pub activity: Vec<ActivityEvent>,
     pub tags: BTreeMap<String, Tag>,
@@ -56,6 +59,7 @@ impl Default for MemStore {
             assets: Default::default(),
             media: Default::default(),
             software: Default::default(),
+            services: Default::default(),
             refs: Default::default(),
             activity: Default::default(),
             tags: Default::default(),
@@ -113,15 +117,18 @@ impl AssetRepository for MemStore {
         if !self.assets.contains_key(asset.id.to_string().as_str()) {
             return Err(not_found("asset", asset.id));
         }
-        // Mirrors the SQLite adapter: a cross-module kind change must not
-        // strand the existing module record (e.g. a software record left on a
-        // media.* asset). Within-module kind changes are allowed.
+        // Mirrors the SQLite adapter: a kind change must not strand the
+        // existing module record (e.g. a software record left on a media.*
+        // asset, or a `saas` record left on a `service.api` asset — the typed
+        // detail's own discriminator is only consistent with the kind assigned
+        // at creation, and no write path re-types an asset).
         if let Some(existing) = self.assets.get(&asset.id.to_string()) {
-            if existing.kind.module() != asset.kind.module() {
-                let stranded = if asset.kind.module() == "software" {
-                    self.media.contains_key(&asset.id.to_string())
-                } else {
-                    self.software.contains_key(&asset.id.to_string())
+            if existing.kind != asset.kind {
+                let stranded = match existing.kind.module() {
+                    "media" => self.media.contains_key(&asset.id.to_string()),
+                    "software" => self.software.contains_key(&asset.id.to_string()),
+                    "services" => self.services.contains_key(&asset.id.to_string()),
+                    _ => false,
                 };
                 if stranded {
                     return Err(AppError::conflict(format!(
@@ -320,6 +327,118 @@ impl SoftwareRepository for MemStore {
     }
     fn delete(&mut self, asset_id: AssetId) -> AppResult<()> {
         self.software.remove(&asset_id.to_string());
+        Ok(())
+    }
+}
+
+impl ServiceReader for MemStore {
+    fn get(&mut self, asset_id: AssetId) -> AppResult<Option<ServiceRecord>> {
+        Ok(self.services.get(&asset_id.to_string()).cloned())
+    }
+    fn list(&mut self, filter: &ServiceFilter) -> AppResult<Vec<ServiceListRow>> {
+        let mut rows: Vec<ServiceListRow> = self
+            .services
+            .values()
+            .filter_map(|record| {
+                let asset = self.assets.get(&record.asset_id.to_string())?;
+                if let Some(service_type) = filter.service_type {
+                    if record.service_type != service_type {
+                        return None;
+                    }
+                }
+                if let Some(provider) = &filter.provider {
+                    if !record
+                        .provider
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&provider.to_lowercase())
+                    {
+                        return None;
+                    }
+                }
+                let tags: Vec<String> = self
+                    .memberships
+                    .iter()
+                    .filter(|(a, _)| a == &asset.id.to_string())
+                    .filter_map(|(_, t)| self.tags.get(t).map(|tag| tag.name.clone()))
+                    .collect();
+                if let Some(tag) = &filter.tag {
+                    if !tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                        return None;
+                    }
+                }
+                Some(ServiceListRow {
+                    entry: ServiceEntry {
+                        asset: asset.clone(),
+                        record: record.clone(),
+                    },
+                    tags,
+                })
+            })
+            .collect();
+
+        match filter.sort {
+            ServiceSort::UpdatedDesc => {
+                rows.sort_by_key(|row| std::cmp::Reverse(row.entry.asset.updated_at))
+            }
+            ServiceSort::TitleAsc => rows.sort_by(|a, b| {
+                a.entry
+                    .asset
+                    .name
+                    .to_lowercase()
+                    .cmp(&b.entry.asset.name.to_lowercase())
+            }),
+            ServiceSort::RenewsAsc => rows.sort_by(|a, b| {
+                // Services without a renewal date sort last, so the nullability
+                // dominates the comparison — mirroring the SQLite adapter's
+                // `ORDER BY s.renews_at IS NULL, s.renews_at ASC`.
+                a.entry
+                    .record
+                    .renews_at
+                    .is_none()
+                    .cmp(&b.entry.record.renews_at.is_none())
+                    .then_with(|| a.entry.record.renews_at.cmp(&b.entry.record.renews_at))
+                    .then_with(|| {
+                        a.entry
+                            .asset
+                            .name
+                            .to_lowercase()
+                            .cmp(&b.entry.asset.name.to_lowercase())
+                    })
+            }),
+        }
+        Ok(rows)
+    }
+    fn list_all(&mut self) -> AppResult<Vec<ServiceRecord>> {
+        Ok(self.services.values().cloned().collect())
+    }
+}
+
+impl ServiceRepository for MemStore {
+    fn upsert(&mut self, record: &ServiceRecord) -> AppResult<()> {
+        // Mirrors the SQLite adapter: invariants enforced and normalized at
+        // the repository boundary, so even a direct UnitOfWork write cannot
+        // store raw unnormalized text or an incompatible kind/type pair.
+        let mut normalized = record.clone();
+        normalized.validate()?;
+        if let Some(asset) = self.assets.get(&normalized.asset_id.to_string()) {
+            if asset.kind != normalized.service_type.asset_kind() {
+                return Err(AppError::conflict(format!(
+                    "service record type {} requires asset kind {}, but asset {} has kind {}",
+                    normalized.service_type,
+                    normalized.service_type.asset_kind(),
+                    normalized.asset_id,
+                    asset.kind
+                )));
+            }
+        }
+        self.services
+            .insert(normalized.asset_id.to_string(), normalized);
+        Ok(())
+    }
+    fn delete(&mut self, asset_id: AssetId) -> AppResult<()> {
+        self.services.remove(&asset_id.to_string());
         Ok(())
     }
 }
@@ -631,6 +750,10 @@ impl UnitOfWork for MemStore {
         self
     }
 
+    fn services(&mut self) -> &mut dyn ServiceRepository {
+        self
+    }
+
     fn external_refs(&mut self) -> &mut dyn ExternalRefRepository {
         self
     }
@@ -662,6 +785,10 @@ impl QueryUnitOfWork for MemStore {
     }
 
     fn software(&mut self) -> &mut dyn SoftwareReader {
+        self
+    }
+
+    fn services(&mut self) -> &mut dyn ServiceReader {
         self
     }
 
@@ -854,5 +981,15 @@ impl TestEnv {
         &self,
     ) -> assetmesh_core::application::portable::PortableImportService<MemFactory> {
         assetmesh_core::application::portable::PortableImportService::new(self.factory.clone())
+    }
+
+    pub fn service_service(
+        &self,
+    ) -> assetmesh_core::application::service_service::ServiceService<MemFactory> {
+        assetmesh_core::application::service_service::ServiceService::new(
+            self.factory.clone(),
+            self.clock.clone(),
+            self.ids.clone(),
+        )
     }
 }

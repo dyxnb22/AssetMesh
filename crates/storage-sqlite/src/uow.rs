@@ -17,7 +17,7 @@
 use assetmesh_core::ports::repos::{
     ActivityReader, ActivityRepository, AssetReader, AssetRepository, ExternalRefReader,
     ExternalRefRepository, MediaReader, MediaRepository, RelationReader, RelationRepository,
-    SoftwareReader, SoftwareRepository, TagReader, TagRepository,
+    ServiceReader, ServiceRepository, SoftwareReader, SoftwareRepository, TagReader, TagRepository,
 };
 use assetmesh_core::ports::search::{SearchIndex, SearchReader};
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::repos::{
     SqliteActivityRepo, SqliteAssetRepo, SqliteExternalRefRepo, SqliteMediaRepo,
-    SqliteRelationRepo, SqliteSearchIndex, SqliteSoftwareRepo, SqliteTagRepo,
+    SqliteRelationRepo, SqliteSearchIndex, SqliteServiceRepo, SqliteSoftwareRepo, SqliteTagRepo,
 };
 
 pub struct SqliteFactory {
@@ -228,6 +228,7 @@ struct RepoBundle<'conn> {
     assets: SqliteAssetRepo<'conn>,
     media: SqliteMediaRepo<'conn>,
     software: SqliteSoftwareRepo<'conn>,
+    services: SqliteServiceRepo<'conn>,
     refs: SqliteExternalRefRepo<'conn>,
     activity: SqliteActivityRepo<'conn>,
     tags: SqliteTagRepo<'conn>,
@@ -241,6 +242,7 @@ impl<'conn> RepoBundle<'conn> {
             assets: SqliteAssetRepo { conn },
             media: SqliteMediaRepo { conn },
             software: SqliteSoftwareRepo { conn },
+            services: SqliteServiceRepo { conn },
             refs: SqliteExternalRefRepo { conn },
             activity: SqliteActivityRepo { conn },
             tags: SqliteTagRepo { conn },
@@ -274,6 +276,10 @@ impl<'conn> UnitOfWork for SqliteUow<'conn> {
 
     fn software(&mut self) -> &mut dyn SoftwareRepository {
         &mut self.repos.software
+    }
+
+    fn services(&mut self) -> &mut dyn ServiceRepository {
+        &mut self.repos.services
     }
 
     fn external_refs(&mut self) -> &mut dyn ExternalRefRepository {
@@ -322,6 +328,10 @@ impl<'conn> QueryUnitOfWork for SqliteQueryUow<'conn> {
 
     fn software(&mut self) -> &mut dyn SoftwareReader {
         &mut self.repos.software
+    }
+
+    fn services(&mut self) -> &mut dyn ServiceReader {
+        &mut self.repos.services
     }
 
     fn external_refs(&mut self) -> &mut dyn ExternalRefReader {

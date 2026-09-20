@@ -4,7 +4,9 @@
 //! operations, the losing identity stays explainable via a `merged_into`
 //! redirect, and uncertain matches are never merged silently.
 
-use crate::application::media_service::{load_active_asset, update_projection};
+use crate::application::media_service::update_projection;
+use crate::application::service_service::update_service_projection;
+use crate::application::shared::load_active_asset;
 use crate::application::software_service::update_software_projection;
 use crate::application::{SharedClock, SharedIdGenerator};
 use crate::domain::activity::{actors, event_types, ActivityEvent};
@@ -95,6 +97,12 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
     /// - module details (media, software) move if the winner has none; if
     ///   both exist the survivor wins and the loser's record is preserved
     ///   inside the `asset.merged` activity payload for traceability;
+    /// - service details move if the winner has none, but a merge of two
+    ///   assets that BOTH carry a ServiceRecord is refused: two same-type
+    ///   records can still conflict on provider/plan/cost/renewal, and
+    ///   docs/10 forbids silently choosing a survivor. Field-level conflict
+    ///   review is Phase 3C, so the merge fails loudly and leaves both
+    ///   records intact rather than discarding one;
     /// - relations touching the loser are re-pointed at the winner, or
     ///   dropped when that would duplicate the winner's own relations or
     ///   connect the winner to itself;
@@ -200,6 +208,38 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
                 (None, _) => {}
             }
 
+            // Service details: the kind-equality check above guarantees both
+            // records are the same ServiceType (docs/10 merge rule 1), but two
+            // records of one type still disagree on provider, plan, cost, or
+            // renewal, and rules 3/6 forbid silently choosing a survivor. The
+            // field-level conflict review that would resolve them is Phase 3C,
+            // so a merge of two service assets is refused outright rather than
+            // winner-takes-all — the whole transaction rolls back and both
+            // records survive untouched. A record still moves when the winner
+            // has none (rule 2).
+            let loser_service = uow.services().get(loser_id)?;
+            let winner_service = uow.services().get(winner_id)?;
+            match (loser_service, winner_service) {
+                (Some(_loser_rec), Some(winner_rec)) => {
+                    return Err(AppError::conflict(format!(
+                        "cannot merge service {loser} into {winner}: both carry a {ty} service \
+                         record, and merging two service records needs explicit conflict review \
+                         (provider, plan, cost, renewal) which is not implemented yet; reconcile \
+                         the records and delete one asset first",
+                        loser = loser_id,
+                        winner = winner_id,
+                        ty = winner_rec.service_type
+                    )));
+                }
+                (Some(loser_rec), None) => {
+                    let mut moved = loser_rec;
+                    moved.asset_id = winner_id;
+                    uow.services().delete(loser_id)?;
+                    uow.services().upsert(&moved)?;
+                }
+                (None, _) => {}
+            }
+
             // Relations: re-point the loser endpoint at the winner, or drop
             // the relation when the winner is already connected (or the
             // relation connected the merge pair itself).
@@ -256,6 +296,11 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
             if let Some(details) = loser_software_json {
                 payload["loser_software_details"] = details;
             }
+            // No `loser_service_details` payload: the only arm that would
+            // produce one (both sides carrying a record) is refused above, so
+            // there is never a discarded service record to preserve. Phase 3C
+            // conflict resolution will reinstate this when it can resolve
+            // field-level conflicts instead of refusing.
             uow.activity().append(&ActivityEvent::new(
                 event_types::ASSET_MERGED,
                 Some(winner_id),
@@ -342,6 +387,8 @@ pub(crate) fn refresh_projection(uow: &mut dyn UnitOfWork, asset: &Asset) -> App
         update_projection(uow, asset, &record)?;
     } else if let Some(record) = uow.software().get(asset.id)? {
         update_software_projection(uow, asset, &record)?;
+    } else if let Some(record) = uow.services().get(asset.id)? {
+        update_service_projection(uow, asset, &record)?;
     } else {
         uow.search_index().remove(asset.id)?;
     }

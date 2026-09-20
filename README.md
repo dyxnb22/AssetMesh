@@ -109,7 +109,7 @@ Deliberately **not** implemented or frozen yet:
 
 ## Current status
 
-**Phase 2 — Software Inventory vertical slice implemented** (headless core, no UI yet), after Phase 1 — Media Records.
+**Phase 3 — Services and Subscriptions canonical core implemented** (headless core, no UI yet), after Phase 2 — Software Inventory and Phase 1 — Media Records.
 
 ```text
 AssetMesh/
@@ -123,20 +123,22 @@ AssetMesh/
 
 What works today:
 
-- shared `Asset` identity (UUIDv7) with Media and Software module-owned typed details;
+- shared `Asset` identity (UUIDv7) with Media, Software, and Services module-owned typed details;
 - namespaced `AssetExternalRef` aliases with `UNIQUE(namespace, external_id)` (`bundle_id`, `homebrew_formula`, `homebrew_cask`, `npm`, `pipx`, ...);
 - explicit merge with tombstone/redirect (`merged_into`) semantics across Media and Software, including relation re-pointing;
 - Media CRUD/use cases with status/progress/rating invariants;
 - Software CRUD/use cases with category/install-source/location/purpose ("why installed") fields;
 - read-only discovery providers — macOS applications, Homebrew, npm/pipx CLI tools — producing advisory candidates that are classified (new / exact match / potential duplicate / conflict) and only become canonical through explicit adoption that never overwrites user-owned purpose/notes;
 - a minimal shared relation system (registry with inverse/symmetric semantics: `depends_on`, `uses`, `installed_via`, `related_to`);
+- Services CRUD/use cases for `service.saas`, `service.api`, `service.vps`, `service.domain`, and `service.local`, with subscription plan, integer-minor-unit cost/currency, billing cadence, renewal/expiry, and auto-renew metadata; the canonical vocabulary carries no credential material, and a credential-bearing URL is rejected rather than parsed;
 - atomic canonical-write + activity + projection commits (single short SQLite transaction);
-- rebuildable FTS5 search projection covering Media and Software (with CJK/substring fallback);
+- rebuildable FTS5 search projection covering Media, Software, and Services (with CJK/substring fallback);
 - JSON/CSV legacy import with dry-run, matching precedence, and non-merging conflict reports;
 - portable export/import with independent DB / export / module-schema versions, round-trip tests, and documented Phase 1-bundle compatibility;
+- migration 0003 verified against a real database written by the Phase 2 binary, so historical Media/Software/Relation data is proven to survive the upgrade;
 - CLI exercising the same application layer future desktop, HTTP, or agent adapters can call.
 
-The next milestone is **Phase 3 — Services and Subscriptions**. The desktop shell remains deferred until Phase 5, after Media, Software, Services, and unified-library contracts have been proven across multiple domains.
+Still pending for Phase 3: the explicit `record_renewal` use case, service relation types (`hosted_on`, `points_to`), service merge semantics, and the portable `modules/services.jsonl` wire format. The desktop shell remains deferred until Phase 5, after Media, Software, Services, and unified-library contracts have been proven across multiple domains.
 
 Run `cargo test --workspace` and see [DEVELOPMENT.md](DEVELOPMENT.md) for setup, commands, and the contracts the implementation established.
 

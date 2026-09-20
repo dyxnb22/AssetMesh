@@ -2,7 +2,7 @@
 //! state (ADR 0006). The projection is disposable; a rebuild always
 //! reproduces it from assets, module details, tags, and external refs.
 
-use crate::application::projection::{project_media, project_software};
+use crate::application::projection::{project_media, project_service, project_software};
 use crate::application::SharedClock;
 use crate::domain::asset::LifecycleState;
 use crate::domain::search::SearchHit;
@@ -81,6 +81,12 @@ pub(crate) fn project_all(
                     continue;
                 };
                 documents.push(project_software(&asset, &record, &tags, &refs));
+            }
+            "services" => {
+                let Some(record) = uow.services().get(asset.id)? else {
+                    continue;
+                };
+                documents.push(project_service(&asset, &record, &tags, &refs));
             }
             // Modules without a projector yet are simply not searchable.
             _ => continue,

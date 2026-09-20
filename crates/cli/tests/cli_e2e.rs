@@ -562,3 +562,356 @@ fn discovery_never_mutates_state_and_bad_selectors_fail_cleanly() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn service_lifecycle_works_end_to_end() {
+    let dir = unique_dir("service");
+    let db = "e2e.db";
+    let bin = || run(&dir, db, &[]);
+
+    // A fresh DB creates no services and no service tables yet.
+    let (out, _, ok) = run(&dir, db, &["service", "list"]);
+    assert!(ok, "list on an empty DB should succeed");
+    assert!(out.contains("(no service records)"), "{out}");
+    let _ = bin();
+
+    // 1. add a full SaaS subscription. Money is given as a decimal on the CLI
+    // and stored as integer minor units (ADR 0010).
+    let (out, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "OpenAI",
+            "--type",
+            "saas",
+            "--provider",
+            "OpenAI",
+            "--account-label",
+            "Work",
+            "--endpoint",
+            "https://api.openai.com/v1",
+            "--dashboard",
+            "https://platform.openai.com",
+            "--plan",
+            "Plus",
+            "--cost",
+            "19.99",
+            "--currency",
+            "USD",
+            "--billing",
+            "monthly",
+            "--renews-at",
+            "2026-10-01",
+            "--auto-renew",
+            "true",
+            "--notes",
+            "Team plan",
+            "--tag",
+            "ai",
+            "--tag",
+            "billing",
+            "--ref",
+            "openai:org-work",
+        ],
+    );
+    assert!(ok, "add should succeed: {err}");
+    assert!(out.starts_with("created "), "{out}");
+    assert!(out.contains("service.saas"), "{out}");
+    assert!(
+        out.contains("USD 19.00/month") || out.contains("USD 19.99"),
+        "{out}"
+    );
+    let openai_id = out
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("created ")
+        .trim()
+        .to_string();
+
+    // The detail view shows every written field.
+    let (out, _, ok) = run(&dir, db, &["service", "get", &openai_id]);
+    assert!(ok);
+    assert!(out.contains("Kind:          service.saas"), "{out}");
+    assert!(out.contains("Provider:      OpenAI"), "{out}");
+    assert!(out.contains("Plan:          Plus"), "{out}");
+    assert!(out.contains("USD 19.99"), "{out}");
+    assert!(out.contains("Auto-renew:    on"), "{out}");
+    assert!(out.contains("openai:org-work"), "{out}");
+    assert!(out.contains("service.created"), "{out}");
+
+    // 2. A second service of a different type, without billing data.
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "Hetzner",
+            "--type",
+            "vps",
+            "--provider",
+            "Hetzner",
+            "--plan",
+            "CX22",
+        ],
+    );
+    assert!(ok, "second add should succeed: {out}");
+    let hetzner_id = out
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("created ")
+        .trim()
+        .to_string();
+    assert_ne!(openai_id, hetzner_id);
+
+    // 3. list shows both, newest first.
+    let (out, _, ok) = run(&dir, db, &["service", "list"]);
+    assert!(ok);
+    assert!(out.contains("OpenAI"), "{out}");
+    assert!(out.contains("Hetzner"), "{out}");
+    assert!(out.contains("2 record(s)"), "{out}");
+    assert!(
+        out.contains("service.saas") || out.contains("saas"),
+        "{out}"
+    );
+
+    // Typed filters work: by type and by provider substring.
+    let (out, _, ok) = run(&dir, db, &["service", "list", "--type", "vps"]);
+    assert!(ok);
+    assert!(out.contains("Hetzner") && !out.contains("OpenAI"), "{out}");
+    assert!(out.contains("1 record(s)"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["service", "list", "--provider", "openai"]);
+    assert!(ok);
+    assert!(out.contains("OpenAI") && !out.contains("Hetzner"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["service", "list", "--tag", "ai"]);
+    assert!(ok);
+    assert!(out.contains("OpenAI") && !out.contains("Hetzner"), "{out}");
+
+    // JSON output is machine-readable and money stays an integer.
+    let (out, _, ok) = run(&dir, db, &["service", "list", "--json"]);
+    assert!(ok);
+    assert!(out.contains("\"cost_minor\": 1999"), "{out}");
+    assert!(out.contains("\"currency\": \"USD\""), "{out}");
+    assert!(out.contains("\"kind\": \"service.saas\""), "{out}");
+
+    // 4. update with explicit patch semantics: set the plan, leave the cost.
+    let (out, err, ok) = run(
+        &dir,
+        db,
+        &["service", "update", &openai_id, "--plan", "Pro"],
+    );
+    assert!(ok, "update should succeed: {err}");
+    assert!(out.contains("updated "), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["service", "get", &openai_id]);
+    assert!(ok);
+    assert!(out.contains("Plan:          Pro"), "{out}");
+    assert!(out.contains("USD 19.99"), "cost must be untouched: {out}");
+
+    // An empty value clears a text field; other fields are untouched.
+    let (out, _, ok) = run(&dir, db, &["service", "update", &openai_id, "--notes", ""]);
+    assert!(ok, "{out}");
+    let (out, _, ok) = run(&dir, db, &["service", "get", &openai_id]);
+    assert!(ok);
+    assert!(!out.contains("Team plan"), "{out}");
+    assert!(out.contains("Plan:          Pro"), "{out}");
+
+    // Money must be set or cleared as a pair.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &["service", "update", &openai_id, "--cost", "29.99"],
+    );
+    assert!(!ok, "cost without currency must fail");
+    assert!(
+        err.contains("together") || err.contains("currency"),
+        "the error must name the pairing rule: {err}"
+    );
+
+    // Clearing the pair works and takes both fields.
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "update",
+            &openai_id,
+            "--clear-cost",
+            "--clear-billing",
+        ],
+    );
+    assert!(ok, "{out}");
+    let (out, _, ok) = run(&dir, db, &["service", "get", &openai_id]);
+    assert!(ok);
+    assert!(!out.contains("USD 19.99"), "{out}");
+    assert!(out.contains("Billing:       -"), "{out}");
+
+    // Setting them again works, parsed from a decimal.
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "update",
+            &openai_id,
+            "--cost",
+            "100.50",
+            "--currency",
+            "EUR",
+            "--billing",
+            "yearly",
+        ],
+    );
+    assert!(ok, "{out}");
+    let (out, _, ok) = run(&dir, db, &["service", "get", &openai_id]);
+    assert!(ok);
+    assert!(out.contains("EUR 100.50"), "{out}");
+    assert!(out.contains("yearly"), "{out}");
+
+    // 5. search finds the service via its projection, including tags.
+    let (out, _, ok) = run(&dir, db, &["service", "search", "openai"]);
+    assert!(ok);
+    assert!(out.contains("OpenAI"), "{out}");
+    let (out, _, ok) = run(&dir, db, &["service", "search", "billing"]);
+    assert!(ok);
+    assert!(out.contains("OpenAI"), "{out}: a tag must be searchable");
+
+    // 6. domain_name is rejected on a non-domain service.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "Misuse",
+            "--type",
+            "saas",
+            "--domain",
+            "assetmesh.dev",
+        ],
+    );
+    assert!(!ok, "domain_name on a SaaS service must fail");
+    assert!(err.contains("domain_name"), "{err}");
+
+    // A domain service accepts it.
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "AssetMesh",
+            "--type",
+            "domain",
+            "--domain",
+            "assetmesh.dev",
+        ],
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains("Domain:        assetmesh.dev"), "{out}");
+
+    // 7. Archiving through the shared asset lifecycle blocks further edits.
+    let (out, _, ok) = run(&dir, db, &["asset", "archive", &hetzner_id]);
+    assert!(ok, "{out}");
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &["service", "update", &hetzner_id, "--plan", "CX44"],
+    );
+    assert!(!ok, "an archived service must be read-only");
+    assert!(
+        err.contains("archived") || err.contains("conflict"),
+        "{err}"
+    );
+
+    // The archived record is still readable for history.
+    let (out, _, ok) = run(&dir, db, &["service", "get", &hetzner_id]);
+    assert!(ok);
+    assert!(out.contains("Hetzner"), "{out}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn service_cli_rejects_bad_money_and_credentials() {
+    let dir = unique_dir("service-validation");
+    let db = "e2e.db";
+
+    // Negative cost. The `=` form keeps clap from reading the leading minus
+    // as an option flag.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "Negative",
+            "--type",
+            "vps",
+            "--cost=-5.00",
+            "--currency",
+            "USD",
+        ],
+    );
+    assert!(!ok);
+    assert!(err.contains("cost"), "{err}");
+
+    // Malformed currency.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "BadCurrency",
+            "--type",
+            "vps",
+            "--cost",
+            "10.00",
+            "--currency",
+            "DOLLAR",
+        ],
+    );
+    assert!(!ok);
+    assert!(err.contains("currency"), "{err}");
+
+    // A credential-bearing URL never enters canonical state (ADR 0010).
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "Leaky",
+            "--type",
+            "saas",
+            "--endpoint",
+            "https://user:pass@example.com",
+        ],
+    );
+    assert!(!ok);
+    assert!(
+        err.contains("credential") || err.contains("user info"),
+        "{err}"
+    );
+
+    // None of the rejected writes left a row behind.
+    let (out, _, ok) = run(&dir, db, &["service", "list"]);
+    assert!(ok);
+    assert!(out.contains("(no service records)"), "{out}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}

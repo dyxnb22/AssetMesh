@@ -3,7 +3,7 @@
 //! no module-private table coupling. The Phase 4 relation query/explorer
 //! layer stays out of scope here.
 
-use crate::application::media_service::load_active_asset;
+use crate::application::shared::load_active_asset;
 use crate::application::{SharedClock, SharedIdGenerator};
 use crate::domain::activity::{actors, event_types, ActivityEvent};
 use crate::domain::ids::{AssetId, RelationId};
@@ -59,7 +59,7 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
         provenance: RelationProvenance,
     ) -> AppResult<Relation> {
         let now = self.clock.now();
-        let note = crate::domain::software::optional_text(&note, "note")?;
+        let note = crate::domain::validation::optional_text(&note, "note")?;
         let relation_id = RelationId::from_uuid(self.ids.new_id());
 
         self.factory.transact(&mut |uow| {

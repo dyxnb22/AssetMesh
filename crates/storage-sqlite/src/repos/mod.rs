@@ -6,6 +6,7 @@ mod external_ref;
 mod media;
 mod relation;
 mod search;
+mod service;
 mod software;
 mod tag;
 
@@ -15,6 +16,7 @@ pub use external_ref::SqliteExternalRefRepo;
 pub use media::SqliteMediaRepo;
 pub use relation::SqliteRelationRepo;
 pub use search::SqliteSearchIndex;
+pub use service::SqliteServiceRepo;
 pub use software::SqliteSoftwareRepo;
 pub use tag::SqliteTagRepo;
 

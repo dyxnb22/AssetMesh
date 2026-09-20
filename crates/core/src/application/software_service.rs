@@ -6,8 +6,8 @@
 //! adoption writes canonical state, and it never overwrites user-owned
 //! purpose/notes except through explicit user overrides (docs/09).
 
-use crate::application::media_service::{ensure_ref_available, normalize_tags, ExternalRefInput};
 use crate::application::projection::project_software;
+use crate::application::shared::{ensure_ref_available, normalize_tags, ExternalRefInput};
 use crate::application::software_discovery::{
     classify_candidate, CandidateDisposition, ClassifiedCandidate, SoftwareCandidate,
 };
@@ -16,9 +16,8 @@ use crate::domain::activity::{actors, event_types, ActivityEvent};
 use crate::domain::asset::Asset;
 use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::AssetId;
-use crate::domain::software::{
-    optional_text, InstallSource, SoftwareCategory, SoftwareEntry, SoftwareRecord,
-};
+use crate::domain::software::{InstallSource, SoftwareCategory, SoftwareEntry, SoftwareRecord};
+use crate::domain::validation::optional_text;
 use crate::domain::Timestamp;
 use crate::ports::providers::SoftwareDiscoveryProvider;
 use crate::ports::repos::{SoftwareFilter, SoftwareListRow};
@@ -236,8 +235,7 @@ impl<F: UnitOfWorkFactory> SoftwareService<F> {
         let now = self.clock.now();
 
         self.factory.transact(&mut |uow| {
-            let mut asset =
-                crate::application::media_service::load_active_asset(uow, cmd.asset_id)?;
+            let mut asset = crate::application::shared::load_active_asset(uow, cmd.asset_id)?;
             let mut record = load_software_record(uow, cmd.asset_id)?;
 
             if let Some(name) = cmd.name.as_deref().map(str::trim) {
@@ -409,6 +407,9 @@ impl QueryUnitOfWork for WriteAsQuery<'_> {
     }
     fn software(&mut self) -> &mut dyn crate::ports::repos::SoftwareReader {
         self.0.software()
+    }
+    fn services(&mut self) -> &mut dyn crate::ports::repos::ServiceReader {
+        self.0.services()
     }
     fn external_refs(&mut self) -> &mut dyn crate::ports::repos::ExternalRefReader {
         self.0.external_refs()

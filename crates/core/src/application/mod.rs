@@ -11,6 +11,8 @@ pub mod portable;
 pub mod projection;
 pub mod relation_service;
 pub mod search_service;
+pub mod service_service;
+pub mod shared;
 pub mod software_discovery;
 pub mod software_service;
 

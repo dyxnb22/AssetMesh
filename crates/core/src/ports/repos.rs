@@ -13,6 +13,7 @@ use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::{AssetId, ExternalRefId, RelationId, TagId};
 use crate::domain::media::{MediaEntry, MediaRecord, MediaStatus, MediaType};
 use crate::domain::relation::Relation;
+use crate::domain::service::{ServiceEntry, ServiceRecord, ServiceType};
 use crate::domain::software::{InstallSource, SoftwareCategory, SoftwareEntry, SoftwareRecord};
 use crate::domain::tag::Tag;
 use crate::{AppError, AppResult};
@@ -122,6 +123,48 @@ pub trait SoftwareReader {
 
 pub trait SoftwareRepository: SoftwareReader {
     fn upsert(&mut self, record: &SoftwareRecord) -> AppResult<()>;
+    fn delete(&mut self, asset_id: AssetId) -> AppResult<()>;
+}
+
+/// Sort orders for service listing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ServiceSort {
+    /// Most recently updated first.
+    #[default]
+    UpdatedDesc,
+    TitleAsc,
+    /// Soonest renewal first; services without a renewal date sort last.
+    RenewsAsc,
+}
+
+/// Typed service queries. Structured filtering remains typed application
+/// behavior; full-text search never replaces these filters (ADR 0006).
+#[derive(Debug, Clone, Default)]
+pub struct ServiceFilter {
+    pub service_type: Option<ServiceType>,
+    /// Substring match on the provider name (case-insensitive).
+    pub provider: Option<String>,
+    pub tag: Option<String>,
+    pub sort: ServiceSort,
+}
+
+/// Service list rows are pre-joined with their tags so list views avoid N+1
+/// lookups at the application layer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServiceListRow {
+    pub entry: ServiceEntry,
+    pub tags: Vec<String>,
+}
+
+pub trait ServiceReader {
+    fn get(&mut self, asset_id: AssetId) -> AppResult<Option<ServiceRecord>>;
+    fn list(&mut self, filter: &ServiceFilter) -> AppResult<Vec<ServiceListRow>>;
+    /// All service records, unsorted — used by projection rebuild.
+    fn list_all(&mut self) -> AppResult<Vec<ServiceRecord>>;
+}
+
+pub trait ServiceRepository: ServiceReader {
+    fn upsert(&mut self, record: &ServiceRecord) -> AppResult<()>;
     fn delete(&mut self, asset_id: AssetId) -> AppResult<()>;
 }
 

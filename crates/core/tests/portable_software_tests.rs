@@ -1037,18 +1037,144 @@ fn direct_kind_change_stranding_module_record_is_rejected() {
     assert!(matches!(err, AppError::Conflict { .. }), "{err}");
     assert!(err.to_string().contains("software record"), "{err}");
 
-    // Within-module kind changes are still allowed.
-    let mut tv_asset = Asset::new(id, AssetKind::SoftwareTool, "Strand", None, now).unwrap();
-    tv_asset.touch(now);
-    env.factory
-        .transact(&mut |uow| uow.assets().update(&tv_asset))
-        .unwrap();
+    // A within-module change is refused for the same reason: `cli` is the
+    // record's own discriminator, so a `software.tool` asset would strand a
+    // `cli` record just as a media.* asset would.
+    let mut tool_asset = Asset::new(id, AssetKind::SoftwareTool, "Strand", None, now).unwrap();
+    tool_asset.touch(now);
+    let err = env
+        .factory
+        .transact(&mut |uow| uow.assets().update(&tool_asset))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err}");
+    assert!(err.to_string().contains("software record"), "{err}");
+    assert_eq!(
+        env.factory
+            .store()
+            .assets
+            .get(&id.to_string())
+            .unwrap()
+            .kind,
+        AssetKind::SoftwareCli,
+        "the rejected re-type changed nothing"
+    );
 
-    // Removing the record first unlocks the cross-module change.
+    // Removing the record first unlocks both the cross- and within-module
+    // change: nothing is left to strand.
     env.factory
         .transact(&mut |uow| uow.software().delete(id))
         .unwrap();
     env.factory
         .transact(&mut |uow| uow.assets().update(&media_asset))
         .unwrap();
+    env.factory
+        .transact(&mut |uow| uow.assets().update(&tool_asset))
+        .unwrap();
+}
+
+#[test]
+fn same_module_retype_is_rejected_identically_by_dry_run_and_commit() {
+    // A bundle that re-types an asset WITHIN its module (media.movie ->
+    // media.game) strands the old detail record just as surely as a
+    // cross-module re-type would: the media_type discriminator only matches
+    // the kind assigned at creation. The repository boundary rejects it at
+    // commit, so preflight must reject it too — the "dry-run and commit run
+    // the same checks" contract is only true if this check is in the shared
+    // preflight, not inferred from the destination snapshot's module names.
+    let asset_id = "00000000-0000-7000-8000-00000000c001";
+    let other_id = "00000000-0000-7000-8000-00000000c002";
+
+    // Constant across both bundles: one asset row, one media row, media
+    // schema v1.
+    let manifest = r#"{"format":"assetmesh-portable-export","version":1,"created_at":"2026-01-01T00:00:00Z","app_version":"t","modules":{"media":{"schema_version":1}},"record_counts":{"assets":2,"external_refs":0,"activity":0,"tags":0,"asset_tags":0,"media":1}}"#;
+
+    let bundle = |kind: &str, media_type: &str| PortableBundle {
+        manifest: serde_json::from_str(manifest).unwrap(),
+        files: vec![
+            ExportFile {
+                path: "assets.jsonl".into(),
+                content: format!(
+                    "{}\n{}\n",
+                    asset_row(other_id, "Other", "media.movie", "active", None),
+                    asset_row(asset_id, "Victim", kind, "active", None)
+                ),
+            },
+            ExportFile {
+                path: "external_refs.jsonl".into(),
+                content: String::new(),
+            },
+            ExportFile {
+                path: "activity.jsonl".into(),
+                content: String::new(),
+            },
+            ExportFile {
+                path: "tags.json".into(),
+                content: "[]".into(),
+            },
+            ExportFile {
+                path: "asset_tags.jsonl".into(),
+                content: String::new(),
+            },
+            ExportFile {
+                path: "modules/media.jsonl".into(),
+                content: format!("{}\n", media_row(asset_id, media_type)),
+            },
+        ],
+    };
+
+    // The destination holds a media.movie asset with a movie record.
+    let env = test_env();
+    let mut import = env.portable_import_service();
+    import
+        .import_bundle(&bundle("media.movie", "movie"), false)
+        .unwrap();
+
+    // A bundle re-typing it to media.game is refused by BOTH paths, with the
+    // same error, and leaves the destination untouched.
+    let retyped = bundle("media.game", "game");
+    let dry = import.import_bundle(&retyped, true).unwrap_err();
+    let commit = import.import_bundle(&retyped, false).unwrap_err();
+    assert!(
+        matches!(dry, AppError::ImportConflict { .. }),
+        "dry-run: {dry:?}"
+    );
+    assert!(
+        matches!(commit, AppError::ImportConflict { .. }),
+        "commit: {commit:?}"
+    );
+    assert_eq!(dry.to_string(), commit.to_string());
+    assert!(dry.to_string().contains("media record"), "{dry:?}");
+
+    // Nothing changed: the asset is still a movie, and the record is intact.
+    let mut env = env;
+    let victim_kind = env.factory.read(&mut |q| {
+        Ok(q.assets()
+            .list(&AssetFilter::default())?
+            .into_iter()
+            .find(|a| a.name == "Victim")
+            .unwrap()
+            .kind)
+    });
+    assert_eq!(victim_kind.map(|k| k.as_str()).unwrap(), "media.movie");
+}
+
+fn asset_row(
+    id: &str,
+    name: &str,
+    kind: &str,
+    lifecycle: &str,
+    merged_into: Option<&str>,
+) -> String {
+    let merged = merged_into
+        .map(|t| format!(r#""{t}""#))
+        .unwrap_or_else(|| "null".into());
+    format!(
+        r#"{{"id":"{id}","kind":"{kind}","name":"{name}","summary":null,"lifecycle_state":"{lifecycle}","revision":1,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","archived_at":null,"merged_into":{merged}}}"#
+    )
+}
+
+fn media_row(asset_id: &str, media_type: &str) -> String {
+    format!(
+        r#"{{"asset_id":"{asset_id}","media_type":"{media_type}","status":"planned","rating":null,"year":null,"platform":null,"progress_current":null,"progress_total":null,"progress_unit":null,"notes":null,"started_at":null,"completed_at":null}}"#
+    )
 }

@@ -23,7 +23,8 @@ use crate::application::import_parse::{
     detect_format, normalize_title, parse_csv, parse_json, parse_timestamp, ImportCandidate,
     ImportFormat, ParsedRow, PendingExternalRef, RawMediaInput,
 };
-use crate::application::media_service::{ensure_ref_available, normalize_tags, update_projection};
+use crate::application::media_service::update_projection;
+use crate::application::shared::{ensure_ref_available, normalize_tags};
 use crate::application::{SharedClock, SharedIdGenerator};
 use crate::domain::activity::{actors, event_types, ActivityEvent};
 use crate::domain::asset::Asset;

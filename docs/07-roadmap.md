@@ -107,7 +107,25 @@ Exit criteria: installed software and CLI tools can be discovered, reviewed, ado
 
 ## Phase 3 — Services and Subscriptions vertical slice
 
-Status: **contract defined; implementation pending**. See `docs/10-services-subscriptions-v1.md` and ADR 0010.
+Status: **canonical core complete (Phase 3B); service-specific behavior and portability pending**. See `docs/10-services-subscriptions-v1.md` and ADR 0010.
+
+Implemented so far:
+
+- all five service asset kinds (`service.saas`, `service.api`, `service.vps`, `service.domain`, `service.local`) with module-owned typed details;
+- service CRUD application services with repository-boundary kind/type invariants enforced in both the domain layer and SQL;
+- provider/account/endpoint/domain metadata with the credential boundary enforced (userinfo in a URL is rejected, never parsed out);
+- subscription plan, integer-minor-unit cost, currency, billing cadence, renewal, expiry, and auto-renew metadata, with cost/currency paired at every layer;
+- explicit patch semantics distinguishing "leave unchanged" from "clear";
+- Service -> SearchDocument projection with no credential material, rebuilt from canonical data;
+- migration 0003, verified against a real database produced by the Phase 2 binary;
+- CLI coverage over the same application layer future adapters will use.
+
+Still pending (Phase 3C/3D):
+
+- explicit `record_renewal` application use case without guessed billing-calendar arithmetic;
+- relation registry additions for `hosted_on`/`hosts` and `points_to`/`pointed_to_by`, preserving canonical one-row storage;
+- Service-specific merge conflict semantics;
+- portable `modules/services.jsonl` schema with backward-compatible declaration semantics.
 
 Purpose: validate that the shared AssetMesh kernel can support a third substantially different domain with commercial lifecycle metadata and service relationships, without turning AssetMesh into a cloud-management, monitoring, accounting, or credential-storage system.
 

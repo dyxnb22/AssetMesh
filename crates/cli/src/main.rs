@@ -14,6 +14,9 @@ use assetmesh_core::application::portable::{
 };
 use assetmesh_core::application::relation_service::RelationService;
 use assetmesh_core::application::search_service::SearchService;
+use assetmesh_core::application::service_service::{
+    CreateService, Patch, ServiceService, UpdateService,
+};
 use assetmesh_core::application::software_discovery::ClassifiedCandidate;
 use assetmesh_core::application::software_service::{
     AdoptOverrides, AdoptTarget, CreateSoftware, SoftwareService, UpdateSoftwareMetadata,
@@ -21,19 +24,22 @@ use assetmesh_core::application::software_service::{
 use assetmesh_core::domain::ids::{AssetId, RelationId};
 use assetmesh_core::domain::media::{MediaStatus, MediaType, Progress};
 use assetmesh_core::domain::relation::{RelationProvenance, RelationType};
+use assetmesh_core::domain::service::{BillingCadence, ServiceType};
 use assetmesh_core::domain::software::{InstallSource, SoftwareCategory};
+use assetmesh_core::domain::Timestamp;
 use assetmesh_core::ports::providers::SoftwareDiscoveryProvider;
 use assetmesh_core::ports::repos::{AssetFilter, LifecycleFilter, MediaFilter, MediaSort};
+use assetmesh_core::ports::repos::{ServiceFilter, ServiceSort};
 use assetmesh_core::ports::repos::{SoftwareFilter, SoftwareSort};
 use assetmesh_core::ports::uow::UnitOfWorkFactory;
-use assetmesh_core::{AppError, SharedClock, SharedIdGenerator};
+use assetmesh_core::{AppError, AppResult, SharedClock, SharedIdGenerator};
 use assetmesh_providers::{CliToolsProvider, HomebrewProvider, MacosApplicationsProvider};
 use assetmesh_storage_sqlite::SharedSqlite;
 use clap::{Parser, Subcommand, ValueEnum};
 use format::{
     print_adoption_outcome, print_import_report, print_media_detail, print_media_list,
-    print_relation_views, print_scan_report, print_search_hits, print_software_detail,
-    print_software_list,
+    print_relation_views, print_scan_report, print_search_hits, print_service_detail,
+    print_service_list, print_software_detail, print_software_list,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,7 +50,7 @@ type SharedFactory = SharedSqlite;
 #[command(
     name = "assetmesh",
     version,
-    about = "Local-first personal digital asset manager (media + software inventory)"
+    about = "Local-first personal digital asset manager (media, software, and services inventory)"
 )]
 struct Cli {
     /// Path to the SQLite database (env: ASSETMESH_DB).
@@ -66,6 +72,11 @@ enum Command {
     Software {
         #[command(subcommand)]
         cmd: SoftwareCommand,
+    },
+    /// Services and subscriptions (Phase 3 domain).
+    Service {
+        #[command(subcommand)]
+        cmd: ServiceCommand,
     },
     /// Asset-level operations: archive, merge, external refs.
     Asset {
@@ -313,6 +324,135 @@ enum SoftwareCommand {
 }
 
 #[derive(Subcommand)]
+enum ServiceCommand {
+    /// Add a service record manually.
+    Add {
+        #[arg(long)]
+        name: String,
+        #[arg(long = "type", value_enum)]
+        service_type: CliServiceType,
+        #[arg(long)]
+        summary: Option<String>,
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long)]
+        account_label: Option<String>,
+        #[arg(long)]
+        endpoint: Option<String>,
+        #[arg(long)]
+        dashboard: Option<String>,
+        /// Canonical domain text (domain services only).
+        #[arg(long)]
+        domain: Option<String>,
+        #[arg(long)]
+        plan: Option<String>,
+        /// Decimal amount, e.g. 19.99 (two decimal places; parsed into
+        /// integer minor units). Requires --currency.
+        #[arg(long)]
+        cost: Option<String>,
+        #[arg(long)]
+        currency: Option<String>,
+        #[arg(long, value_enum)]
+        billing: Option<CliBillingCadence>,
+        /// Date (YYYY-MM-DD) or RFC 3339 timestamp.
+        #[arg(long)]
+        renews_at: Option<String>,
+        /// Date (YYYY-MM-DD) or RFC 3339 timestamp.
+        #[arg(long)]
+        expires_at: Option<String>,
+        /// Auto-renew is known to be on. Use --no-auto-renew for off.
+        #[arg(long, conflicts_with = "no_auto_renew")]
+        auto_renew: Option<bool>,
+        #[arg(long, conflicts_with = "auto_renew")]
+        no_auto_renew: Option<bool>,
+        #[arg(long)]
+        notes: Option<String>,
+        #[arg(long)]
+        tag: Vec<String>,
+        /// External reference as `namespace:external_id` (repeatable).
+        #[arg(long = "ref")]
+        refs: Vec<String>,
+    },
+    /// Show one service record with details and activity.
+    Get { id: String },
+    /// List service records with typed filters.
+    List {
+        #[arg(long = "type", value_enum)]
+        service_type: Option<CliServiceType>,
+        /// Substring match on the provider name.
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long)]
+        tag: Option<String>,
+        #[arg(long, value_enum, default_value_t = CliServiceSort::Updated)]
+        sort: CliServiceSort,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Update service metadata. Omitted fields are left unchanged; an empty
+    /// text value clears the field.
+    Update {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        summary: Option<String>,
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long)]
+        account_label: Option<String>,
+        #[arg(long)]
+        endpoint: Option<String>,
+        #[arg(long)]
+        dashboard: Option<String>,
+        #[arg(long)]
+        domain: Option<String>,
+        #[arg(long)]
+        plan: Option<String>,
+        /// Decimal amount (with --currency); use --clear-cost to remove both.
+        #[arg(long)]
+        cost: Option<String>,
+        #[arg(long)]
+        currency: Option<String>,
+        #[arg(long, value_enum)]
+        billing: Option<CliBillingCadence>,
+        /// Date (YYYY-MM-DD) or RFC 3339 timestamp.
+        #[arg(long)]
+        renews_at: Option<String>,
+        /// Date (YYYY-MM-DD) or RFC 3339 timestamp.
+        #[arg(long)]
+        expires_at: Option<String>,
+        #[arg(long, conflicts_with = "no_auto_renew")]
+        auto_renew: Option<bool>,
+        #[arg(long, conflicts_with = "auto_renew")]
+        no_auto_renew: Option<bool>,
+        #[arg(long)]
+        notes: Option<String>,
+        /// Remove cost and currency together.
+        #[arg(long)]
+        clear_cost: bool,
+        /// Remove the billing cadence.
+        #[arg(long)]
+        clear_billing: bool,
+        /// Remove the renewal date.
+        #[arg(long)]
+        clear_renews_at: bool,
+        /// Remove the expiry date.
+        #[arg(long)]
+        clear_expires_at: bool,
+        /// Set auto-renew back to unknown.
+        #[arg(long, conflicts_with = "auto_renew", conflicts_with = "no_auto_renew")]
+        clear_auto_renew: bool,
+    },
+    /// Full-text search over the projection.
+    Search {
+        query: String,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+}
+
+#[derive(Subcommand)]
 enum RelationCommand {
     /// Attach a relation between two assets.
     Add {
@@ -489,6 +629,67 @@ impl From<CliSoftwareSort> for SoftwareSort {
     }
 }
 
+#[derive(ValueEnum, Clone, Copy)]
+enum CliServiceType {
+    Saas,
+    Api,
+    Vps,
+    Domain,
+    Local,
+}
+
+impl From<CliServiceType> for ServiceType {
+    fn from(value: CliServiceType) -> Self {
+        match value {
+            CliServiceType::Saas => ServiceType::Saas,
+            CliServiceType::Api => ServiceType::Api,
+            CliServiceType::Vps => ServiceType::Vps,
+            CliServiceType::Domain => ServiceType::Domain,
+            CliServiceType::Local => ServiceType::Local,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+enum CliBillingCadence {
+    Monthly,
+    Quarterly,
+    Yearly,
+    UsageBased,
+    OneTime,
+    Other,
+}
+
+impl From<CliBillingCadence> for BillingCadence {
+    fn from(value: CliBillingCadence) -> Self {
+        match value {
+            CliBillingCadence::Monthly => BillingCadence::Monthly,
+            CliBillingCadence::Quarterly => BillingCadence::Quarterly,
+            CliBillingCadence::Yearly => BillingCadence::Yearly,
+            CliBillingCadence::UsageBased => BillingCadence::UsageBased,
+            CliBillingCadence::OneTime => BillingCadence::OneTime,
+            CliBillingCadence::Other => BillingCadence::Other,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+enum CliServiceSort {
+    Updated,
+    Title,
+    Renews,
+}
+
+impl From<CliServiceSort> for ServiceSort {
+    fn from(value: CliServiceSort) -> Self {
+        match value {
+            CliServiceSort::Updated => ServiceSort::UpdatedDesc,
+            CliServiceSort::Title => ServiceSort::TitleAsc,
+            CliServiceSort::Renews => ServiceSort::RenewsAsc,
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     if let Err(error) = run(cli) {
@@ -510,6 +711,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
     match cli.command {
         Command::Media { cmd } => run_media(factory, clock, ids, cmd),
         Command::Software { cmd } => run_software(factory, clock, ids, cmd),
+        Command::Service { cmd } => run_service(factory, clock, ids, cmd),
         Command::Asset { cmd } => run_asset(factory, clock, ids, cmd),
         Command::Relation { cmd } => run_relation(factory.clone(), clock, ids, cmd),
         Command::Export { dir } => {
@@ -830,6 +1032,265 @@ fn parse_ref_input(raw: &str) -> Result<ExternalRefInput, AppError> {
         external_id: external_id.trim().to_string(),
         source_url: None,
     })
+}
+
+fn run_service(
+    factory: SharedFactory,
+    clock: SharedClock,
+    ids: SharedIdGenerator,
+    cmd: ServiceCommand,
+) -> Result<(), AppError> {
+    let mut services = ServiceService::new(factory.clone(), clock.clone(), ids.clone());
+
+    match cmd {
+        ServiceCommand::Add {
+            name,
+            service_type,
+            summary,
+            provider,
+            account_label,
+            endpoint,
+            dashboard,
+            domain,
+            plan,
+            cost,
+            currency,
+            billing,
+            renews_at,
+            expires_at,
+            auto_renew,
+            no_auto_renew,
+            notes,
+            tag,
+            refs,
+        } => {
+            let external_refs = refs
+                .iter()
+                .map(|raw| parse_ref_input(raw))
+                .collect::<Result<Vec<_>, AppError>>()?;
+            let (cost_minor, currency) = parse_money_pair(cost, currency)?;
+            let view = services.create_service(CreateService {
+                name,
+                service_type: service_type.into(),
+                summary,
+                provider,
+                account_label,
+                endpoint_url: endpoint,
+                dashboard_url: dashboard,
+                domain_name: domain,
+                plan,
+                cost_minor,
+                currency,
+                billing_cadence: billing.map(Into::into),
+                renews_at: renews_at
+                    .as_deref()
+                    .map(parse_service_timestamp)
+                    .transpose()?,
+                expires_at: expires_at
+                    .as_deref()
+                    .map(parse_service_timestamp)
+                    .transpose()?,
+                auto_renew: parse_auto_renew(auto_renew, no_auto_renew),
+                notes,
+                tags: tag,
+                external_refs,
+            })?;
+            println!("created {}", view.entry.asset.id);
+            print_service_detail(&view);
+        }
+        ServiceCommand::Get { id } => {
+            let asset_id = resolve_asset_id(&factory, &id)?;
+            let view = services.get_service(asset_id)?;
+            print_service_detail(&view);
+        }
+        ServiceCommand::List {
+            service_type,
+            provider,
+            tag,
+            sort,
+            json,
+        } => {
+            let filter = ServiceFilter {
+                service_type: service_type.map(Into::into),
+                provider,
+                tag,
+                sort: sort.into(),
+            };
+            let rows = services.list_services(&filter)?;
+            print_service_list(&rows, json);
+        }
+        ServiceCommand::Update {
+            id,
+            name,
+            summary,
+            provider,
+            account_label,
+            endpoint,
+            dashboard,
+            domain,
+            plan,
+            cost,
+            currency,
+            billing,
+            renews_at,
+            expires_at,
+            auto_renew,
+            no_auto_renew,
+            notes,
+            clear_cost,
+            clear_billing,
+            clear_renews_at,
+            clear_expires_at,
+            clear_auto_renew,
+        } => {
+            let asset_id = resolve_asset_id(&factory, &id)?;
+            let (cost_minor, currency) =
+                if clear_cost {
+                    (Patch::<i64>::Clear, Patch::<String>::Clear)
+                } else {
+                    match (cost, currency) {
+                        (None, None) => (Patch::Leave, Patch::Leave),
+                        (Some(raw), Some(cur)) => {
+                            (Patch::Set(parse_cost_minor(&raw)?), Patch::Set(cur))
+                        }
+                        _ => return Err(AppError::validation(
+                            "--cost and --currency must be given together (or use --clear-cost)",
+                        )),
+                    }
+                };
+            let view = services.update_service(UpdateService {
+                asset_id,
+                name,
+                summary: Patch::from_text(summary),
+                provider: Patch::from_text(provider),
+                account_label: Patch::from_text(account_label),
+                endpoint_url: Patch::from_text(endpoint),
+                dashboard_url: Patch::from_text(dashboard),
+                domain_name: Patch::from_text(domain),
+                plan: Patch::from_text(plan),
+                cost_minor,
+                currency,
+                billing_cadence: match billing {
+                    Some(cadence) => Patch::Set(cadence.into()),
+                    None if clear_billing => Patch::Clear,
+                    None => Patch::Leave,
+                },
+                renews_at: parse_date_patch(renews_at.as_deref(), clear_renews_at)?,
+                expires_at: parse_date_patch(expires_at.as_deref(), clear_expires_at)?,
+                auto_renew: {
+                    if clear_auto_renew {
+                        Patch::Clear
+                    } else if auto_renew.unwrap_or(false) {
+                        Patch::Set(true)
+                    } else if no_auto_renew.unwrap_or(false) {
+                        Patch::Set(false)
+                    } else {
+                        Patch::Leave
+                    }
+                },
+                notes: Patch::from_text(notes),
+            })?;
+            println!("updated {}", view.entry.asset.id);
+        }
+        ServiceCommand::Search { query, limit } => {
+            let mut search = SearchService::new(factory, clock);
+            let hits = search.search(&query, limit)?;
+            print_search_hits(&hits);
+        }
+    }
+    Ok(())
+}
+
+/// Maps the auto-renew flag pair to a known setting: `--auto-renew` → on,
+/// `--no-auto-renew` → off, neither → unknown (`None`).
+fn parse_auto_renew(on: Option<bool>, off: Option<bool>) -> Option<bool> {
+    if on.unwrap_or(false) {
+        Some(true)
+    } else if off.unwrap_or(false) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Maps an optional date argument plus its clear flag to an explicit patch.
+fn parse_date_patch(raw: Option<&str>, clear: bool) -> AppResult<Patch<Timestamp>> {
+    match raw {
+        Some(value) => Ok(Patch::Set(parse_service_timestamp(value)?)),
+        None if clear => Ok(Patch::Clear),
+        None => Ok(Patch::Leave),
+    }
+}
+
+/// Parses `--cost`/`--currency` into canonical integer minor units. The two
+/// arguments are a pair: both present or both absent (ADR 0010).
+fn parse_money_pair(
+    cost: Option<String>,
+    currency: Option<String>,
+) -> AppResult<(Option<i64>, Option<String>)> {
+    match (cost, currency) {
+        (None, None) => Ok((None, None)),
+        (Some(raw), Some(currency)) => Ok((Some(parse_cost_minor(&raw)?), Some(currency))),
+        _ => Err(AppError::validation(
+            "--cost and --currency must be given together",
+        )),
+    }
+}
+
+/// Parses a decimal amount into integer minor units (ADR 0010). V1 uses two
+/// decimal places; anything that could not be represented without rounding
+/// is rejected rather than silently rounded. No floating point is involved.
+fn parse_cost_minor(raw: &str) -> AppResult<i64> {
+    let raw = raw.trim();
+    let invalid = || {
+        AppError::validation(format!(
+            "cost must be a decimal amount like 19.99, got {raw:?}"
+        ))
+    };
+    let (integer, fraction) = match raw.split_once('.') {
+        Some((integer, fraction)) => (integer, fraction),
+        None => (raw, ""),
+    };
+    if integer.is_empty()
+        || !integer.chars().all(|c| c.is_ascii_digit())
+        || !fraction.chars().all(|c| c.is_ascii_digit())
+    {
+        return Err(invalid());
+    }
+    if fraction.len() > 2 {
+        return Err(AppError::validation(format!(
+            "cost has more than two decimal places and cannot be represented in minor units \
+             without rounding: {raw:?}"
+        )));
+    }
+    let integer_value: i64 = integer.parse().map_err(|_| invalid())?;
+    let fraction_value: i64 = match fraction.len() {
+        0 => 0,
+        1 => fraction.parse::<i64>().unwrap() * 10,
+        _ => fraction.parse::<i64>().unwrap(),
+    };
+    integer_value
+        .checked_mul(100)
+        .and_then(|value| value.checked_add(fraction_value))
+        .ok_or_else(|| AppError::validation(format!("cost is too large: {raw:?}")))
+}
+
+/// Parses `YYYY-MM-DD` (as UTC midnight) or an RFC 3339 timestamp. Renewal
+/// and expiry boundaries are caller-supplied facts — nothing is computed.
+fn parse_service_timestamp(raw: &str) -> AppResult<Timestamp> {
+    let raw = raw.trim();
+    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(raw) {
+        return Ok(ts.with_timezone(&chrono::Utc));
+    }
+    let date = chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d").map_err(|_| {
+        AppError::validation(format!(
+            "expected a date (YYYY-MM-DD) or RFC 3339 timestamp, got {raw:?}"
+        ))
+    })?;
+    let naive = date.and_hms_opt(0, 0, 0).ok_or_else(|| {
+        AppError::validation(format!("could not build a timestamp from date {raw:?}"))
+    })?;
+    Ok(naive.and_utc())
 }
 
 /// Provider name → provider instance. `--root` overrides only apply to the

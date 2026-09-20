@@ -27,6 +27,7 @@ pub mod event_types {
     pub const MEDIA_IMPORTED: &str = "media.imported";
     pub const SOFTWARE_CREATED: &str = "software.created";
     pub const SOFTWARE_ADOPTED: &str = "software.adopted";
+    pub const SERVICE_CREATED: &str = "service.created";
     pub const RELATION_CREATED: &str = "relation.created";
     pub const RELATION_REMOVED: &str = "relation.removed";
 }

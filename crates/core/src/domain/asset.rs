@@ -34,6 +34,16 @@ pub enum AssetKind {
     SoftwareRuntime,
     #[serde(rename = "software.tool")]
     SoftwareTool,
+    #[serde(rename = "service.saas")]
+    ServiceSaas,
+    #[serde(rename = "service.api")]
+    ServiceApi,
+    #[serde(rename = "service.vps")]
+    ServiceVps,
+    #[serde(rename = "service.domain")]
+    ServiceDomain,
+    #[serde(rename = "service.local")]
+    ServiceLocal,
 }
 
 impl AssetKind {
@@ -48,6 +58,11 @@ impl AssetKind {
             AssetKind::SoftwarePackage => "software.package",
             AssetKind::SoftwareRuntime => "software.runtime",
             AssetKind::SoftwareTool => "software.tool",
+            AssetKind::ServiceSaas => "service.saas",
+            AssetKind::ServiceApi => "service.api",
+            AssetKind::ServiceVps => "service.vps",
+            AssetKind::ServiceDomain => "service.domain",
+            AssetKind::ServiceLocal => "service.local",
         }
     }
 
@@ -62,6 +77,11 @@ impl AssetKind {
             "software.package" => Some(AssetKind::SoftwarePackage),
             "software.runtime" => Some(AssetKind::SoftwareRuntime),
             "software.tool" => Some(AssetKind::SoftwareTool),
+            "service.saas" => Some(AssetKind::ServiceSaas),
+            "service.api" => Some(AssetKind::ServiceApi),
+            "service.vps" => Some(AssetKind::ServiceVps),
+            "service.domain" => Some(AssetKind::ServiceDomain),
+            "service.local" => Some(AssetKind::ServiceLocal),
             _ => None,
         }
     }
@@ -78,6 +98,11 @@ impl AssetKind {
             | AssetKind::SoftwarePackage
             | AssetKind::SoftwareRuntime
             | AssetKind::SoftwareTool => "software",
+            AssetKind::ServiceSaas
+            | AssetKind::ServiceApi
+            | AssetKind::ServiceVps
+            | AssetKind::ServiceDomain
+            | AssetKind::ServiceLocal => "services",
         }
     }
 }

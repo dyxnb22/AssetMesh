@@ -69,6 +69,12 @@ pub use crate::domain::media::SCHEMA_VERSION as MEDIA_SCHEMA_VERSION;
 /// (`domain::software::SCHEMA_VERSION`).
 pub use crate::domain::software::SCHEMA_VERSION as SOFTWARE_SCHEMA_VERSION;
 
+/// Services module data schema version — owned by the Services module
+/// (`domain::service::SCHEMA_VERSION`). The portable services section
+/// itself lands in Phase 3D; the version is already part of the shared
+/// module-version contract that storage validates on open.
+pub use crate::domain::service::SCHEMA_VERSION as SERVICES_SCHEMA_VERSION;
+
 // ---------------------------------------------------------------------------
 // V1 wire DTOs — the frozen interchange representation
 // ---------------------------------------------------------------------------
@@ -536,7 +542,7 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
     /// Builds the whole bundle from one snapshot-consistent read scope. Rows
     /// are ordered by identity so bundles are deterministic and diffable.
     pub fn export(&mut self, app_version: &str) -> AppResult<PortableBundle> {
-        let (assets, media, software, refs, activity, tags, memberships, relations) =
+        let (assets, media, software, services, refs, activity, tags, memberships, relations) =
             self.factory.read(&mut |q| {
                 let assets = q.assets().list(&crate::ports::repos::AssetFilter {
                     kind: None,
@@ -544,6 +550,7 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                 })?;
                 let media = q.media().list_all()?;
                 let software = q.software().list_all()?;
+                let services = q.services().list_all()?;
                 let refs = q.external_refs().list_all()?;
                 let activity = q.activity().list_all()?;
                 let tags = q.tags().list_all()?;
@@ -553,6 +560,7 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                     assets,
                     media,
                     software,
+                    services,
                     refs,
                     activity,
                     tags,
@@ -560,6 +568,23 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                     relations,
                 ))
             })?;
+
+        // The services wire format is Phase 3D and does not exist yet: this
+        // exporter writes no `modules/services.jsonl` and the manifest declares
+        // no services section, so a bundle written today could not restore a
+        // ServiceRecord. Exporting anyway would hand the user a backup that
+        // silently drops every service, so refuse instead (docs/10 portability;
+        // a lossy bundle is worse than a loud failure). Note this counts
+        // records of every lifecycle: archiving a service does not unblock the
+        // export, only deleting the record does.
+        if !services.is_empty() {
+            return Err(AppError::conflict(format!(
+                "cannot export: {} service record(s) exist but the portable services format is \
+                 not implemented yet (Phase 3D); the bundle would lose them. Delete the service \
+                 records, or wait for services export support",
+                services.len()
+            )));
+        }
 
         let created_at = self.clock.now();
 
@@ -853,6 +878,9 @@ struct DestinationSnapshot {
     asset_kinds: HashMap<AssetId, AssetKind>,
     media_asset_ids: HashSet<AssetId>,
     software_asset_ids: HashSet<AssetId>,
+    /// Services detail ids, so a re-type away from a service.* kind is caught
+    /// here rather than only at the repository boundary during commit.
+    service_asset_ids: HashSet<AssetId>,
     ref_pairs: HashMap<(String, String), AssetId>,
     ref_ids: HashMap<ExternalRefId, (String, String)>,
     activity_ids: HashSet<ActivityId>,
@@ -892,6 +920,12 @@ impl DestinationSnapshot {
             .collect();
         let software_asset_ids: HashSet<AssetId> = q
             .software()
+            .list_all()?
+            .into_iter()
+            .map(|s| s.asset_id)
+            .collect();
+        let service_asset_ids: HashSet<AssetId> = q
+            .services()
             .list_all()?
             .into_iter()
             .map(|s| s.asset_id)
@@ -940,6 +974,7 @@ impl DestinationSnapshot {
             asset_kinds,
             media_asset_ids,
             software_asset_ids,
+            service_asset_ids,
             ref_pairs,
             ref_ids,
             activity_ids,
@@ -999,22 +1034,25 @@ fn check_destination(decoded: &DecodedBundle, snapshot: &DestinationSnapshot) ->
             }
         }
     }
-    // A bundle must not re-type an asset across modules when the destination
-    // still carries the old module's record — that would strand a software
-    // record on a media.* asset (or the reverse), and the repository boundary
-    // would reject the write. Caught here so dry-run and commit fail
-    // identically, before any canonical mutation.
+    // A bundle must not re-type an asset while the destination still carries
+    // the old module's record — that would strand a software record on a
+    // media.* asset (or the reverse), and the repository boundary rejects ANY
+    // kind change while the row remains, within a module included
+    // (media.movie -> media.game strands a movie record the same way). Caught
+    // here so dry-run and commit fail identically, before any canonical
+    // mutation; the stranded record belongs to the OLD module.
     for asset in &decoded.assets {
-        let Some(stored_kind) = snapshot.asset_kinds.get(&asset.id) else {
+        let Some(&stored_kind) = snapshot.asset_kinds.get(&asset.id) else {
             continue;
         };
-        if stored_kind.module() == asset.kind.module() {
+        if stored_kind == asset.kind {
             continue;
         }
-        let has_old_record = if asset.kind.module() == "software" {
-            snapshot.media_asset_ids.contains(&asset.id)
-        } else {
-            snapshot.software_asset_ids.contains(&asset.id)
+        let has_old_record = match stored_kind.module() {
+            "media" => snapshot.media_asset_ids.contains(&asset.id),
+            "software" => snapshot.software_asset_ids.contains(&asset.id),
+            "services" => snapshot.service_asset_ids.contains(&asset.id),
+            _ => false,
         };
         if has_old_record {
             return Err(AppError::import_conflict(format!(

@@ -162,10 +162,13 @@ impl AssetRepository for SqliteAssetRepo<'_> {
 
 impl SqliteAssetRepo<'_> {
     /// Rejects a kind change that would strand the asset's existing module
-    /// record: a software record on a media.* asset (or vice versa) is an
-    /// invalid state the repository boundary must not write. Kinds within
-    /// one module may change (e.g. `media.movie` → `media.tv`); a change
-    /// across modules requires the module record to be removed first.
+    /// record: a software record on a media.* asset, or a `saas` record on a
+    /// `service.api` asset, is an invalid state the repository boundary must
+    /// not write. The typed detail's own discriminator (media_type / category
+    /// / service_type) is only consistent with the kind assigned at creation,
+    /// and no application write path ever re-types an asset, so ANY kind
+    /// change is refused while the old module's detail row remains — remove
+    /// the record first if a re-type is genuinely required.
     fn ensure_kind_change_keeps_module_records_compatible(&self, asset: &Asset) -> AppResult<()> {
         let stored: Option<String> = self
             .conn
@@ -184,17 +187,11 @@ impl SqliteAssetRepo<'_> {
         }
         let stored_kind = AssetKind::parse(&stored)
             .ok_or_else(|| AppError::storage(format!("unknown stored asset kind: {stored}")))?;
-        if stored_kind.module() == asset.kind.module() {
-            return Ok(());
-        }
-        // The record that would be stranded is the OLD module's: changing to
-        // software strands a media record, and changing away from software
-        // strands a software record.
-        let (table, module) = if asset.kind.module() == "software" {
-            ("media_records", stored_kind.module())
-        } else {
-            ("software_records", stored_kind.module())
-        };
+        // The record that would be stranded belongs to the OLD module:
+        // changing away from a module leaves its detail row on an asset the
+        // module no longer owns; changing within a module leaves a row whose
+        // discriminator no longer matches the kind (docs/10 kind/type 1:1).
+        let table = module_detail_table(stored_kind.module())?;
         let present: bool = self
             .conn
             .query_row(
@@ -207,9 +204,27 @@ impl SqliteAssetRepo<'_> {
             return Err(AppError::conflict(format!(
                 "cannot change asset {} from {} to {} while it has a {} record; remove the \
                  {} record first",
-                asset.id, stored_kind, asset.kind, module, module
+                asset.id,
+                stored_kind,
+                asset.kind,
+                stored_kind.module(),
+                stored_kind.module()
             )));
         }
         Ok(())
+    }
+}
+
+/// The typed-details table a module owns. Shared by the cross-module kind
+/// guard, which must know every module's detail table to detect a stranded
+/// record; a new module adds its table here.
+fn module_detail_table(module: &str) -> AppResult<&'static str> {
+    match module {
+        "media" => Ok("media_records"),
+        "software" => Ok("software_records"),
+        "services" => Ok("service_records"),
+        other => Err(AppError::storage(format!(
+            "unknown module {other:?} in stored asset kind"
+        ))),
     }
 }

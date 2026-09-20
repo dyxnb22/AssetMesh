@@ -203,9 +203,11 @@ fn truncate(value: &str, max: usize) -> String {
 }
 
 use assetmesh_core::application::relation_service::RelationView;
+use assetmesh_core::application::service_service::ServiceView;
 use assetmesh_core::application::software_discovery::CandidateDisposition;
 use assetmesh_core::application::software_service::{AdoptionOutcome, ScanReport, SoftwareView};
-use assetmesh_core::ports::repos::SoftwareListRow;
+use assetmesh_core::domain::service::format_money;
+use assetmesh_core::ports::repos::{ServiceListRow, SoftwareListRow};
 
 pub fn print_software_detail(view: &SoftwareView) {
     let entry = &view.entry;
@@ -380,6 +382,150 @@ pub fn print_adoption_outcome(outcome: &AdoptionOutcome) {
     if !outcome.skipped_refs.is_empty() {
         println!("  skipped refs:   {}", outcome.skipped_refs.join(", "));
     }
+}
+
+pub fn print_service_detail(view: &ServiceView) {
+    let entry = &view.entry;
+    println!("ID:            {}", entry.asset.id);
+    println!("Kind:          {}", entry.asset.kind);
+    println!("Name:          {}", entry.asset.name);
+    if let Some(summary) = &entry.asset.summary {
+        println!("Summary:       {summary}");
+    }
+    println!("Type:          {}", entry.record.service_type);
+    println!(
+        "Provider:      {}",
+        entry.record.provider.as_deref().unwrap_or("-")
+    );
+    println!(
+        "Account:       {}",
+        entry.record.account_label.as_deref().unwrap_or("-")
+    );
+    println!(
+        "Endpoint:      {}",
+        entry.record.endpoint_url.as_deref().unwrap_or("-")
+    );
+    println!(
+        "Dashboard:     {}",
+        entry.record.dashboard_url.as_deref().unwrap_or("-")
+    );
+    println!(
+        "Domain:        {}",
+        entry.record.domain_name.as_deref().unwrap_or("-")
+    );
+    println!(
+        "Plan:          {}",
+        entry.record.plan.as_deref().unwrap_or("-")
+    );
+    match (entry.record.cost_minor, entry.record.currency.as_deref()) {
+        (Some(cost), Some(currency)) => {
+            println!("Cost:          {}", format_money(cost, currency));
+        }
+        _ => println!("Cost:          -"),
+    }
+    println!(
+        "Billing:       {}",
+        entry
+            .record
+            .billing_cadence
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "-".into())
+    );
+    println!("Renews:        {}", fmt_time(entry.record.renews_at));
+    println!("Expires:       {}", fmt_time(entry.record.expires_at));
+    println!(
+        "Auto-renew:    {}",
+        match entry.record.auto_renew {
+            Some(true) => "on",
+            Some(false) => "off",
+            None => "unknown",
+        }
+    );
+    if let Some(notes) = &entry.record.notes {
+        println!("Notes:         {notes}");
+    }
+    if !view.tags.is_empty() {
+        println!("Tags:          {}", view.tags.join(", "));
+    }
+    if !view.external_refs.is_empty() {
+        println!("Refs:");
+        for reference in &view.external_refs {
+            println!(
+                "  {}:{}{}",
+                reference.namespace,
+                reference.external_id,
+                reference
+                    .source_url
+                    .as_deref()
+                    .map(|u| format!(" ({u})"))
+                    .unwrap_or_default()
+            );
+        }
+    }
+    if !view.activity.is_empty() {
+        println!("Activity:");
+        for event in &view.activity {
+            println!(
+                "  {}  {} [{}]  {}",
+                event.occurred_at.format("%Y-%m-%d %H:%M"),
+                event.event_type,
+                event.actor,
+                event.payload
+            );
+        }
+    }
+}
+
+pub fn print_service_list(rows: &[ServiceListRow], json: bool) {
+    if json {
+        let value: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.entry.asset.id.to_string(),
+                    "kind": row.entry.asset.kind.as_str(),
+                    "name": row.entry.asset.name,
+                    "service_type": row.entry.record.service_type.as_str(),
+                    "provider": row.entry.record.provider,
+                    "plan": row.entry.record.plan,
+                    "cost_minor": row.entry.record.cost_minor,
+                    "currency": row.entry.record.currency,
+                    "billing_cadence": row.entry.record.billing_cadence.map(|c| c.as_str()),
+                    "renews_at": row.entry.record.renews_at.map(|t| t.to_rfc3339()),
+                    "expires_at": row.entry.record.expires_at.map(|t| t.to_rfc3339()),
+                    "auto_renew": row.entry.record.auto_renew,
+                    "tags": row.tags,
+                    "updated_at": row.entry.asset.updated_at.to_rfc3339(),
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| "[]".to_string())
+        );
+        return;
+    }
+
+    if rows.is_empty() {
+        println!("(no service records)");
+        return;
+    }
+    println!(
+        "{:38}  {:<28}  {:<7}  {:<16}  {:<16}  UPDATED",
+        "ID", "NAME", "TYPE", "PROVIDER", "PLAN"
+    );
+    for row in rows {
+        println!(
+            "{:38}  {:<28}  {:<7}  {:<16}  {:<16}  {}",
+            truncate(&row.entry.asset.id.to_string(), 38),
+            truncate(&row.entry.asset.name, 28),
+            row.entry.record.service_type,
+            truncate(row.entry.record.provider.as_deref().unwrap_or("-"), 16),
+            truncate(row.entry.record.plan.as_deref().unwrap_or("-"), 16),
+            row.entry.asset.updated_at.format("%Y-%m-%d"),
+        );
+    }
+    println!("\n{} record(s)", rows.len());
 }
 
 pub fn print_relation_views(views: &[RelationView]) {

@@ -8,14 +8,20 @@ use assetmesh_core::application::media_service::{
 use assetmesh_core::application::portable::{
     read_bundle_from_directory, PortableExportService, PortableImportService, EXPORT_VERSION,
 };
+use assetmesh_core::application::relation_service::RelationService;
 use assetmesh_core::application::search_service::SearchService;
+use assetmesh_core::application::service_service::{
+    CreateService, Patch, ServiceService, UpdateService,
+};
 use assetmesh_core::application::{SharedClock, SharedIdGenerator};
 use assetmesh_core::domain::asset::{Asset, AssetKind};
 use assetmesh_core::domain::ids::{AssetId, RelationId};
 use assetmesh_core::domain::media::{MediaStatus, MediaType, Progress};
 use assetmesh_core::domain::relation::{Relation, RelationProvenance, RelationType};
+use assetmesh_core::domain::service::{BillingCadence, ServiceRecord, ServiceType};
+use assetmesh_core::domain::software::SoftwareCategory;
 use assetmesh_core::ports::clock::Clock;
-use assetmesh_core::ports::repos::MediaFilter;
+use assetmesh_core::ports::repos::{MediaFilter, ServiceFilter};
 use assetmesh_core::ports::uow::UnitOfWorkFactory;
 use assetmesh_core::{AppError, AppResult};
 use assetmesh_storage_sqlite::SharedSqlite;
@@ -58,6 +64,15 @@ impl TestSqlite {
     }
     fn export_service(&self) -> PortableExportService<SharedSqlite> {
         PortableExportService::new(self.factory.clone(), self.clock.clone())
+    }
+    fn service_service(
+        &self,
+    ) -> assetmesh_core::application::service_service::ServiceService<SharedSqlite> {
+        assetmesh_core::application::service_service::ServiceService::new(
+            self.factory.clone(),
+            self.clock.clone(),
+            self.ids.clone(),
+        )
     }
 }
 
@@ -796,7 +811,7 @@ fn factory_tamper_module_version(path: &str, version: i64) {
 use assetmesh_core::application::software_service::{
     CreateSoftware, SoftwareService, UpdateSoftwareMetadata,
 };
-use assetmesh_core::domain::software::{InstallSource, SoftwareCategory};
+use assetmesh_core::domain::software::InstallSource;
 use assetmesh_core::ports::repos::SoftwareFilter;
 
 impl TestSqlite {
@@ -818,6 +833,35 @@ fn software_cmd(name: &str, category: SoftwareCategory) -> CreateSoftware {
         notes: None,
         architecture: Some("arm64".into()),
         installed_at: None,
+        tags: Vec::new(),
+        external_refs: Vec::new(),
+    }
+}
+
+fn ts(value: &str) -> assetmesh_core::domain::Timestamp {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .expect("test timestamps are well-formed")
+        .with_timezone(&chrono::Utc)
+}
+
+fn service_cmd(name: &str, service_type: ServiceType) -> CreateService {
+    CreateService {
+        name: name.into(),
+        service_type,
+        summary: None,
+        provider: None,
+        account_label: None,
+        endpoint_url: None,
+        dashboard_url: None,
+        domain_name: None,
+        plan: None,
+        cost_minor: None,
+        currency: None,
+        billing_cadence: None,
+        renews_at: None,
+        expires_at: None,
+        auto_renew: None,
+        notes: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -1070,6 +1114,260 @@ fn migration_from_phase1_database_preserves_media_and_adds_software() {
     assert_eq!(rows[0].entry.asset.name, "PostMigration");
 
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The checksum of migration 0002 as recorded by the Phase 2 binary, frozen
+/// for the same reason as [`PHASE1_MIGRATION_0001_CHECKSUM`]: databases
+/// written by Phase 2 carry this recorded checksum, so editing 0002 would
+/// break their upgrade path.
+const PHASE2_MIGRATION_0002_CHECKSUM: &str =
+    "dc44ebf1dec095cdd318b9db8b0bae26749fa51790423a9482dfd3d77484fef0";
+
+#[test]
+fn migration_0002_is_unchanged_from_the_phase2_history() {
+    let sql2 = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../migrations/0002_software_relations_v1.sql"
+    ));
+    assert_eq!(
+        migration_checksum(sql2),
+        PHASE2_MIGRATION_0002_CHECKSUM,
+        "migration 0002 was modified after being applied by Phase 2 \
+         installations; historical databases record the frozen checksum and \
+         will refuse to open — this needs an explicit compatibility decision"
+    );
+}
+
+/// The flagship Phase 3 migration test (docs/10): a REAL database produced by
+/// the Phase 2 binary — commit 4ff3119, built in a worktree and driven through
+/// the CLI — is opened by the current binary and must migrate to migration
+/// 0003 without touching a single historical row.
+///
+/// Like the Phase 1 fixture this carries the real layout, pragmas, migration
+/// ledger, and FTS5 shadow tables of that release. It additionally carries
+/// Phase 2 state the Phase 1 fixture cannot: software records, relations with
+/// inverse semantics, tags, and one archived asset — so the upgrade proves
+/// Modules 2 and 3 coexist on the shared Asset identity.
+#[test]
+fn migration_0003_upgrades_a_real_phase2_database_preserving_everything() {
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/phase2_software.db");
+    assert!(
+        fixture.exists(),
+        "missing Phase 2 fixture: {}",
+        fixture.display()
+    );
+
+    let dir = std::env::temp_dir().join(format!("assetmesh-phase2-upgrade-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db_path = dir.join("phase2-upgraded.db");
+    std::fs::copy(&fixture, &db_path).unwrap();
+
+    // The historical ledger must carry both frozen checksums, proving the
+    // fixture is genuinely from the Phase 2 release and was not rebuilt from
+    // today's SQL.
+    let ledger: Vec<(i64, String)> = rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .prepare("SELECT version, checksum FROM assetmesh_migrations ORDER BY version")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(
+        ledger,
+        vec![
+            (1, PHASE1_MIGRATION_0001_CHECKSUM.to_string()),
+            (2, PHASE2_MIGRATION_0002_CHECKSUM.to_string())
+        ],
+        "the Phase 2 fixture must carry the frozen Phase 1 and 2 checksums"
+    );
+
+    // Phase 2 shape: no services module and no service_records table yet.
+    let raw = rusqlite::Connection::open(&db_path).unwrap();
+    let has_service_table: i64 = raw
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'service_records'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        has_service_table, 0,
+        "the fixture must predate service_records"
+    );
+    let modules: Vec<String> = raw
+        .prepare("SELECT module_id FROM module_metadata ORDER BY module_id")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(modules, vec!["media", "software"]);
+    drop(raw);
+
+    // Snapshot the historical state that must survive untouched.
+    let media_before = table_count(&db_path, "media_records");
+    let software_before = table_count(&db_path, "software_records");
+    let relations_before = table_count(&db_path, "relations");
+    let activity_before = table_count(&db_path, "activity_events");
+    let refs_before = table_count(&db_path, "external_refs");
+    let tags_before = table_count(&db_path, "tags");
+    assert_eq!(media_before, 3);
+    assert_eq!(software_before, 4);
+    assert_eq!(relations_before, 4);
+    assert!(activity_before > 0);
+    assert!(refs_before > 0);
+    assert!(tags_before > 0);
+
+    // Opening with the current binary applies migration 0003.
+    let factory = SharedSqlite(Arc::new(
+        assetmesh_storage_sqlite::open(db_path.to_str().unwrap()).unwrap(),
+    ));
+    let version: i64 = factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row("SELECT MAX(version) FROM assetmesh_migrations", [], |row| {
+                row.get(0)
+            })
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(version, assetmesh_storage_sqlite::latest_db_version());
+    assert!(version >= 3, "migration 0003 must have applied");
+
+    // No historical row was lost or duplicated.
+    assert_eq!(table_count(&db_path, "media_records"), media_before);
+    assert_eq!(table_count(&db_path, "software_records"), software_before);
+    assert_eq!(table_count(&db_path, "relations"), relations_before);
+    assert_eq!(table_count(&db_path, "activity_events"), activity_before);
+    assert_eq!(table_count(&db_path, "external_refs"), refs_before);
+    assert_eq!(table_count(&db_path, "tags"), tags_before);
+
+    // The services module is registered with its V1 schema version.
+    let services_version: i64 = factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row(
+                "SELECT schema_version FROM module_metadata WHERE module_id = 'services'",
+                [],
+                |row| row.get(0),
+            )
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        services_version,
+        assetmesh_core::domain::service::SCHEMA_VERSION
+    );
+
+    // Historical data is still readable through the current application layer.
+    let mut software = SoftwareService::new(factory.clone(), clock_shared(), ids_shared());
+    let rows = software.list_software(&SoftwareFilter::default()).unwrap();
+    assert_eq!(rows.len(), software_before as usize);
+    let ollama = rows
+        .iter()
+        .find(|r| r.entry.asset.name == "Ollama")
+        .expect("the Phase 2 fixture's Ollama record must survive the upgrade");
+    assert_eq!(
+        ollama.entry.asset.kind,
+        SoftwareCategory::Runtime.asset_kind()
+    );
+    // The fixture's archive must survive too: the shared lifecycle is a
+    // cross-module contract, not something migration 0003 resets.
+    let vscode = rows
+        .iter()
+        .find(|r| r.entry.asset.name == "Visual Studio Code")
+        .expect("the archived fixture asset must survive");
+    assert!(vscode.entry.asset.archived_at.is_some());
+
+    // Relations survived with their inverse semantics intact: the four
+    // relations stored by the Phase 2 binary still resolve from either side.
+    // Three of them touch Homebrew (the `installed_via` inverses); the fourth
+    // is `VSCode uses Ollama`, which only the two endpoints can see.
+    let mut relations = RelationService::new(factory.clone(), clock_shared(), ids_shared());
+    let brew = rows
+        .iter()
+        .find(|r| r.entry.asset.name == "Homebrew")
+        .expect("the fixture's Homebrew record must survive");
+    let brew_relations = relations.list_for_asset(brew.entry.asset.id).unwrap();
+    assert_eq!(
+        brew_relations.len(),
+        3,
+        "the three `installed_via` relations must resolve as inverses from Homebrew"
+    );
+    let ollama_relations = relations.list_for_asset(ollama.entry.asset.id).unwrap();
+    assert_eq!(
+        ollama_relations.len(),
+        2,
+        "Ollama must resolve both its own `installed_via` and the `uses` inverse"
+    );
+    assert!(
+        ollama_relations.iter().any(|r| {
+            r.relation_type == RelationType::InstalledVia && r.other_asset_id == brew.entry.asset.id
+        }),
+        "the stored forward relation must survive"
+    );
+    assert!(
+        ollama_relations
+            .iter()
+            .any(|r| r.relation_type == RelationType::UsedBy
+                && r.other_asset_id == vscode.entry.asset.id),
+        "the `uses` relation must resolve from its target side as `used_by`"
+    );
+
+    let mut media = MediaService::new(factory.clone(), clock_shared(), ids_shared());
+    let media_rows = media.list_media(&MediaFilter::default()).unwrap();
+    assert_eq!(media_rows.len(), media_before as usize);
+    drop(media);
+    drop(relations);
+    drop(software);
+
+    // Services work on the upgraded database: the new module shares the same
+    // Asset table, search projection, and activity stream as Media/Software.
+    let mut services = ServiceService::new(factory.clone(), clock_shared(), ids_shared());
+    let created = services
+        .create_service(service_cmd("Linear", ServiceType::Saas))
+        .unwrap();
+    assert_eq!(created.entry.asset.name, "Linear");
+    assert_eq!(created.entry.record.service_type, ServiceType::Saas);
+    assert_eq!(created.entry.asset.kind, AssetKind::ServiceSaas);
+    drop(services);
+
+    // Reopen is idempotent and the new service is durable.
+    let reopened = assetmesh_storage_sqlite::open(db_path.to_str().unwrap()).unwrap();
+    let mut check = assetmesh_core::application::service_service::ServiceService::new(
+        SharedSqlite(Arc::new(reopened)),
+        clock_shared(),
+        ids_shared(),
+    );
+    let rows = check
+        .list_services(&assetmesh_core::ports::repos::ServiceFilter::default())
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.asset.name, "Linear");
+
+    // The historical search projection still resolves after the upgrade, and
+    // the new service is searchable alongside the upgraded software.
+    let mut search = SearchService::new(factory, clock_shared());
+    search.rebuild().unwrap();
+    let hits = search.search("ollama", 10).unwrap();
+    assert_eq!(hits.len(), 1, "Phase 2 software must still be searchable");
+    assert_eq!(hits[0].kind, "software.runtime");
+    let hits = search.search("linear", 10).unwrap();
+    assert_eq!(hits.len(), 1, "the new service must be searchable");
+    assert_eq!(hits[0].kind, "service.saas");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn table_count(db_path: &std::path::Path, table: &str) -> i64 {
+    rusqlite::Connection::open(db_path)
+        .unwrap()
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
 }
 
 fn clock_shared() -> SharedClock {
@@ -1463,4 +1761,346 @@ fn relations_reject_inverse_type_at_the_repository_seam() {
         .unwrap()
         .unwrap();
     assert_eq!(count, 0);
+}
+
+#[test]
+fn service_crud_round_trips_every_field() {
+    let t = env();
+    let mut services = t.service_service();
+
+    let view = services
+        .create_service(CreateService {
+            summary: Some("Team chat".into()),
+            provider: Some("Linear".into()),
+            account_label: Some("Work".into()),
+            endpoint_url: Some("https://api.linear.app".into()),
+            dashboard_url: Some("https://linear.app".into()),
+            plan: Some("Business".into()),
+            cost_minor: Some(3200),
+            currency: Some("USD".into()),
+            billing_cadence: Some(BillingCadence::Monthly),
+            renews_at: Some(ts("2026-11-01T00:00:00Z")),
+            expires_at: Some(ts("2027-11-01T00:00:00Z")),
+            auto_renew: Some(true),
+            notes: Some("Billed monthly".into()),
+            tags: vec!["pm".into(), "work".into()],
+            external_refs: vec![ExternalRefInput {
+                namespace: "linear".into(),
+                external_id: "org-42".into(),
+                source_url: None,
+            }],
+            ..service_cmd("Linear", ServiceType::Saas)
+        })
+        .unwrap();
+
+    let id = view.entry.asset.id;
+    assert_eq!(view.entry.asset.kind, AssetKind::ServiceSaas);
+    assert_eq!(view.entry.record.cost_minor, Some(3200));
+    assert_eq!(view.entry.record.currency.as_deref(), Some("USD"));
+    assert_eq!(view.tags, vec!["pm", "work"]);
+
+    // The whole record survives a fresh read from SQLite.
+    let reloaded = services.get_service(id).unwrap();
+    assert_eq!(reloaded.entry.record, view.entry.record);
+    assert_eq!(reloaded.entry.asset.summary.as_deref(), Some("Team chat"));
+    assert_eq!(
+        reloaded
+            .external_refs
+            .iter()
+            .map(|r| (r.namespace.as_str(), r.external_id.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("linear", "org-42")]
+    );
+
+    // An explicit patch writes through and is durable.
+    let updated = services
+        .update_service(UpdateService {
+            asset_id: id,
+            plan: Patch::Set("Enterprise".into()),
+            cost_minor: Patch::Set(9900),
+            currency: Patch::Set("usd".into()),
+            ..UpdateService::default()
+        })
+        .unwrap();
+    assert_eq!(updated.entry.record.plan.as_deref(), Some("Enterprise"));
+    assert_eq!(updated.entry.record.cost_minor, Some(9900));
+    // Currency normalizes even on the SQL write path.
+    assert_eq!(updated.entry.record.currency.as_deref(), Some("USD"));
+
+    drop(services);
+    let mut reopened = t.service_service();
+    let rows = reopened.list_services(&ServiceFilter::default()).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.record.plan.as_deref(), Some("Enterprise"));
+    assert_eq!(rows[0].entry.record.currency.as_deref(), Some("USD"));
+}
+
+#[test]
+fn sqlite_service_upsert_rejects_type_kind_mismatch() {
+    let t = env();
+
+    // A software asset shares the Asset table but cannot own a service record.
+    let software_id = t
+        .software_service()
+        .create_software(software_cmd("Ollama", SoftwareCategory::Runtime))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    let mismatched = ServiceRecord::new(software_id, ServiceType::Saas);
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.services().upsert(&mismatched))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
+    assert!(err.to_string().contains("requires asset kind"), "{err:?}");
+
+    // Nothing was written.
+    let stored = t
+        .factory
+        .clone()
+        .read(&mut |q| q.services().get(software_id))
+        .unwrap();
+    assert!(stored.is_none());
+
+    // The guard is about the pair, not the direction: an api record on a saas
+    // asset fails the same way.
+    let service_id = t
+        .service_service()
+        .create_service(service_cmd("OpenAI", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let mismatched = ServiceRecord::new(service_id, ServiceType::Api);
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.services().upsert(&mismatched))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
+
+    // The original record is untouched by the failed overwrite attempt.
+    let stored = t
+        .factory
+        .clone()
+        .read(&mut |q| q.services().get(service_id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.service_type, ServiceType::Saas);
+}
+
+#[test]
+fn sqlite_service_upsert_normalizes_and_rejects_at_the_boundary() {
+    let t = env();
+    let id = t
+        .service_service()
+        .create_service(service_cmd("Hetzner", ServiceType::Vps))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    // Unnormalized text is canonicalized by the repository itself, so even a
+    // direct UnitOfWork write cannot store raw input.
+    let mut raw = ServiceRecord::new(id, ServiceType::Vps);
+    raw.provider = Some("  Hetzner Online  ".into());
+    t.factory
+        .clone()
+        .transact(&mut |uow| uow.services().upsert(&raw))
+        .unwrap();
+    let stored = t
+        .factory
+        .clone()
+        .read(&mut |q| q.services().get(id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.provider.as_deref(), Some("Hetzner Online"));
+
+    // Money invariants are enforced at the boundary before any SQL runs.
+    let mut bad = ServiceRecord::new(id, ServiceType::Vps);
+    bad.cost_minor = Some(-5);
+    bad.currency = Some("USD".into());
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.services().upsert(&bad))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }), "{err:?}");
+
+    let mut bad = ServiceRecord::new(id, ServiceType::Vps);
+    bad.cost_minor = Some(100);
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.services().upsert(&bad))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }), "{err:?}");
+}
+
+#[test]
+fn service_search_projection_and_rebuild_work_in_sqlite() {
+    let t = env();
+    let mut services = t.service_service();
+    let id = services
+        .create_service(CreateService {
+            provider: Some("Cloudflare".into()),
+            domain_name: Some("assetmesh.dev".into()),
+            plan: Some("Pro".into()),
+            cost_minor: Some(2000),
+            currency: Some("USD".into()),
+            billing_cadence: Some(BillingCadence::Monthly),
+            notes: Some("DNS and CDN".into()),
+            tags: vec!["infra".into()],
+            external_refs: vec![ExternalRefInput {
+                namespace: "cloudflare".into(),
+                external_id: "zone-7".into(),
+                source_url: None,
+            }],
+            ..service_cmd("Cloudflare", ServiceType::Domain)
+        })
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    let mut search = t.search_service();
+    // Money appears in its display form, never as a float (ADR 0010).
+    let hits = search.search("USD 20.00", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].asset_id, id);
+    assert_eq!(hits[0].kind, "service.domain");
+
+    // Tags, aliases, provider, and the canonical domain are all search terms.
+    assert_eq!(search.search("infra", 10).unwrap().len(), 1);
+    assert_eq!(search.search("cloudflare:zone-7", 10).unwrap().len(), 1);
+    assert_eq!(search.search("assetmesh.dev", 10).unwrap().len(), 1);
+
+    // Wipe the projection and rebuild: canonical data restores search.
+    t.factory
+        .clone()
+        .transact(&mut |uow| uow.search_index().replace_all(&[]))
+        .unwrap();
+    assert!(search.search("Cloudflare", 10).unwrap().is_empty());
+    search.rebuild().unwrap();
+    assert_eq!(search.search("Cloudflare", 10).unwrap().len(), 1);
+}
+
+#[test]
+fn sqlite_service_upsert_rejects_credential_url_and_domain_misuse() {
+    let t = env();
+    let id = t
+        .service_service()
+        .create_service(service_cmd("Mixpanel", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    // A credential-bearing URL is rejected at the storage boundary too — the
+    // canonical vocabulary has no field that may hold it (ADR 0010).
+    let mut leaky = ServiceRecord::new(id, ServiceType::Saas);
+    leaky.endpoint_url = Some("https://user:pass@mixpanel.com".into());
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.services().upsert(&leaky))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }), "{err:?}");
+    assert!(err.to_string().contains("credentials"), "{err:?}");
+
+    // domain_name on a non-domain service is canonical-metadata misuse.
+    let mut misuse = ServiceRecord::new(id, ServiceType::Saas);
+    misuse.domain_name = Some("mixpanel.com".into());
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.services().upsert(&misuse))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }), "{err:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Repository-boundary kind guard (docs/10 "Asset kinds and type compatibility")
+// ---------------------------------------------------------------------------
+
+/// Writes an Asset with a changed kind, bypassing the application layer: the
+/// guard is a repository-boundary contract the spec names explicitly, so it is
+/// exercised there directly.
+fn retype_asset(factory: &mut SharedSqlite, id: AssetId, kind: AssetKind) -> AppResult<()> {
+    factory.transact(&mut |w| {
+        let mut asset = w.assets().get(id)?.expect("asset exists");
+        asset.kind = kind;
+        w.assets().update(&asset)
+    })
+}
+
+#[test]
+fn asset_repo_rejects_a_kind_change_that_strands_a_service_record() {
+    // The typed detail's discriminator (service_type) is only consistent with
+    // the kind assigned at creation, and no write path re-types an asset, so
+    // the repository boundary refuses ANY kind change while the old module's
+    // detail row remains — including a within-module one like
+    // service.saas -> service.api, which would leave a `saas` record on an
+    // `api` asset. No application layer exposes this, so it is tested at the
+    // repository boundary the spec names.
+    let mut t = env();
+    let created = t
+        .service_service()
+        .create_service(service_cmd("Linear", ServiceType::Saas))
+        .unwrap();
+    let id = created.entry.asset.id;
+
+    // Within-module re-type while the record exists: refused.
+    let err =
+        retype_asset(&mut t.factory, id, AssetKind::parse("service.api").unwrap()).unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
+    assert!(err.to_string().contains("record"), "{err}");
+
+    // Cross-module re-type is refused for the same reason.
+    let err =
+        retype_asset(&mut t.factory, id, AssetKind::parse("media.movie").unwrap()).unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
+
+    // The stored kind and the record's type are both unchanged.
+    let (kind, ty) = t
+        .factory
+        .read(&mut |q| {
+            Ok((
+                q.assets().get(id)?.unwrap().kind,
+                q.services().get(id)?.unwrap().service_type,
+            ))
+        })
+        .unwrap();
+    assert_eq!(kind.as_str(), "service.saas");
+    assert_eq!(ty.as_str(), "saas");
+
+    // The documented escape hatch: remove the module record first, then the
+    // re-type is allowed and no invariant is left dangling.
+    t.factory
+        .transact(&mut |w| w.services().delete(id))
+        .unwrap();
+    retype_asset(&mut t.factory, id, AssetKind::parse("media.movie").unwrap()).unwrap();
+    let kind = t
+        .factory
+        .read(&mut |q| Ok(q.assets().get(id)?.unwrap().kind))
+        .unwrap();
+    assert_eq!(kind.as_str(), "media.movie");
+}
+
+#[test]
+fn sqlite_export_refuses_when_service_records_exist() {
+    // The services wire format is Phase 3D. Until it exists the exporter must
+    // fail loudly rather than emit a bundle that would silently drop every
+    // ServiceRecord on restore.
+    let t = env();
+    t.service_service()
+        .create_service(service_cmd("OpenAI", ServiceType::Saas))
+        .unwrap();
+
+    let err = t.export_service().export("test").unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
+    assert!(err.to_string().contains("service"), "{err}");
 }
