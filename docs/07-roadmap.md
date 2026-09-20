@@ -107,19 +107,38 @@ Exit criteria: installed software and CLI tools can be discovered, reviewed, ado
 
 ## Phase 3 — Services and Subscriptions vertical slice
 
+Status: **contract defined; implementation pending**. See `docs/10-services-subscriptions-v1.md` and ADR 0010.
+
+Purpose: validate that the shared AssetMesh kernel can support a third substantially different domain with commercial lifecycle metadata and service relationships, without turning AssetMesh into a cloud-management, monitoring, accounting, or credential-storage system.
+
 Deliverables:
 
-- API / SaaS / local-service / VPS / domain asset kinds;
-- service CRUD application services;
-- endpoint/provider/account metadata without secret leakage;
-- renewal/cost metadata where useful;
-- namespaced provider/external references;
-- relations between software, projects, accounts, domains, and services;
-- search projection;
-- portable module schema;
-- CLI/test coverage.
+- `service.saas`, `service.api`, `service.vps`, `service.domain`, and `service.local` asset kinds with module-owned typed details;
+- service CRUD application services with repository-boundary kind/type invariants;
+- provider/account/endpoint/domain metadata without secret leakage;
+- subscription plan, integer-minor-unit cost, billing cadence, renewal, expiry, and auto-renew metadata;
+- explicit `record_renewal` application use case without guessed billing-calendar arithmetic;
+- namespaced provider/external references following the existing exact-ref identity rules;
+- relation registry additions for `hosted_on`/`hosts` and `points_to`/`pointed_to_by`, preserving canonical one-row storage;
+- Service -> SearchDocument projection with no credential material;
+- Service-specific merge conflict semantics;
+- migration 0003 from a real Phase 2 database fixture;
+- portable `modules/services.jsonl` schema with backward-compatible declaration semantics;
+- CLI and end-to-end coverage over the same application layer future adapters will use.
 
-Exit criteria: Media, Software, and Services coexist on the same shared Asset identity, search, activity, relation, migration, and portability contracts without cross-module table coupling.
+Explicitly deferred:
+
+- desktop UI and graph visualization;
+- Docker/OrbStack/process/port monitoring;
+- health checks, logs, SSH administration, and start/stop/restart actions;
+- automatic cloud/SaaS account discovery;
+- automatic renewal/purchasing;
+- invoice/accounting subsystem, tax calculation, or currency conversion;
+- password/API-key/token/cookie/SSH-key storage in canonical Service data;
+- durable background jobs or a mandatory local daemon;
+- separate Subscription or Account top-level asset modules.
+
+Exit criteria: SaaS, API, VPS, domain, and local-service assets can be created, edited, archived, searched, related, exported/imported, and rebuilt headlessly; subscription lifecycle metadata is deterministic; renewals are explicitly recordable; no credential material enters canonical/search/activity/export data; new relation types preserve canonical storage; a real Phase 2 database migrates safely; and Media, Software, and Services coexist on the same shared Asset identity, search, activity, relation, migration, merge, and portability contracts without cross-module table coupling.
 
 ## Phase 4 — Cross-module Relations and Library Core
 
@@ -195,8 +214,7 @@ Candidates:
 - learning records/cards;
 - projects/workspaces;
 - books/music;
-- domains/VPS inventory;
-- subscription lifecycle.
+- knowledge collections.
 
 At this point reassess whether the internal module descriptor is mature enough to justify a third-party plugin API.
 
