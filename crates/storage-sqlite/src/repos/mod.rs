@@ -4,14 +4,18 @@ mod activity;
 mod asset;
 mod external_ref;
 mod media;
+mod relation;
 mod search;
+mod software;
 mod tag;
 
 pub use activity::SqliteActivityRepo;
 pub use asset::SqliteAssetRepo;
 pub use external_ref::SqliteExternalRefRepo;
 pub use media::SqliteMediaRepo;
+pub use relation::SqliteRelationRepo;
 pub use search::SqliteSearchIndex;
+pub use software::SqliteSoftwareRepo;
 pub use tag::SqliteTagRepo;
 
 use assetmesh_core::domain::Timestamp;

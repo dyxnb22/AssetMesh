@@ -1,8 +1,8 @@
 //! Search use cases: query the projection and rebuild it from canonical
 //! state (ADR 0006). The projection is disposable; a rebuild always
-//! reproduces it from assets, media details, tags, and external refs.
+//! reproduces it from assets, module details, tags, and external refs.
 
-use crate::application::projection::project_media;
+use crate::application::projection::{project_media, project_software};
 use crate::application::SharedClock;
 use crate::domain::asset::LifecycleState;
 use crate::domain::search::SearchHit;
@@ -52,6 +52,8 @@ impl<F: UnitOfWorkFactory> SearchService<F> {
 }
 
 /// Projects every live asset from canonical state within the caller's scope.
+/// Each module owns its projector; the rebuild simply asks whichever module
+/// owns the asset's kind.
 pub(crate) fn project_all(
     uow: &mut dyn crate::ports::uow::UnitOfWork,
 ) -> AppResult<Vec<crate::domain::search::SearchDocument>> {
@@ -65,13 +67,24 @@ pub(crate) fn project_all(
         if asset.lifecycle_state == LifecycleState::Merged {
             continue;
         }
-        let record = match uow.media().get(asset.id)? {
-            Some(record) => record,
-            None => continue, // assets without module details are not searchable yet
-        };
         let tags = uow.tags().list_for_asset(asset.id)?;
         let refs = uow.external_refs().list_for_asset(asset.id)?;
-        documents.push(project_media(&asset, &record, &tags, &refs));
+        match asset.kind.module() {
+            "media" => {
+                let Some(record) = uow.media().get(asset.id)? else {
+                    continue; // assets without module details are not searchable yet
+                };
+                documents.push(project_media(&asset, &record, &tags, &refs));
+            }
+            "software" => {
+                let Some(record) = uow.software().get(asset.id)? else {
+                    continue;
+                };
+                documents.push(project_software(&asset, &record, &tags, &refs));
+            }
+            // Modules without a projector yet are simply not searchable.
+            _ => continue,
+        }
     }
     Ok(documents)
 }

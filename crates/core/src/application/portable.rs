@@ -3,8 +3,8 @@
 //! The portable bundle is a product contract, independent of the physical
 //! SQLite schema AND of the Rust domain structs: dedicated `*V1` DTOs freeze
 //! the wire format so internal refactors cannot silently change version 1.
-//! Derived state (search projection), provider cache, and secrets are
-//! excluded.
+//! Derived state (search projection), discovery snapshots, provider cache,
+//! and secrets are excluded.
 //!
 //! Layout:
 //!
@@ -16,24 +16,38 @@
 //! ├── activity.jsonl
 //! ├── tags.json
 //! ├── asset_tags.jsonl
+//! ├── relations.jsonl
 //! └── modules/
-//!     └── media.jsonl
+//!     ├── media.jsonl
+//!     └── software.jsonl
 //! ```
+//!
+//! Module sections are governed by manifest declaration (ADR 0008): a
+//! bundle exported by a build that manages a module declares it in
+//! `manifest.modules` (and its count in `record_counts`), and the section is
+//! then authoritative — including reconciliation of destination state the
+//! bundle no longer carries. A Phase 1 bundle predates Software and
+//! Relations: the absent section means "contains no such state", imports
+//! cleanly, and leaves any pre-existing destination data of that kind
+//! untouched. A section file present WITHOUT its manifest declaration is
+//! bundle corruption and fails loudly.
 //!
 //! Every import (dry-run or commit) runs the same preflight: declared files
 //! must be present, decoded row counts must match the manifest, identities
 //! must be unique, and the reference graph (module details, refs,
-//! memberships, activity, merge redirects) must be internally consistent —
-//! a damaged bundle can never restore "successfully" while omitting records.
-//! Dry-run additionally inspects the destination, so it fails exactly when
-//! commit would.
+//! memberships, activity, merge redirects, relations) must be internally
+//! consistent — a damaged bundle can never restore "successfully" while
+//! omitting records. Dry-run additionally inspects the destination, so it
+//! fails exactly when commit would.
 
 use crate::application::SharedClock;
 use crate::domain::activity::ActivityEvent;
 use crate::domain::asset::{Asset, AssetKind, LifecycleState};
 use crate::domain::external_ref::AssetExternalRef;
-use crate::domain::ids::{ActivityId, AssetId, ExternalRefId, TagId};
+use crate::domain::ids::{ActivityId, AssetId, ExternalRefId, RelationId, TagId};
 use crate::domain::media::{MediaRecord, MediaType};
+use crate::domain::relation::{Relation, RelationProvenance, RelationType};
+use crate::domain::software::{InstallSource, SoftwareCategory, SoftwareRecord};
 use crate::domain::tag::Tag;
 use crate::domain::Timestamp;
 use crate::ports::uow::UnitOfWorkFactory;
@@ -50,6 +64,10 @@ pub const EXPORT_VERSION: i64 = 1;
 /// Media module data schema version — owned by the Media module
 /// (`domain::media::SCHEMA_VERSION`) and re-exported here for convenience.
 pub use crate::domain::media::SCHEMA_VERSION as MEDIA_SCHEMA_VERSION;
+
+/// Software module data schema version — owned by the Software module
+/// (`domain::software::SCHEMA_VERSION`).
+pub use crate::domain::software::SCHEMA_VERSION as SOFTWARE_SCHEMA_VERSION;
 
 // ---------------------------------------------------------------------------
 // V1 wire DTOs — the frozen interchange representation
@@ -98,6 +116,32 @@ pub struct PortableMediaRecordV1 {
     pub notes: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortableSoftwareRecordV1 {
+    pub asset_id: String,
+    pub category: String,
+    pub install_source: String,
+    pub version: Option<String>,
+    pub install_location: Option<String>,
+    pub executable_path: Option<String>,
+    pub purpose: Option<String>,
+    pub notes: Option<String>,
+    pub discovered_at: Option<String>,
+    pub installed_at: Option<String>,
+    pub architecture: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortableRelationV1 {
+    pub id: String,
+    pub source_asset_id: String,
+    pub target_asset_id: String,
+    pub relation_type: String,
+    pub note: Option<String>,
+    pub provenance: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -255,6 +299,98 @@ impl PortableMediaRecordV1 {
     }
 }
 
+impl PortableSoftwareRecordV1 {
+    fn from_domain(record: &SoftwareRecord) -> Self {
+        PortableSoftwareRecordV1 {
+            asset_id: id_to_wire(record.asset_id.as_uuid()),
+            category: record.category.as_str().to_string(),
+            install_source: record.install_source.as_str().to_string(),
+            version: record.version.clone(),
+            install_location: record.install_location.clone(),
+            executable_path: record.executable_path.clone(),
+            purpose: record.purpose.clone(),
+            notes: record.notes.clone(),
+            discovered_at: record.discovered_at.map(ts_to_wire),
+            installed_at: record.installed_at.map(ts_to_wire),
+            architecture: record.architecture.clone(),
+        }
+    }
+
+    fn into_domain(self) -> AppResult<SoftwareRecord> {
+        Ok(SoftwareRecord {
+            asset_id: AssetId::from_uuid(id_from_wire(&self.asset_id, "software")?),
+            category: SoftwareCategory::parse(&self.category).ok_or_else(|| {
+                AppError::validation(format!(
+                    "bundle software has unknown category {:?}",
+                    self.category
+                ))
+            })?,
+            install_source: InstallSource::parse(&self.install_source).ok_or_else(|| {
+                AppError::validation(format!(
+                    "bundle software has unknown install_source {:?}",
+                    self.install_source
+                ))
+            })?,
+            version: self.version,
+            install_location: self.install_location,
+            executable_path: self.executable_path,
+            purpose: self.purpose,
+            notes: self.notes,
+            discovered_at: match &self.discovered_at {
+                Some(t) => Some(ts_from_wire(t, "software.discovered_at")?),
+                None => None,
+            },
+            installed_at: match &self.installed_at {
+                Some(t) => Some(ts_from_wire(t, "software.installed_at")?),
+                None => None,
+            },
+            architecture: self.architecture,
+        })
+    }
+}
+
+impl PortableRelationV1 {
+    fn from_domain(relation: &Relation) -> Self {
+        PortableRelationV1 {
+            id: id_to_wire(relation.id.as_uuid()),
+            source_asset_id: id_to_wire(relation.source_asset_id.as_uuid()),
+            target_asset_id: id_to_wire(relation.target_asset_id.as_uuid()),
+            relation_type: relation.relation_type.as_str().to_string(),
+            note: relation.note.clone(),
+            provenance: relation.provenance.as_str().to_string(),
+            created_at: ts_to_wire(relation.created_at),
+        }
+    }
+
+    fn into_domain(self) -> AppResult<Relation> {
+        Ok(Relation {
+            id: RelationId::from_uuid(id_from_wire(&self.id, "relation")?),
+            source_asset_id: AssetId::from_uuid(id_from_wire(
+                &self.source_asset_id,
+                "relation source",
+            )?),
+            target_asset_id: AssetId::from_uuid(id_from_wire(
+                &self.target_asset_id,
+                "relation target",
+            )?),
+            relation_type: RelationType::parse(&self.relation_type).ok_or_else(|| {
+                AppError::validation(format!(
+                    "bundle relation has unknown type {:?}",
+                    self.relation_type
+                ))
+            })?,
+            note: self.note,
+            provenance: RelationProvenance::parse(&self.provenance).ok_or_else(|| {
+                AppError::validation(format!(
+                    "bundle relation has unknown provenance {:?}",
+                    self.provenance
+                ))
+            })?,
+            created_at: ts_from_wire(&self.created_at, "relation.created_at")?,
+        })
+    }
+}
+
 impl PortableExternalRefV1 {
     fn from_domain(reference: &AssetExternalRef) -> Self {
         PortableExternalRefV1 {
@@ -358,14 +494,33 @@ impl PortableBundle {
 // Export
 // ---------------------------------------------------------------------------
 
-/// Canonical file paths of a V1 bundle.
-pub const V1_FILE_PATHS: [&str; 6] = [
+/// Required core file paths of a V1 bundle (always present).
+pub const V1_CORE_FILE_PATHS: [&str; 5] = [
     "assets.jsonl",
     "external_refs.jsonl",
     "activity.jsonl",
     "tags.json",
     "asset_tags.jsonl",
+];
+
+/// Module data files. `modules/media.jsonl` is required (every real export
+/// has always carried Media); `modules/software.jsonl` is present iff the
+/// manifest declares the software module.
+pub const V1_MEDIA_FILE_PATH: &str = "modules/media.jsonl";
+pub const V1_SOFTWARE_FILE_PATH: &str = "modules/software.jsonl";
+pub const V1_RELATIONS_FILE_PATH: &str = "relations.jsonl";
+
+/// Every file path a current exporter writes (a superset of what older
+/// exporters wrote; readers pick up whichever exist).
+pub const V1_FILE_PATHS: [&str; 8] = [
+    "assets.jsonl",
+    "external_refs.jsonl",
+    "activity.jsonl",
+    "tags.json",
+    "asset_tags.jsonl",
+    "relations.jsonl",
     "modules/media.jsonl",
+    "modules/software.jsonl",
 ];
 
 pub struct PortableExportService<F: UnitOfWorkFactory> {
@@ -381,18 +536,30 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
     /// Builds the whole bundle from one snapshot-consistent read scope. Rows
     /// are ordered by identity so bundles are deterministic and diffable.
     pub fn export(&mut self, app_version: &str) -> AppResult<PortableBundle> {
-        let (assets, media, refs, activity, tags, memberships) = self.factory.read(&mut |q| {
-            let assets = q.assets().list(&crate::ports::repos::AssetFilter {
-                kind: None,
-                lifecycle: Some(crate::ports::repos::LifecycleFilter::All),
+        let (assets, media, software, refs, activity, tags, memberships, relations) =
+            self.factory.read(&mut |q| {
+                let assets = q.assets().list(&crate::ports::repos::AssetFilter {
+                    kind: None,
+                    lifecycle: Some(crate::ports::repos::LifecycleFilter::All),
+                })?;
+                let media = q.media().list_all()?;
+                let software = q.software().list_all()?;
+                let refs = q.external_refs().list_all()?;
+                let activity = q.activity().list_all()?;
+                let tags = q.tags().list_all()?;
+                let memberships = q.tags().list_memberships()?;
+                let relations = q.relations().list_all()?;
+                Ok((
+                    assets,
+                    media,
+                    software,
+                    refs,
+                    activity,
+                    tags,
+                    memberships,
+                    relations,
+                ))
             })?;
-            let media = q.media().list_all()?;
-            let refs = q.external_refs().list_all()?;
-            let activity = q.activity().list_all()?;
-            let tags = q.tags().list_all()?;
-            let memberships = q.tags().list_memberships()?;
-            Ok((assets, media, refs, activity, tags, memberships))
-        })?;
 
         let created_at = self.clock.now();
 
@@ -404,6 +571,11 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
             .map(PortableMediaRecordV1::from_domain)
             .collect();
         media.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
+        let mut software: Vec<PortableSoftwareRecordV1> = software
+            .iter()
+            .map(PortableSoftwareRecordV1::from_domain)
+            .collect();
+        software.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
         let mut refs: Vec<PortableExternalRefV1> = refs
             .iter()
             .map(PortableExternalRefV1::from_domain)
@@ -418,6 +590,11 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
         activity.sort_by(|a, b| (&a.occurred_at, &a.id).cmp(&(&b.occurred_at, &b.id)));
         let mut tags: Vec<PortableTagV1> = tags.iter().map(PortableTagV1::from_domain).collect();
         tags.sort_by(|a, b| (&a.id, &a.name).cmp(&(&b.id, &b.name)));
+        let mut relations: Vec<PortableRelationV1> = relations
+            .iter()
+            .map(PortableRelationV1::from_domain)
+            .collect();
+        relations.sort_by(|a, b| a.id.cmp(&b.id));
         let mut memberships = memberships;
         memberships.sort();
 
@@ -434,12 +611,20 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
             version: EXPORT_VERSION,
             created_at: ts_to_wire(created_at),
             app_version: app_version.to_string(),
-            modules: BTreeMap::from([(
-                "media".to_string(),
-                ModuleVersion {
-                    schema_version: MEDIA_SCHEMA_VERSION,
-                },
-            )]),
+            modules: BTreeMap::from([
+                (
+                    "media".to_string(),
+                    ModuleVersion {
+                        schema_version: MEDIA_SCHEMA_VERSION,
+                    },
+                ),
+                (
+                    "software".to_string(),
+                    ModuleVersion {
+                        schema_version: SOFTWARE_SCHEMA_VERSION,
+                    },
+                ),
+            ]),
             record_counts: BTreeMap::from([
                 ("assets".to_string(), assets.len()),
                 ("external_refs".to_string(), refs.len()),
@@ -447,6 +632,8 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                 ("tags".to_string(), tags.len()),
                 ("asset_tags".to_string(), asset_tags_rows.len()),
                 ("media".to_string(), media.len()),
+                ("software".to_string(), software.len()),
+                ("relations".to_string(), relations.len()),
             ]),
         };
 
@@ -472,8 +659,16 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                 content: to_jsonl(&asset_tags_rows)?,
             },
             ExportFile {
+                path: "relations.jsonl".into(),
+                content: to_jsonl(&relations)?,
+            },
+            ExportFile {
                 path: "modules/media.jsonl".into(),
                 content: to_jsonl(&media)?,
+            },
+            ExportFile {
+                path: "modules/software.jsonl".into(),
+                content: to_jsonl(&software)?,
             },
         ];
 
@@ -617,20 +812,34 @@ pub struct PortableImportReport {
     pub assets_updated: usize,
     pub media_created: usize,
     pub media_updated: usize,
+    pub software_created: usize,
+    pub software_updated: usize,
     pub external_refs_created: usize,
     pub external_refs_deduplicated: usize,
     pub activity_created: usize,
     pub tags_created: usize,
+    pub relations_created: usize,
+    pub relations_updated: usize,
 }
 
 /// Fully decoded and preflighted bundle contents.
 struct DecodedBundle {
     assets: Vec<Asset>,
     media: Vec<MediaRecord>,
+    /// Empty when the bundle predates the Software module (undeclared).
+    software: Vec<SoftwareRecord>,
     refs: Vec<AssetExternalRef>,
     activity: Vec<ActivityEvent>,
     tags: Vec<Tag>,
     asset_tags: Vec<AssetTagRow>,
+    /// Empty when the bundle predates Relations (undeclared).
+    relations: Vec<Relation>,
+    /// True when the manifest declares the software module. Declared
+    /// sections are authoritative on import (reconciliation applies);
+    /// undeclared sections are legacy compatibility and leave destination
+    /// state untouched.
+    software_declared: bool,
+    relations_declared: bool,
 }
 
 /// One consistent snapshot of the destination, taken before commit or
@@ -638,12 +847,21 @@ struct DecodedBundle {
 /// dry-run is field-for-field identical to what commit would do.
 struct DestinationSnapshot {
     asset_ids: HashSet<AssetId>,
+    /// Kinds of destination assets, so an import can detect a cross-module
+    /// re-typing that would strand a module record (e.g. a bundle declaring a
+    /// media.* kind over an asset that carries a software record).
+    asset_kinds: HashMap<AssetId, AssetKind>,
     media_asset_ids: HashSet<AssetId>,
+    software_asset_ids: HashSet<AssetId>,
     ref_pairs: HashMap<(String, String), AssetId>,
     ref_ids: HashMap<ExternalRefId, (String, String)>,
     activity_ids: HashSet<ActivityId>,
     tag_ids: HashSet<TagId>,
     tag_names: HashSet<String>,
+    relation_ids: HashSet<RelationId>,
+    /// Canonical relation triples keyed for duplicate/conflict checks,
+    /// including the mirror-image key of symmetric types.
+    relation_triples: HashMap<(String, String, String), RelationId>,
 }
 
 impl DestinationSnapshot {
@@ -657,11 +875,26 @@ impl DestinationSnapshot {
             .into_iter()
             .map(|a| a.id)
             .collect();
+        let asset_kinds: HashMap<AssetId, AssetKind> = q
+            .assets()
+            .list(&crate::ports::repos::AssetFilter {
+                kind: None,
+                lifecycle: Some(crate::ports::repos::LifecycleFilter::All),
+            })?
+            .into_iter()
+            .map(|a| (a.id, a.kind))
+            .collect();
         let media_asset_ids: HashSet<AssetId> = q
             .media()
             .list_all()?
             .into_iter()
             .map(|m| m.asset_id)
+            .collect();
+        let software_asset_ids: HashSet<AssetId> = q
+            .software()
+            .list_all()?
+            .into_iter()
+            .map(|s| s.asset_id)
             .collect();
         let mut ref_pairs = HashMap::new();
         let mut ref_ids = HashMap::new();
@@ -683,14 +916,37 @@ impl DestinationSnapshot {
             tag_ids.insert(tag.id);
             tag_names.insert(tag.name);
         }
+        let mut relation_ids = HashSet::new();
+        let mut relation_triples = HashMap::new();
+        for relation in q.relations().list_all()? {
+            relation_ids.insert(relation.id);
+            let triple = (
+                relation.source_asset_id.to_string(),
+                relation.target_asset_id.to_string(),
+                relation.relation_type.as_str().to_string(),
+            );
+            relation_triples.insert(triple, relation.id);
+            if relation.relation_type.is_symmetric() {
+                let mirror = (
+                    relation.target_asset_id.to_string(),
+                    relation.source_asset_id.to_string(),
+                    relation.relation_type.as_str().to_string(),
+                );
+                relation_triples.insert(mirror, relation.id);
+            }
+        }
         Ok(DestinationSnapshot {
             asset_ids,
+            asset_kinds,
             media_asset_ids,
+            software_asset_ids,
             ref_pairs,
             ref_ids,
             activity_ids,
             tag_ids,
             tag_names,
+            relation_ids,
+            relation_triples,
         })
     }
 }
@@ -723,6 +979,54 @@ fn check_destination(decoded: &DecodedBundle, snapshot: &DestinationSnapshot) ->
             }
         }
     }
+    // A bundled relation must not overwrite a destination relation between
+    // the same endpoints with a different identity.
+    for relation in &decoded.relations {
+        let triple = (
+            relation.source_asset_id.to_string(),
+            relation.target_asset_id.to_string(),
+            relation.relation_type.as_str().to_string(),
+        );
+        if let Some(existing) = snapshot.relation_triples.get(&triple) {
+            if *existing != relation.id {
+                return Err(AppError::import_conflict(format!(
+                    "relation {} between {} and {} already exists in the destination as {}",
+                    relation.relation_type,
+                    relation.source_asset_id,
+                    relation.target_asset_id,
+                    existing
+                )));
+            }
+        }
+    }
+    // A bundle must not re-type an asset across modules when the destination
+    // still carries the old module's record — that would strand a software
+    // record on a media.* asset (or the reverse), and the repository boundary
+    // would reject the write. Caught here so dry-run and commit fail
+    // identically, before any canonical mutation.
+    for asset in &decoded.assets {
+        let Some(stored_kind) = snapshot.asset_kinds.get(&asset.id) else {
+            continue;
+        };
+        if stored_kind.module() == asset.kind.module() {
+            continue;
+        }
+        let has_old_record = if asset.kind.module() == "software" {
+            snapshot.media_asset_ids.contains(&asset.id)
+        } else {
+            snapshot.software_asset_ids.contains(&asset.id)
+        };
+        if has_old_record {
+            return Err(AppError::import_conflict(format!(
+                "asset {} is a {} in the destination and the bundle re-types it as {}; remove the \
+                 {} record on the destination before importing",
+                asset.id,
+                stored_kind,
+                asset.kind,
+                stored_kind.module()
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -737,13 +1041,20 @@ fn dispositions(decoded: &DecodedBundle, snapshot: &DestinationSnapshot) -> Port
             report.assets_created += 1;
         }
     }
-    // Judged by MediaRecord existence, not asset existence: an asset can be
-    // present in the destination while its module details are not.
+    // Judged by module-record existence, not asset existence: an asset can
+    // be present in the destination while its module details are not.
     for record in &decoded.media {
         if snapshot.media_asset_ids.contains(&record.asset_id) {
             report.media_updated += 1;
         } else {
             report.media_created += 1;
+        }
+    }
+    for record in &decoded.software {
+        if snapshot.software_asset_ids.contains(&record.asset_id) {
+            report.software_updated += 1;
+        } else {
+            report.software_created += 1;
         }
     }
     for reference in &decoded.refs {
@@ -765,6 +1076,13 @@ fn dispositions(decoded: &DecodedBundle, snapshot: &DestinationSnapshot) -> Port
         .iter()
         .filter(|t| !snapshot.tag_names.contains(&t.name) && !snapshot.tag_ids.contains(&t.id))
         .count();
+    for relation in &decoded.relations {
+        if snapshot.relation_ids.contains(&relation.id) {
+            report.relations_updated += 1;
+        } else {
+            report.relations_created += 1;
+        }
+    }
     report
 }
 
@@ -802,8 +1120,8 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
         }
 
         // Commit. Assets first (self-referencing merged_into is resolved in
-        // a second pass), then module details, refs, tags, activity, and
-        // finally module-state reconciliation + projections.
+        // a second pass), then module details, refs, tags, activity,
+        // relations, and finally module-state reconciliation + projections.
         self.factory.transact(&mut |uow| {
             let report = dispositions(&decoded, &snapshot);
 
@@ -829,6 +1147,9 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
 
             for record in &decoded.media {
                 uow.media().upsert(record)?;
+            }
+            for record in &decoded.software {
+                uow.software().upsert(record)?;
             }
 
             for reference in &decoded.refs {
@@ -876,34 +1197,81 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
                 }
             }
 
+            for relation in &decoded.relations {
+                if snapshot.relation_ids.contains(&relation.id) {
+                    uow.relations().update(relation)?;
+                } else {
+                    uow.relations().insert(relation)?;
+                }
+            }
+
             // Module-state reconciliation: the bundle is authoritative for
             // every asset it contains. An asset without module details in
             // the bundle (typically a merged tombstone) must not keep stale
             // destination details or a search document; a details-bearing
             // asset is projected from its ACTUAL committed state (post-remap
             // tags, destination refs), not from the bundle subset.
+            // Undeclared (legacy) sections leave destination state of that
+            // kind untouched.
+            let bundled_relation_ids: HashSet<RelationId> =
+                decoded.relations.iter().map(|r| r.id).collect();
+            for existing in uow.relations().list_all()? {
+                if !decoded.relations_declared || bundled_relation_ids.contains(&existing.id) {
+                    continue;
+                }
+                // Relations among bundled assets that the bundle no longer
+                // carries are removed; relations reaching outside the bundle
+                // belong to destination-local assets and stay.
+                if decoded
+                    .assets
+                    .iter()
+                    .any(|a| a.id == existing.source_asset_id)
+                    && decoded
+                        .assets
+                        .iter()
+                        .any(|a| a.id == existing.target_asset_id)
+                {
+                    uow.relations().delete(existing.id)?;
+                }
+            }
+
             for asset in &decoded.assets {
-                match decoded.media.iter().find(|m| m.asset_id == asset.id) {
-                    None => {
-                        uow.media().delete(asset.id)?;
-                        uow.search_index().remove(asset.id)?;
-                    }
-                    Some(_record) => {
-                        if asset.lifecycle_state == crate::domain::asset::LifecycleState::Merged {
-                            uow.search_index().remove(asset.id)?;
-                        } else {
-                            let record = uow
-                                .media()
-                                .get(asset.id)?
-                                .ok_or_else(|| AppError::not_found("media record", asset.id))?;
-                            let tags = uow.tags().list_for_asset(asset.id)?;
-                            let refs = uow.external_refs().list_for_asset(asset.id)?;
-                            let document = crate::application::projection::project_media(
-                                asset, &record, &tags, &refs,
-                            );
-                            uow.search_index().upsert(&document)?;
-                        }
-                    }
+                let bundled_media = decoded.media.iter().any(|m| m.asset_id == asset.id);
+                let bundled_software = decoded.software_declared
+                    && decoded.software.iter().any(|s| s.asset_id == asset.id);
+
+                if !bundled_media {
+                    uow.media().delete(asset.id)?;
+                }
+                if decoded.software_declared && !bundled_software {
+                    uow.software().delete(asset.id)?;
+                }
+
+                if asset.lifecycle_state == crate::domain::asset::LifecycleState::Merged {
+                    uow.search_index().remove(asset.id)?;
+                } else if bundled_media {
+                    let record = uow
+                        .media()
+                        .get(asset.id)?
+                        .ok_or_else(|| AppError::not_found("media record", asset.id))?;
+                    let tags = uow.tags().list_for_asset(asset.id)?;
+                    let refs = uow.external_refs().list_for_asset(asset.id)?;
+                    let document =
+                        crate::application::projection::project_media(asset, &record, &tags, &refs);
+                    uow.search_index().upsert(&document)?;
+                } else if bundled_software {
+                    let record = uow
+                        .software()
+                        .get(asset.id)?
+                        .ok_or_else(|| AppError::not_found("software record", asset.id))?;
+                    let tags = uow.tags().list_for_asset(asset.id)?;
+                    let refs = uow.external_refs().list_for_asset(asset.id)?;
+                    let document = crate::application::projection::project_software(
+                        asset, &record, &tags, &refs,
+                    );
+                    uow.search_index().upsert(&document)?;
+                } else {
+                    uow.search_index().remove(asset.id)?;
                 }
             }
 
@@ -944,14 +1312,64 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         }
     }
 
-    // Required files: a v1 bundle declares its full shape; missing files are
-    // corruption, not empty collections.
+    // Software module: declared → required and authoritative; undeclared →
+    // a legacy (Phase 1) bundle predating Software, whose section is empty.
+    let software_declared = match manifest.modules.get("software") {
+        Some(module) if module.schema_version == SOFTWARE_SCHEMA_VERSION => true,
+        Some(module) => {
+            return Err(AppError::unsupported_schema_version(
+                "software module",
+                module.schema_version,
+                format!("schema_version {SOFTWARE_SCHEMA_VERSION}"),
+            ))
+        }
+        None => false,
+    };
+    let relations_declared = manifest.record_counts.contains_key("relations");
+
+    // Core files: a v1 bundle declares its full core shape; missing files
+    // are corruption, not empty collections. Undeclared module sections
+    // must NOT have a file present.
     let mut file_content = HashMap::new();
-    for path in V1_FILE_PATHS {
+    for path in V1_CORE_FILE_PATHS {
         let content = bundle.file(path).ok_or_else(|| {
             AppError::validation(format!("bundle is missing required file {path:?}"))
         })?;
         file_content.insert(path, content);
+    }
+    let media_content = bundle.file(V1_MEDIA_FILE_PATH).ok_or_else(|| {
+        AppError::validation(format!(
+            "bundle is missing required file {V1_MEDIA_FILE_PATH:?}"
+        ))
+    })?;
+    file_content.insert(V1_MEDIA_FILE_PATH, media_content);
+    if software_declared {
+        let content = bundle.file(V1_SOFTWARE_FILE_PATH).ok_or_else(|| {
+            AppError::validation(format!(
+                "bundle declares the software module but is missing required file \
+                 {V1_SOFTWARE_FILE_PATH:?}"
+            ))
+        })?;
+        file_content.insert(V1_SOFTWARE_FILE_PATH, content);
+    } else if bundle.file(V1_SOFTWARE_FILE_PATH).is_some() {
+        return Err(AppError::validation(
+            "bundle contains modules/software.jsonl but its manifest does not declare \
+             the software module",
+        ));
+    }
+    if relations_declared {
+        let content = bundle.file(V1_RELATIONS_FILE_PATH).ok_or_else(|| {
+            AppError::validation(format!(
+                "bundle declares relations but is missing required file \
+                 {V1_RELATIONS_FILE_PATH:?}"
+            ))
+        })?;
+        file_content.insert(V1_RELATIONS_FILE_PATH, content);
+    } else if bundle.file(V1_RELATIONS_FILE_PATH).is_some() {
+        return Err(AppError::validation(
+            "bundle contains relations.jsonl but its manifest does not declare a \
+             relations count",
+        ));
     }
 
     // Decode + verify declared record counts (catches silent truncation).
@@ -979,6 +1397,35 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
             media_rows.len()
         )));
     }
+    let software_rows: Vec<PortableSoftwareRecordV1> = if software_declared {
+        let rows = decode_jsonl(
+            file_content["modules/software.jsonl"],
+            "modules/software.jsonl",
+        )?;
+        if rows.len() != count_of("software")? {
+            return Err(AppError::validation(format!(
+                "bundle count mismatch: manifest declares {} software records, found {}",
+                count_of("software")?,
+                rows.len()
+            )));
+        }
+        rows
+    } else {
+        Vec::new()
+    };
+    let relation_rows: Vec<PortableRelationV1> = if relations_declared {
+        let rows = decode_jsonl(file_content["relations.jsonl"], "relations.jsonl")?;
+        if rows.len() != count_of("relations")? {
+            return Err(AppError::validation(format!(
+                "bundle count mismatch: manifest declares {} relations, found {}",
+                count_of("relations")?,
+                rows.len()
+            )));
+        }
+        rows
+    } else {
+        Vec::new()
+    };
     let ref_rows: Vec<PortableExternalRefV1> =
         decode_jsonl(file_content["external_refs.jsonl"], "external_refs.jsonl")?;
     if ref_rows.len() != count_of("external_refs")? {
@@ -1033,6 +1480,31 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         })?;
         media.push(record);
     }
+    let mut software = Vec::with_capacity(software_rows.len());
+    for row in software_rows {
+        let mut record = row.into_domain()?;
+        // Normalize in place: trims free text and rejects control characters
+        // (including user-owned purpose/notes) before the value is stored, so
+        // a bundle cannot persist raw unnormalized text into canonical state.
+        record.validate().map_err(|e| {
+            AppError::validation(format!("bundle software record {}: {e}", record.asset_id))
+        })?;
+        software.push(record);
+    }
+    let mut relations = Vec::with_capacity(relation_rows.len());
+    for row in relation_rows {
+        let relation = row.into_domain()?;
+        relation
+            .validate()
+            .map_err(|e| AppError::validation(format!("bundle relation {}: {e}", relation.id)))?;
+        // Normalize to canonical storage form so a fact has exactly one
+        // representation (mirrors the application-layer write path): inverse
+        // pair types collapse onto their primary direction and symmetric
+        // endpoints are ordered. The later duplicate-triple check therefore
+        // also rejects bundles carrying both statements of one fact.
+        let relation = relation.canonical_form();
+        relations.push(relation);
+    }
     let mut refs = Vec::with_capacity(ref_rows.len());
     for row in ref_rows {
         let reference = row.into_domain()?;
@@ -1071,6 +1543,36 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
             return Err(AppError::validation(format!(
                 "bundle contains duplicate media record for asset {}",
                 record.asset_id
+            )));
+        }
+    }
+    let mut software_ids = HashSet::new();
+    for record in &software {
+        if !software_ids.insert(record.asset_id) {
+            return Err(AppError::validation(format!(
+                "bundle contains duplicate software record for asset {}",
+                record.asset_id
+            )));
+        }
+    }
+    let mut relation_ids = HashSet::new();
+    let mut relation_triples = HashSet::new();
+    for relation in &relations {
+        if !relation_ids.insert(relation.id) {
+            return Err(AppError::validation(format!(
+                "bundle contains duplicate relation id {}",
+                relation.id
+            )));
+        }
+        let triple = (
+            relation.source_asset_id,
+            relation.target_asset_id,
+            relation.relation_type,
+        );
+        if !relation_triples.insert(triple) {
+            return Err(AppError::validation(format!(
+                "bundle contains duplicate relation {} between {} and {}",
+                relation.relation_type, relation.source_asset_id, relation.target_asset_id
             )));
         }
     }
@@ -1131,6 +1633,37 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
             return Err(AppError::validation(format!(
                 "bundle asset {} has kind {} but its media record is a {}",
                 asset.id, asset.kind, record.media_type
+            )));
+        }
+    }
+    for record in &software {
+        let asset = assets
+            .iter()
+            .find(|a| a.id == record.asset_id)
+            .ok_or_else(|| {
+                AppError::validation(format!(
+                    "bundle software record references missing asset {}",
+                    record.asset_id
+                ))
+            })?;
+        if asset.kind != record.category.asset_kind() {
+            return Err(AppError::validation(format!(
+                "bundle asset {} has kind {} but its software record is a {}",
+                asset.id, asset.kind, record.category
+            )));
+        }
+    }
+    for relation in &relations {
+        if !asset_ids.contains(&relation.source_asset_id) {
+            return Err(AppError::validation(format!(
+                "bundle relation {} references missing source asset {}",
+                relation.id, relation.source_asset_id
+            )));
+        }
+        if !asset_ids.contains(&relation.target_asset_id) {
+            return Err(AppError::validation(format!(
+                "bundle relation {} references missing target asset {}",
+                relation.id, relation.target_asset_id
             )));
         }
     }
@@ -1207,10 +1740,14 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
     Ok(DecodedBundle {
         assets,
         media,
+        software,
         refs,
         activity,
         tags,
         asset_tags: asset_tag_rows,
+        relations,
+        software_declared,
+        relations_declared,
     })
 }
 

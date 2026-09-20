@@ -18,14 +18,24 @@ use assetmesh_core::AppError;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 
-pub(crate) const MIGRATIONS: &[(i64, &str, &str)] = &[(
-    1,
-    "0001_core_media_v1",
-    include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../migrations/0001_core_media_v1.sql"
-    )),
-)];
+pub(crate) const MIGRATIONS: &[(i64, &str, &str)] = &[
+    (
+        1,
+        "0001_core_media_v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../migrations/0001_core_media_v1.sql"
+        )),
+    ),
+    (
+        2,
+        "0002_software_relations_v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../migrations/0002_software_relations_v1.sql"
+        )),
+    ),
+];
 
 /// Latest database migration version.
 pub fn latest_db_version() -> i64 {

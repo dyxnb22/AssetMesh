@@ -298,3 +298,267 @@ fn unicode_titles_never_panic_the_cli() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Software inventory end-to-end
+// ---------------------------------------------------------------------------
+
+use std::path::Path;
+
+/// Writes a fixture .app bundle whose Info.plist is standard XML.
+fn write_app_fixture(root: &Path, name: &str, bundle_id: &str, version: &str) {
+    let bundle = root.join(format!("{name}.app"));
+    std::fs::create_dir_all(bundle.join("Contents")).unwrap();
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+    <key>CFBundleIdentifier</key><string>{bundle_id}</string>
+    <key>CFBundleShortVersionString</key><string>{version}</string>
+    <key>CFBundleExecutable</key><string>{name}-bin</string>
+</dict></plist>"#
+    );
+    std::fs::write(bundle.join("Contents").join("Info.plist"), plist).unwrap();
+}
+
+#[test]
+fn software_lifecycle_and_discovery_work_end_to_end() {
+    let dir = unique_dir("software");
+    let db = "software.db";
+
+    // 1. manual add
+    let (stdout, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "software",
+            "add",
+            "--name",
+            "ripgrep",
+            "--category",
+            "cli",
+            "--install-source",
+            "homebrew-formula",
+            "--version",
+            "14.1.0",
+            "--purpose",
+            "fast search",
+            "--tag",
+            "dev",
+            "--ref",
+            "homebrew_formula:ripgrep",
+        ],
+    );
+    assert!(ok);
+    let id = stdout
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("created ")
+        .trim()
+        .to_string();
+
+    // 2. get + list
+    let (out, _, ok) = run(&dir, db, &["software", "get", &id]);
+    assert!(ok);
+    assert!(out.contains("ripgrep"), "{out}");
+    assert!(out.contains("homebrew_formula"));
+    assert!(out.contains("fast search"));
+    assert!(out.contains("software.created"));
+
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &["software", "list", "--category", "cli", "--json"],
+    );
+    assert!(ok);
+    assert!(out.contains("ripgrep"), "{out}");
+
+    // 3. update metadata
+    let (_, _, ok) = run(
+        &dir,
+        db,
+        &["software", "update", &id, "--purpose", "faster search"],
+    );
+    assert!(ok);
+
+    // 4. search finds software by name, purpose, and ref
+    let (out, _, ok) = run(&dir, db, &["software", "search", "faster search"]);
+    assert!(ok && out.contains("ripgrep"), "search: {out}");
+    let (out, _, _) = run(
+        &dir,
+        db,
+        &["software", "search", "homebrew_formula:ripgrep"],
+    );
+    assert!(out.contains("ripgrep"), "ref search: {out}");
+
+    // 5. discovery against a fixture root (host /Applications is untouched)
+    let apps_dir = dir.join("apps");
+    write_app_fixture(&apps_dir, "FixtureStudio", "com.fixture.studio", "3.1.4");
+
+    let (out, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "software",
+            "discover",
+            "macos",
+            "--root",
+            apps_dir.to_str().unwrap(),
+        ],
+    );
+    assert!(ok, "discover failed: {err}");
+    assert!(out.contains("macos_applications"), "{out}");
+    assert!(out.contains("[new] FixtureStudio"), "{out}");
+    assert!(out.contains("bundle_id:com.fixture.studio"), "{out}");
+    assert!(out.contains("not canonical assets"), "{out}");
+
+    // 6. adopt the candidate (re-scan + adopt in one flow)
+    let (out, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "software",
+            "adopt",
+            "macos",
+            "bundle_id:com.fixture.studio",
+            "--root",
+            apps_dir.to_str().unwrap(),
+            "--purpose",
+            "fixture testing",
+        ],
+    );
+    assert!(ok, "adopt failed: {err}");
+    assert!(out.contains("adopted candidate as"), "{out}");
+    assert!(out.contains("disposition: new"), "{out}");
+    let adopted_id = out
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("adopted candidate as ")
+        .split(" ")
+        .next()
+        .unwrap()
+        .to_string();
+
+    let (out, _, ok) = run(&dir, db, &["software", "get", &adopted_id]);
+    assert!(ok);
+    assert!(out.contains("FixtureStudio"), "{out}");
+    assert!(out.contains("3.1.4"), "{out}");
+    assert!(out.contains("fixture testing"), "{out}");
+    assert!(out.contains("software.adopted"), "{out}");
+
+    // 7. adopting the same candidate again updates the existing record
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "software",
+            "adopt",
+            "macos",
+            "bundle_id:com.fixture.studio",
+            "--root",
+            apps_dir.to_str().unwrap(),
+        ],
+    );
+    assert!(ok);
+    assert!(out.contains("disposition: exact_match"), "{out}");
+    assert!(out.contains("updated"), "{out}");
+
+    // 8. relations
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &["relation", "add", &id, "uses", &adopted_id, "--note", "e2e"],
+    );
+    assert!(ok, "relation add failed: {err}");
+    let (out, _, ok) = run(&dir, db, &["relation", "list", &adopted_id]);
+    assert!(ok);
+    assert!(out.contains("used_by"), "{out}");
+    assert!(out.contains("ripgrep"), "{out}");
+
+    // 9. export + restore into a fresh DB keeps software + relations
+    let export_dir = dir.join("bundle2");
+    let (out, err, ok) = run(&dir, db, &["export", export_dir.to_str().unwrap()]);
+    assert!(ok, "export failed: {err} {out}");
+    assert!(export_dir.join("modules/software.jsonl").exists());
+    assert!(export_dir.join("relations.jsonl").exists());
+
+    let (out, err, ok) = run(
+        &dir,
+        "software-restored.db",
+        &["import", export_dir.to_str().unwrap()],
+    );
+    assert!(ok, "restore failed: {err} {out}");
+    assert!(out.contains("software: 2 created"), "{out}");
+
+    let (out, _, ok) = run(
+        &dir,
+        "software-restored.db",
+        &["software", "get", &adopted_id],
+    );
+    assert!(ok);
+    assert!(out.contains("FixtureStudio"), "{out}");
+
+    let (out, _, ok) = run(
+        &dir,
+        "software-restored.db",
+        &["relation", "list", &adopted_id],
+    );
+    assert!(ok);
+    assert!(out.contains("used_by"), "{out}");
+    assert!(out.contains("ripgrep"), "{out}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn discovery_never_mutates_state_and_bad_selectors_fail_cleanly() {
+    let dir = unique_dir("discover-safe");
+    let db = "safe.db";
+
+    let apps_dir = dir.join("apps");
+    write_app_fixture(&apps_dir, "OnlyApp", "com.fixture.only", "1.0");
+
+    // Discover: read-only.
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "software",
+            "discover",
+            "macos",
+            "--root",
+            apps_dir.to_str().unwrap(),
+        ],
+    );
+    assert!(ok);
+    assert!(out.contains("[new] OnlyApp"), "{out}");
+
+    let (_, _, ok) = run(&dir, db, &["software", "list"]);
+    assert!(ok);
+    let (list_out, _, _) = run(&dir, db, &["software", "list"]);
+    assert!(list_out.contains("(no software records)"), "{list_out}");
+
+    // Unknown candidate selector fails with a clear error.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "software",
+            "adopt",
+            "macos",
+            "bundle_id:com.fixture.absent",
+            "--root",
+            apps_dir.to_str().unwrap(),
+        ],
+    );
+    assert!(!ok);
+    assert!(err.contains("not found"), "{err}");
+
+    // Unknown provider fails with guidance.
+    let (_, err, ok) = run(&dir, db, &["software", "discover", "registry"]);
+    assert!(!ok);
+    assert!(err.contains("unknown discovery provider"), "{err}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}

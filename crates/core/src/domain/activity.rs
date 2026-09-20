@@ -25,6 +25,10 @@ pub mod event_types {
     pub const MEDIA_DROPPED: &str = "media.dropped";
     pub const MEDIA_RATING_CHANGED: &str = "media.rating_changed";
     pub const MEDIA_IMPORTED: &str = "media.imported";
+    pub const SOFTWARE_CREATED: &str = "software.created";
+    pub const SOFTWARE_ADOPTED: &str = "software.adopted";
+    pub const RELATION_CREATED: &str = "relation.created";
+    pub const RELATION_REMOVED: &str = "relation.removed";
 }
 
 /// Well-known actors. Adapters may pass their own names, e.g. `cli`.

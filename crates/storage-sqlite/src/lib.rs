@@ -13,7 +13,7 @@ mod uow;
 pub use migrations::latest_db_version;
 pub use uow::{SharedSqlite, SqliteFactory};
 
-use assetmesh_core::application::portable::MEDIA_SCHEMA_VERSION;
+use assetmesh_core::application::portable::{MEDIA_SCHEMA_VERSION, SOFTWARE_SCHEMA_VERSION};
 use assetmesh_core::AppError;
 use rusqlite::Connection;
 
@@ -40,30 +40,53 @@ pub fn open_in_memory() -> Result<SqliteFactory, AppError> {
 /// supports (ADR 0008). A database written by a newer module version must
 /// fail loudly instead of being silently read or upgraded.
 fn validate_module_versions(conn: &Connection) -> Result<(), AppError> {
-    let version: Option<i64> = conn
-        .query_row(
-            "SELECT schema_version FROM module_metadata WHERE module_id = 'media'",
-            [],
-            |row| row.get(0),
-        )
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(other),
-        })
-        .map_err(map_error)?;
+    let versions: Vec<(String, i64)> = {
+        let mut stmt = conn
+            .prepare("SELECT module_id, schema_version FROM module_metadata")
+            .map_err(map_error)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(map_error)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_error)?);
+        }
+        out
+    };
 
-    match version {
-        None => Err(AppError::storage(
-            "database is missing media module metadata; refusing to open",
-        )),
+    let expected: &[(&str, i64)] = &[
+        ("media", MEDIA_SCHEMA_VERSION),
+        ("software", SOFTWARE_SCHEMA_VERSION),
+    ];
+    for (module_id, current) in expected {
+        check_module_version(&versions, module_id, *current)?;
+    }
+    Ok(())
+}
+
+/// Checks one module's persisted schema version against the running binary.
+fn check_module_version(
+    versions: &[(String, i64)],
+    module_id: &str,
+    current: i64,
+) -> Result<(), AppError> {
+    let found = versions
+        .iter()
+        .find(|(id, _)| id == module_id)
+        .map(|(_, v)| *v);
+    match found {
+        None => Err(AppError::storage(format!(
+            "database is missing {module_id} module metadata; refusing to open"
+        ))),
         // Only the current version is accepted: older semantics must go
         // through an explicit module migration (ADR 0008), zero/negative
         // values are corruption, and newer versions need newer code.
-        Some(v) if v != MEDIA_SCHEMA_VERSION => Err(AppError::unsupported_schema_version(
-            "media module",
+        Some(v) if v != current => Err(AppError::unsupported_schema_version(
+            format!("{module_id} module"),
             v,
-            format!("schema_version {MEDIA_SCHEMA_VERSION}"),
+            format!("schema_version {current}"),
         )),
         Some(_) => Ok(()),
     }

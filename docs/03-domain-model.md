@@ -83,7 +83,7 @@ erDiagram
   }
 ```
 
-Module-specific records are typed details of the shared asset identity, not independent competing top-level identities.
+Module-specific records are typed details of the shared asset identity, not independent competing top-level identities. Media (`MediaRecord`) and Software (`SoftwareRecord`, docs/09) are implemented this way.
 
 ## External references and aliases
 

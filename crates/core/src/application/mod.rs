@@ -9,7 +9,10 @@ pub mod import_parse;
 pub mod media_service;
 pub mod portable;
 pub mod projection;
+pub mod relation_service;
 pub mod search_service;
+pub mod software_discovery;
+pub mod software_service;
 
 use std::sync::Arc;
 

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/core",
+    "crates/providers",
     "crates/storage-sqlite",
     "crates/cli",
 ]
@@ -13,11 +14,13 @@ license = "MIT"
 
 [workspace.dependencies]
 assetmesh-core = { path = "crates/core" }
+assetmesh-providers = { path = "crates/providers" }
 assetmesh-storage-sqlite = { path = "crates/storage-sqlite" }
 
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 csv = "1"
+plist = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

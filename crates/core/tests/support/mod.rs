@@ -7,9 +7,11 @@
 use assetmesh_core::domain::activity::ActivityEvent;
 use assetmesh_core::domain::asset::{Asset, LifecycleState};
 use assetmesh_core::domain::external_ref::AssetExternalRef;
-use assetmesh_core::domain::ids::{ActivityId, AssetId, TagId};
+use assetmesh_core::domain::ids::{ActivityId, AssetId, RelationId, TagId};
 use assetmesh_core::domain::media::{MediaEntry, MediaRecord};
+use assetmesh_core::domain::relation::Relation;
 use assetmesh_core::domain::search::{SearchDocument, SearchHit};
+use assetmesh_core::domain::software::{SoftwareEntry, SoftwareRecord};
 use assetmesh_core::domain::tag::Tag;
 use assetmesh_core::domain::Timestamp;
 use assetmesh_core::ports::clock::Clock;
@@ -17,7 +19,8 @@ use assetmesh_core::ports::ids::IdGenerator;
 use assetmesh_core::ports::repos::{
     ActivityReader, ActivityRepository, AssetFilter, AssetReader, AssetRepository,
     ExternalRefReader, ExternalRefRepository, LifecycleFilter, MediaFilter, MediaListRow,
-    MediaReader, MediaRepository, MediaSort, TagReader, TagRepository,
+    MediaReader, MediaRepository, MediaSort, RelationReader, RelationRepository, SoftwareFilter,
+    SoftwareListRow, SoftwareReader, SoftwareRepository, SoftwareSort, TagReader, TagRepository,
 };
 use assetmesh_core::ports::search::{SearchIndex, SearchReader};
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
@@ -36,10 +39,12 @@ pub struct MemStore {
     pub inject_media_get_error: bool,
     pub assets: BTreeMap<String, Asset>,
     pub media: BTreeMap<String, MediaRecord>,
+    pub software: BTreeMap<String, SoftwareRecord>,
     pub refs: BTreeMap<String, AssetExternalRef>,
     pub activity: Vec<ActivityEvent>,
     pub tags: BTreeMap<String, Tag>,
     pub memberships: BTreeSet<(String, String)>,
+    pub relations: BTreeMap<String, Relation>,
     pub search_docs: BTreeMap<String, SearchDocument>,
 }
 
@@ -50,10 +55,12 @@ impl Default for MemStore {
             inject_media_get_error: false,
             assets: Default::default(),
             media: Default::default(),
+            software: Default::default(),
             refs: Default::default(),
             activity: Default::default(),
             tags: Default::default(),
             memberships: Default::default(),
+            relations: Default::default(),
             search_docs: Default::default(),
         }
     }
@@ -105,6 +112,29 @@ impl AssetRepository for MemStore {
     fn update(&mut self, asset: &Asset) -> AppResult<()> {
         if !self.assets.contains_key(asset.id.to_string().as_str()) {
             return Err(not_found("asset", asset.id));
+        }
+        // Mirrors the SQLite adapter: a cross-module kind change must not
+        // strand the existing module record (e.g. a software record left on a
+        // media.* asset). Within-module kind changes are allowed.
+        if let Some(existing) = self.assets.get(&asset.id.to_string()) {
+            if existing.kind.module() != asset.kind.module() {
+                let stranded = if asset.kind.module() == "software" {
+                    self.media.contains_key(&asset.id.to_string())
+                } else {
+                    self.software.contains_key(&asset.id.to_string())
+                };
+                if stranded {
+                    return Err(AppError::conflict(format!(
+                        "cannot change asset {} from {} to {} while it has a {} record; remove \
+                         the {} record first",
+                        asset.id,
+                        existing.kind,
+                        asset.kind,
+                        existing.kind.module(),
+                        existing.kind.module()
+                    )));
+                }
+            }
         }
         self.assets.insert(asset.id.to_string(), asset.clone());
         Ok(())
@@ -200,6 +230,152 @@ impl MediaRepository for MemStore {
     }
     fn delete(&mut self, asset_id: AssetId) -> AppResult<()> {
         self.media.remove(&asset_id.to_string());
+        Ok(())
+    }
+}
+
+impl SoftwareReader for MemStore {
+    fn get(&mut self, asset_id: AssetId) -> AppResult<Option<SoftwareRecord>> {
+        Ok(self.software.get(&asset_id.to_string()).cloned())
+    }
+    fn list(&mut self, filter: &SoftwareFilter) -> AppResult<Vec<SoftwareListRow>> {
+        let mut rows: Vec<SoftwareListRow> = self
+            .software
+            .values()
+            .filter_map(|record| {
+                let asset = self.assets.get(&record.asset_id.to_string())?;
+                if let Some(category) = filter.category {
+                    if record.category != category {
+                        return None;
+                    }
+                }
+                if let Some(install_source) = filter.install_source {
+                    if record.install_source != install_source {
+                        return None;
+                    }
+                }
+                let tags: Vec<String> = self
+                    .memberships
+                    .iter()
+                    .filter(|(a, _)| a == &asset.id.to_string())
+                    .filter_map(|(_, t)| self.tags.get(t).map(|tag| tag.name.clone()))
+                    .collect();
+                if let Some(tag) = &filter.tag {
+                    if !tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                        return None;
+                    }
+                }
+                Some(SoftwareListRow {
+                    entry: SoftwareEntry {
+                        asset: asset.clone(),
+                        record: record.clone(),
+                    },
+                    tags,
+                })
+            })
+            .collect();
+
+        match filter.sort {
+            SoftwareSort::UpdatedDesc => {
+                rows.sort_by_key(|row| std::cmp::Reverse(row.entry.asset.updated_at))
+            }
+            SoftwareSort::TitleAsc => rows.sort_by(|a, b| {
+                a.entry
+                    .asset
+                    .name
+                    .to_lowercase()
+                    .cmp(&b.entry.asset.name.to_lowercase())
+            }),
+        }
+        Ok(rows)
+    }
+    fn list_all(&mut self) -> AppResult<Vec<SoftwareRecord>> {
+        Ok(self.software.values().cloned().collect())
+    }
+}
+
+impl SoftwareRepository for MemStore {
+    fn upsert(&mut self, record: &SoftwareRecord) -> AppResult<()> {
+        // Mirrors the SQLite adapter: invariants enforced and normalized at
+        // the repository boundary, so even a direct UnitOfWork write cannot
+        // store raw unnormalized text.
+        let mut normalized = record.clone();
+        normalized.validate()?;
+        // Mirrors the SQLite adapter: category must match the owning asset's
+        // kind, even for direct UnitOfWork writes.
+        if let Some(asset) = self.assets.get(&normalized.asset_id.to_string()) {
+            if asset.kind != normalized.category.asset_kind() {
+                return Err(AppError::conflict(format!(
+                    "software record category {} requires asset kind {}, but asset {} has kind {}",
+                    normalized.category,
+                    normalized.category.asset_kind(),
+                    normalized.asset_id,
+                    asset.kind
+                )));
+            }
+        }
+        self.software
+            .insert(normalized.asset_id.to_string(), normalized);
+        Ok(())
+    }
+    fn delete(&mut self, asset_id: AssetId) -> AppResult<()> {
+        self.software.remove(&asset_id.to_string());
+        Ok(())
+    }
+}
+
+impl RelationReader for MemStore {
+    fn get(&mut self, id: RelationId) -> AppResult<Option<Relation>> {
+        Ok(self.relations.get(&id.to_string()).cloned())
+    }
+    fn list_for_asset(&mut self, asset_id: AssetId) -> AppResult<Vec<Relation>> {
+        let mut relations: Vec<Relation> = self
+            .relations
+            .values()
+            .filter(|r| r.source_asset_id == asset_id || r.target_asset_id == asset_id)
+            .cloned()
+            .collect();
+        relations.sort_by_key(|r| r.id.as_uuid());
+        Ok(relations)
+    }
+    fn list_all(&mut self) -> AppResult<Vec<Relation>> {
+        Ok(self.relations.values().cloned().collect())
+    }
+}
+
+impl RelationRepository for MemStore {
+    fn insert(&mut self, relation: &Relation) -> AppResult<()> {
+        relation.validate()?;
+        relation.ensure_canonical()?;
+        let duplicate = self.relations.values().any(|existing| {
+            existing.relation_type == relation.relation_type
+                && existing.source_asset_id == relation.source_asset_id
+                && existing.target_asset_id == relation.target_asset_id
+        });
+        if duplicate {
+            return Err(AppError::conflict(format!(
+                "relation between {} and {} already exists",
+                relation.source_asset_id, relation.target_asset_id
+            )));
+        }
+        self.relations
+            .insert(relation.id.to_string(), relation.clone());
+        Ok(())
+    }
+    fn update(&mut self, relation: &Relation) -> AppResult<()> {
+        relation.ensure_canonical()?;
+        if !self
+            .relations
+            .contains_key(relation.id.to_string().as_str())
+        {
+            return Err(not_found("relation", relation.id));
+        }
+        self.relations
+            .insert(relation.id.to_string(), relation.clone());
+        Ok(())
+    }
+    fn delete(&mut self, id: RelationId) -> AppResult<()> {
+        self.relations.remove(&id.to_string());
         Ok(())
     }
 }
@@ -451,6 +627,10 @@ impl UnitOfWork for MemStore {
         self
     }
 
+    fn software(&mut self) -> &mut dyn SoftwareRepository {
+        self
+    }
+
     fn external_refs(&mut self) -> &mut dyn ExternalRefRepository {
         self
     }
@@ -460,6 +640,10 @@ impl UnitOfWork for MemStore {
     }
 
     fn tags(&mut self) -> &mut dyn TagRepository {
+        self
+    }
+
+    fn relations(&mut self) -> &mut dyn RelationRepository {
         self
     }
 
@@ -477,6 +661,10 @@ impl QueryUnitOfWork for MemStore {
         self
     }
 
+    fn software(&mut self) -> &mut dyn SoftwareReader {
+        self
+    }
+
     fn external_refs(&mut self) -> &mut dyn ExternalRefReader {
         self
     }
@@ -486,6 +674,10 @@ impl QueryUnitOfWork for MemStore {
     }
 
     fn tags(&mut self) -> &mut dyn TagReader {
+        self
+    }
+
+    fn relations(&mut self) -> &mut dyn RelationReader {
         self
     }
 

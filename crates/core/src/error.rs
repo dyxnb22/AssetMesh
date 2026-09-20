@@ -79,6 +79,12 @@ impl AppError {
         }
     }
 
+    pub fn provider_unavailable(message: impl Into<String>) -> Self {
+        AppError::ProviderUnavailable {
+            message: message.into(),
+        }
+    }
+
     pub fn unsupported_schema_version(
         context: impl Into<String>,
         found: impl std::fmt::Display,

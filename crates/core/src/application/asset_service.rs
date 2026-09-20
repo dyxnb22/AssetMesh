@@ -5,12 +5,13 @@
 //! redirect, and uncertain matches are never merged silently.
 
 use crate::application::media_service::{load_active_asset, update_projection};
+use crate::application::software_service::update_software_projection;
 use crate::application::{SharedClock, SharedIdGenerator};
 use crate::domain::activity::{actors, event_types, ActivityEvent};
-use crate::domain::asset::Asset;
+use crate::domain::asset::{Asset, LifecycleState};
 use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::AssetId;
-use crate::ports::uow::UnitOfWorkFactory;
+use crate::ports::uow::{UnitOfWork, UnitOfWorkFactory};
 use crate::{AppError, AppResult};
 use serde_json::json;
 
@@ -78,26 +79,28 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
             // Keep the projection fresh; archived assets stay searchable.
             // Storage failures propagate — they must not be silently
             // swallowed while the canonical change commits.
-            if let Some(record) = uow.media().get(asset_id)? {
-                update_projection(uow, &asset, &record)?;
-            }
+            refresh_projection(uow, &asset)?;
             Ok(())
         })
     }
 
     /// Explicitly merges `loser` into `winner`.
     ///
-    /// Phase 1 behavior (full conflict UI is deferred, see DEVELOPMENT.md):
-    /// - both assets must exist, be active, and share the same kind;
+    /// Phase 2 behavior (full conflict UI is deferred, see DEVELOPMENT.md):
+    /// - both assets must exist; the loser may be active or archived (never
+    ///   already merged); the winner must be active; kinds must match;
     /// - external refs move to the winner; pairs the winner already owns are
     ///   dropped from the loser as redundant duplicates;
     /// - tags are unioned;
-    /// - if only the loser has media details they move to the winner; if both
-    ///   exist the survivor's details win and the loser's record is preserved
+    /// - module details (media, software) move if the winner has none; if
+    ///   both exist the survivor wins and the loser's record is preserved
     ///   inside the `asset.merged` activity payload for traceability;
+    /// - relations touching the loser are re-pointed at the winner, or
+    ///   dropped when that would duplicate the winner's own relations or
+    ///   connect the winner to itself;
     /// - the loser becomes a `merged` tombstone pointing at the winner;
-    /// - relations/collections/attachments do not exist yet in Phase 1, so
-    ///   their merge handling is a documented deferral (ADR 0005).
+    /// - collections/attachments do not exist yet, so their merge handling
+    ///   remains a documented deferral (ADR 0005).
     pub fn merge_assets(&mut self, loser_id: AssetId, winner_id: AssetId) -> AppResult<()> {
         let now = self.clock.now();
 
@@ -155,13 +158,14 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
             // Media details: move, or survivor-wins with provenance.
             let loser_record = uow.media().get(loser_id)?;
             let winner_record = uow.media().get(winner_id)?;
-            let mut loser_details_json: Option<serde_json::Value> = None;
+            let mut loser_media_json: Option<serde_json::Value> = None;
+            let mut loser_software_json: Option<serde_json::Value> = None;
             match (loser_record, winner_record) {
                 (Some(loser_rec), Some(_winner_rec)) => {
                     // Preserve the loser's details in the activity payload;
                     // serialization failure propagates instead of storing a
                     // lossy placeholder.
-                    loser_details_json = Some(serde_json::to_value(&loser_rec).map_err(|e| {
+                    loser_media_json = Some(serde_json::to_value(&loser_rec).map_err(|e| {
                         AppError::storage(format!("failed to serialize merged media details: {e}"))
                     })?);
                     uow.media().delete(loser_id)?;
@@ -173,6 +177,64 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
                     uow.media().upsert(&moved)?;
                 }
                 (None, _) => {}
+            }
+
+            // Software details: same rules as media details.
+            let loser_software = uow.software().get(loser_id)?;
+            let winner_software = uow.software().get(winner_id)?;
+            match (loser_software, winner_software) {
+                (Some(loser_rec), Some(_winner_rec)) => {
+                    loser_software_json = Some(serde_json::to_value(&loser_rec).map_err(|e| {
+                        AppError::storage(format!(
+                            "failed to serialize merged software details: {e}"
+                        ))
+                    })?);
+                    uow.software().delete(loser_id)?;
+                }
+                (Some(loser_rec), None) => {
+                    let mut moved = loser_rec;
+                    moved.asset_id = winner_id;
+                    uow.software().delete(loser_id)?;
+                    uow.software().upsert(&moved)?;
+                }
+                (None, _) => {}
+            }
+
+            // Relations: re-point the loser endpoint at the winner, or drop
+            // the relation when the winner is already connected (or the
+            // relation connected the merge pair itself).
+            for relation in uow.relations().list_for_asset(loser_id)? {
+                let other = if relation.source_asset_id == loser_id {
+                    relation.target_asset_id
+                } else {
+                    relation.source_asset_id
+                };
+                uow.relations().delete(relation.id)?;
+                if other == winner_id {
+                    continue; // would connect the winner to itself
+                }
+                let mut moved = relation;
+                if moved.source_asset_id == loser_id {
+                    moved.source_asset_id = winner_id;
+                } else {
+                    moved.target_asset_id = winner_id;
+                }
+                moved = moved.canonical_form();
+                let duplicate =
+                    uow.relations()
+                        .list_for_asset(winner_id)?
+                        .into_iter()
+                        .any(|existing| {
+                            existing.relation_type == moved.relation_type
+                                && ((existing.source_asset_id == moved.source_asset_id
+                                    && existing.target_asset_id == moved.target_asset_id)
+                                    || (moved.relation_type.is_symmetric()
+                                        && existing.source_asset_id == moved.target_asset_id
+                                        && existing.target_asset_id == moved.source_asset_id))
+                        });
+                if !duplicate {
+                    uow.relations().insert(&moved)?;
+                }
             }
 
             // Tombstone the loser; identity stays explainable (ADR 0005).
@@ -188,8 +250,11 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
                 "loser_id": loser_id.to_string(),
                 "loser_name": loser.name.clone(),
             });
-            if let Some(details) = loser_details_json {
+            if let Some(details) = loser_media_json {
                 payload["loser_media_details"] = details;
+            }
+            if let Some(details) = loser_software_json {
+                payload["loser_software_details"] = details;
             }
             uow.activity().append(&ActivityEvent::new(
                 event_types::ASSET_MERGED,
@@ -201,9 +266,7 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
 
             // Projection: drop the loser, refresh the winner.
             uow.search_index().remove(loser_id)?;
-            if let Some(record) = uow.media().get(winner_id)? {
-                update_projection(uow, &winner_mut, &record)?;
-            }
+            refresh_projection(uow, &winner_mut)?;
             Ok(())
         })
     }
@@ -239,9 +302,7 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
             uow.external_refs().insert(&reference)?;
 
             // Refs feed search keywords, so refresh the projection.
-            if let Some(record) = uow.media().get(asset_id)? {
-                update_projection(uow, &asset, &record)?;
-            }
+            refresh_projection(uow, &asset)?;
             Ok(())
         })
     }
@@ -263,10 +324,26 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
                 })?;
             uow.external_refs().delete(reference.id)?;
 
-            if let Some(record) = uow.media().get(asset_id)? {
-                update_projection(uow, &asset, &record)?;
-            }
+            refresh_projection(uow, &asset)?;
             Ok(())
         })
     }
+}
+
+/// Refreshes the search projection of one asset from whichever module owns
+/// its details, inside the caller's transaction. Assets without module
+/// details lose any stale document.
+pub(crate) fn refresh_projection(uow: &mut dyn UnitOfWork, asset: &Asset) -> AppResult<()> {
+    if asset.lifecycle_state == LifecycleState::Merged {
+        uow.search_index().remove(asset.id)?;
+        return Ok(());
+    }
+    if let Some(record) = uow.media().get(asset.id)? {
+        update_projection(uow, asset, &record)?;
+    } else if let Some(record) = uow.software().get(asset.id)? {
+        update_software_projection(uow, asset, &record)?;
+    } else {
+        uow.search_index().remove(asset.id)?;
+    }
+    Ok(())
 }

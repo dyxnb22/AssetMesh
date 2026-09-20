@@ -61,6 +61,13 @@ assetmesh-export/
 
 Provider caches, generated search indexes, discovery snapshots, and other rebuildable data are excluded by default.
 
+The implemented bundle (see DEVELOPMENT.md) uses underscores in file names
+(`external_refs.jsonl`), and module sections are governed by manifest
+declaration: `modules/media.jsonl` and `modules/software.jsonl` carry their
+`modules.<name>.schema_version`; `relations.jsonl` is declared by its
+`record_counts` entry. An undeclared section means the bundle predates that
+capability and imports as empty (docs/09 portable data policy).
+
 AssetMesh may later provide lighter export modes that omit canonical blobs, but such exports must be clearly labeled as metadata-only and must not pretend to be a complete portable copy.
 
 ## Manifest

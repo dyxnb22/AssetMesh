@@ -11,3 +11,7 @@ dist/
 *.db-wal
 *.sqlite
 *.sqlite3
+# Real historical fixtures are version-controlled on purpose: they pin the
+# actual layout of a database produced by an earlier release (docs/05).
+!crates/storage-sqlite/tests/fixtures/
+!crates/storage-sqlite/tests/fixtures/*.db

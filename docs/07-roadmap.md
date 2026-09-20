@@ -71,6 +71,8 @@ Exit criteria: historical media data can be imported, edited, searched, exported
 
 ## Phase 2 — Software Inventory vertical slice
 
+Status: **complete as a headless vertical slice**, following Media Records. Desktop presentation remains deferred to Phase 5; runtime enrichment is Phase 6. See `docs/09-software-inventory-v1.md` for the implemented contract.
+
 Purpose: validate that the shared AssetMesh kernel can support a second substantially different asset domain without introducing UI-specific assumptions or weakening the contracts established by Media Records.
 
 Deliverables:

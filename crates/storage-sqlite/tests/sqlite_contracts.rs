@@ -10,8 +10,10 @@ use assetmesh_core::application::portable::{
 };
 use assetmesh_core::application::search_service::SearchService;
 use assetmesh_core::application::{SharedClock, SharedIdGenerator};
-use assetmesh_core::domain::ids::AssetId;
+use assetmesh_core::domain::asset::{Asset, AssetKind};
+use assetmesh_core::domain::ids::{AssetId, RelationId};
 use assetmesh_core::domain::media::{MediaStatus, MediaType, Progress};
+use assetmesh_core::domain::relation::{Relation, RelationProvenance, RelationType};
 use assetmesh_core::ports::clock::Clock;
 use assetmesh_core::ports::repos::MediaFilter;
 use assetmesh_core::ports::uow::UnitOfWorkFactory;
@@ -785,4 +787,680 @@ fn factory_tamper_module_version(path: &str, version: i64) {
         [version],
     )
     .unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Software module (Phase 2)
+// ---------------------------------------------------------------------------
+
+use assetmesh_core::application::software_service::{
+    CreateSoftware, SoftwareService, UpdateSoftwareMetadata,
+};
+use assetmesh_core::domain::software::{InstallSource, SoftwareCategory};
+use assetmesh_core::ports::repos::SoftwareFilter;
+
+impl TestSqlite {
+    fn software_service(&self) -> SoftwareService<SharedSqlite> {
+        SoftwareService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
+    }
+}
+
+fn software_cmd(name: &str, category: SoftwareCategory) -> CreateSoftware {
+    CreateSoftware {
+        name: name.into(),
+        category,
+        summary: None,
+        install_source: None,
+        version: Some("1.0.0".into()),
+        install_location: Some("/opt/app".into()),
+        executable_path: None,
+        purpose: Some("testing".into()),
+        notes: None,
+        architecture: Some("arm64".into()),
+        installed_at: None,
+        tags: Vec::new(),
+        external_refs: Vec::new(),
+    }
+}
+
+#[test]
+fn software_crud_round_trips_all_fields() {
+    let t = env();
+    let mut software = t.software_service();
+
+    let created = software
+        .create_software(CreateSoftware {
+            external_refs: vec![ExternalRefInput {
+                namespace: "homebrew_formula".into(),
+                external_id: "ripgrep".into(),
+                source_url: None,
+            }],
+            ..software_cmd("ripgrep", SoftwareCategory::Cli)
+        })
+        .unwrap();
+    let id = created.entry.asset.id;
+    assert_eq!(created.entry.asset.kind.as_str(), "software.cli");
+    assert_eq!(created.entry.record.install_source, InstallSource::Unknown);
+    assert!(created.external_refs[0].id.as_uuid() != uuid::Uuid::nil());
+
+    // Reopen: persisted state matches.
+    let mut software = t.software_service();
+    let fetched = software.get_software(id).unwrap();
+    assert_eq!(fetched.entry.record, created.entry.record);
+
+    // Update.
+    let updated = software
+        .update_metadata(UpdateSoftwareMetadata {
+            asset_id: id,
+            version: Some("2.0".into()),
+            purpose: Some("new purpose".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(updated.entry.record.version.as_deref(), Some("2.0"));
+    assert_eq!(updated.entry.record.architecture.as_deref(), Some("arm64"));
+
+    // Filter by category via a fresh list.
+    let rows = software
+        .list_software(&SoftwareFilter {
+            category: Some(SoftwareCategory::Cli),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+}
+
+#[test]
+fn software_ref_uniqueness_enforced_in_sqlite() {
+    let t = env();
+    let mut software = t.software_service();
+    software
+        .create_software(CreateSoftware {
+            external_refs: vec![ExternalRefInput {
+                namespace: "bundle_id".into(),
+                external_id: "com.example.X".into(),
+                source_url: None,
+            }],
+            ..software_cmd("X", SoftwareCategory::Application)
+        })
+        .unwrap();
+    let err = software
+        .create_software(CreateSoftware {
+            external_refs: vec![ExternalRefInput {
+                namespace: "bundle_id".into(),
+                external_id: "com.example.X".into(),
+                source_url: None,
+            }],
+            ..software_cmd("X twin", SoftwareCategory::Application)
+        })
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err}");
+}
+
+#[test]
+fn software_search_and_rebuild_work_in_sqlite() {
+    let t = env();
+    let mut software = t.software_service();
+    let created = software
+        .create_software(CreateSoftware {
+            purpose: Some("local LLM testing".into()),
+            external_refs: vec![ExternalRefInput {
+                namespace: "homebrew_cask".into(),
+                external_id: "ollama".into(),
+                source_url: None,
+            }],
+            ..software_cmd("Ollama", SoftwareCategory::Runtime)
+        })
+        .unwrap();
+    let id = created.entry.asset.id;
+
+    let mut search = t.search_service();
+    let hits = search.search("ollama", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].kind, "software.runtime");
+    assert_eq!(hits[0].asset_id, id);
+
+    // Wipe the projection and rebuild: canonical data restores search.
+    search.rebuild().unwrap();
+    let hits = search.search("homebrew_cask:ollama", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+}
+
+/// The checksum of migration 0001 as recorded in the migration ledgers of
+/// every database written by Phase 1. Frozen like the checked-in portable
+/// bundle fixture: the equality assertion below fires if migration 0001 is
+/// ever edited, because existing installations carry this recorded checksum
+/// and their upgrade path would fail loudly. Changing 0001 therefore
+/// requires an explicit compatibility decision, never a silent edit.
+const PHASE1_MIGRATION_0001_CHECKSUM: &str =
+    "d84bc66dca1be6ac42bcb2bd6b0df0888104a126b53cad6b827af7a48beed9b7";
+
+fn migration_checksum(sql: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(sql.as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[test]
+fn migration_0001_is_unchanged_from_the_phase1_history() {
+    let sql1 = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../migrations/0001_core_media_v1.sql"
+    ));
+    assert_eq!(
+        migration_checksum(sql1),
+        PHASE1_MIGRATION_0001_CHECKSUM,
+        "migration 0001 was modified after being applied by Phase 1 \
+         installations; historical databases record the frozen checksum and \
+         will refuse to open — this needs an explicit compatibility decision"
+    );
+}
+
+#[test]
+fn migration_from_phase1_database_preserves_media_and_adds_software() {
+    // Upgrades against a REAL historical fixture: this database was produced
+    // by the Phase 1 binary (commit cdb0710) through the CLI, so it carries
+    // the actual layout, pragmas, migration ledger, and FTS5 shadow tables of
+    // that release — not an approximation rebuilt from today's 0001 SQL.
+    // Rebuilding from the current SQL could not catch a divergence between
+    // the historical layout and what the upgrade path assumes (docs/05:
+    // migration code must be testable on real legacy fixtures).
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/phase1_media_only.db");
+    assert!(
+        fixture.exists(),
+        "missing Phase 1 fixture: {}",
+        fixture.display()
+    );
+
+    let dir = std::env::temp_dir().join(format!("assetmesh-phase1-upgrade-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db_path = dir.join("phase1-upgraded.db");
+    std::fs::copy(&fixture, &db_path).unwrap();
+
+    // The historical ledger must record the frozen Phase 1 checksum, proving
+    // the fixture is genuinely from that release.
+    let stored_checksum: String = rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .query_row(
+            "SELECT checksum FROM assetmesh_migrations WHERE version = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored_checksum, PHASE1_MIGRATION_0001_CHECKSUM);
+
+    // Phase 1 shape: media-only, no software/relations tables yet.
+    let phase1_tables: Vec<String> = rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|name| !name.starts_with("search_documents"))
+        .collect();
+    assert!(
+        !phase1_tables
+            .iter()
+            .any(|t| t == "software_records" || t == "relations"),
+        "the Phase 1 fixture must predate the software/relations tables: {phase1_tables:?}"
+    );
+    let media_before: i64 = rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM media_records", [], |row| row.get(0))
+        .unwrap();
+
+    // Opening with the current binary migrates to the latest version.
+    let factory = SharedSqlite(Arc::new(
+        assetmesh_storage_sqlite::open(db_path.to_str().unwrap()).unwrap(),
+    ));
+    let version: i64 = factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row("SELECT MAX(version) FROM assetmesh_migrations", [], |row| {
+                row.get(0)
+            })
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(version, assetmesh_storage_sqlite::latest_db_version());
+
+    // Every Phase 1 media row survived the upgrade untouched.
+    let media_after: i64 = factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row("SELECT COUNT(*) FROM media_records", [], |row| row.get(0))
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(media_after, media_before);
+
+    // Historical data is still readable through the current application layer
+    // — the FTS5 index and its projection survived too.
+    let mut media = MediaService::new(factory.clone(), clock_shared(), ids_shared());
+    let rows = media.list_media(&MediaFilter::default()).unwrap();
+    assert_eq!(rows.len(), media_before as usize);
+    let frieren = rows
+        .iter()
+        .find(|r| r.entry.asset.name.starts_with("Frieren"))
+        .expect("the Phase 1 fixture's anime record must survive the upgrade");
+    assert_eq!(frieren.entry.asset.kind, MediaType::Anime.asset_kind());
+    let view = media.get_media(frieren.entry.asset.id).unwrap();
+    assert!(view.external_refs.iter().any(|r| r.namespace == "tmdb"));
+
+    // The software module is registered and functional on the upgraded DB.
+    let mut software = SoftwareService::new(factory.clone(), clock_shared(), ids_shared());
+    let created = software
+        .create_software(software_cmd("PostMigration", SoftwareCategory::Tool))
+        .unwrap();
+    assert_eq!(created.entry.asset.name, "PostMigration");
+
+    // Reopen is idempotent.
+    drop(software);
+    drop(media);
+    let reopened = assetmesh_storage_sqlite::open(db_path.to_str().unwrap()).unwrap();
+    let mut check = SoftwareService::new(
+        SharedSqlite(Arc::new(reopened)),
+        clock_shared(),
+        ids_shared(),
+    );
+    let rows = check.list_software(&SoftwareFilter::default()).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.asset.name, "PostMigration");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn clock_shared() -> SharedClock {
+    Arc::new(assetmesh_core::ports::clock::SystemClock)
+}
+
+fn ids_shared() -> SharedIdGenerator {
+    Arc::new(assetmesh_core::ports::ids::UuidV7Generator)
+}
+
+#[test]
+fn relations_enforce_unique_and_self_constraints() {
+    let t = env();
+    let mut software = t.software_service();
+    let a = software
+        .create_software(software_cmd("AppA", SoftwareCategory::Application))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let b = software
+        .create_software(software_cmd("AppB", SoftwareCategory::Runtime))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    let mut relations = assetmesh_core::application::relation_service::RelationService::new(
+        t.factory.clone(),
+        t.clock.clone(),
+        t.ids.clone(),
+    );
+    relations
+        .attach(
+            a,
+            assetmesh_core::domain::relation::RelationType::DependsOn,
+            b,
+            None,
+            assetmesh_core::domain::relation::RelationProvenance::Manual,
+        )
+        .unwrap();
+
+    // Same relation again → conflict.
+    let err = relations
+        .attach(
+            a,
+            assetmesh_core::domain::relation::RelationType::DependsOn,
+            b,
+            None,
+            assetmesh_core::domain::relation::RelationProvenance::Manual,
+        )
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err}");
+
+    // Self relation → validation failure.
+    let err = relations
+        .attach(
+            a,
+            assetmesh_core::domain::relation::RelationType::Uses,
+            a,
+            None,
+            assetmesh_core::domain::relation::RelationProvenance::Manual,
+        )
+        .unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }), "{err}");
+
+    // Views resolve inverse semantics from each side.
+    let from_a = relations.list_for_asset(a).unwrap();
+    assert_eq!(from_a.len(), 1);
+    assert_eq!(
+        from_a[0].relation_type,
+        assetmesh_core::domain::relation::RelationType::DependsOn
+    );
+    let from_b = relations.list_for_asset(b).unwrap();
+    assert_eq!(
+        from_b[0].relation_type,
+        assetmesh_core::domain::relation::RelationType::DependencyOf
+    );
+}
+
+#[test]
+fn sqlite_portable_round_trip_includes_software() {
+    let t = env();
+    let mut software = t.software_service();
+    software
+        .create_software(CreateSoftware {
+            external_refs: vec![ExternalRefInput {
+                namespace: "homebrew_cask".into(),
+                external_id: "iterm2".into(),
+                source_url: None,
+            }],
+            ..software_cmd("iTerm2", SoftwareCategory::Application)
+        })
+        .unwrap();
+
+    let mut export = t.export_service();
+    let bundle = export.export("test").unwrap();
+
+    let other = env();
+    let mut import = PortableImportService::new(other.factory.clone());
+    let report = import.import_bundle(&bundle, false).unwrap();
+    assert_eq!(report.software_created, 1);
+
+    let mut software2 = SoftwareService::new(
+        other.factory.clone(),
+        other.clock.clone(),
+        other.ids.clone(),
+    );
+    let rows = software2.list_software(&SoftwareFilter::default()).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.asset.name, "iTerm2");
+    assert_eq!(
+        rows[0].entry.record.install_location.as_deref(),
+        Some("/opt/app")
+    );
+}
+
+#[test]
+fn relations_reject_inverse_type_storage_at_the_sql_level() {
+    let t = env();
+    let mut software = t.software_service();
+    let a = software
+        .create_software(software_cmd("AppA", SoftwareCategory::Application))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let b = software
+        .create_software(software_cmd("AppB", SoftwareCategory::Runtime))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    let mut relations = assetmesh_core::application::relation_service::RelationService::new(
+        t.factory.clone(),
+        t.clock.clone(),
+        t.ids.clone(),
+    );
+    relations
+        .attach(
+            a,
+            assetmesh_core::domain::relation::RelationType::DependsOn,
+            b,
+            None,
+            assetmesh_core::domain::relation::RelationProvenance::Manual,
+        )
+        .unwrap();
+
+    // The migration restricts stored types to the canonical set, so an
+    // inverse-typed row is unrepresentable in SQLite itself — even for a
+    // direct SQL write that bypassed the application layer.
+    let err = t
+        .factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.execute(
+                "INSERT INTO relations (id, source_asset_id, target_asset_id, relation_type, \
+                 note, provenance, created_at) VALUES ('11111111-1111-7111-8111-111111111111', \
+                 ?1, ?2, 'dependency_of', NULL, 'manual', '2026-01-01T00:00:00Z')",
+                rusqlite::params![a.to_string(), b.to_string()],
+            )
+        })
+        .unwrap()
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("CHECK constraint"),
+        "CHECK(relation_type) must reject inverse storage: {err}"
+    );
+
+    // Exactly one row remains: the canonical one.
+    let count: i64 = t
+        .factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row("SELECT COUNT(*) FROM relations", [], |row| row.get(0))
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn sqlite_software_upsert_rejects_category_kind_mismatch() {
+    let t = env();
+    let mut media = t.media_service();
+    let media_asset = media
+        .create_media(CreateMedia {
+            title: "A Movie".into(),
+            media_type: MediaType::Movie,
+            ..create_cmd("placeholder", MediaType::Movie)
+        })
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    // Direct UnitOfWork write: a CLI software record cannot attach to a
+    // media asset — the repository boundary enforces category ↔ kind.
+    let mut wrong =
+        assetmesh_core::domain::software::SoftwareRecord::new(media_asset, SoftwareCategory::Cli);
+    wrong.version = Some("1.0".into());
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.software().upsert(&wrong))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err}");
+    assert!(err.to_string().contains("kind"), "{err}");
+}
+
+#[test]
+fn sqlite_rejects_cross_module_kind_change_in_both_directions() {
+    // The stranded-record guard must hold in both directions: a software
+    // record cannot survive under a media.* kind, and a media record cannot
+    // survive under a software.* kind.
+    let t = env();
+
+    // media → software: the media record would strand.
+    let mut media = t.media_service();
+    let media_asset = media
+        .create_media(create_cmd("A Movie", MediaType::Movie))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let now = t.clock.now();
+    let mut as_cli = Asset::new(media_asset, AssetKind::SoftwareCli, "A Movie", None, now).unwrap();
+    as_cli.touch(now);
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.assets().update(&as_cli))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err}");
+    assert!(err.to_string().contains("media record"), "{err}");
+    // The original media asset is untouched.
+    let kept = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.assets().get(media_asset))
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept.kind, AssetKind::MediaMovie);
+
+    // software → media: the software record would strand (this direction is
+    // the one the portable-import review finding exercised).
+    let mut software = t.software_service();
+    let sw_asset = software
+        .create_software(software_cmd("A Tool", SoftwareCategory::Cli))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let mut as_movie = Asset::new(sw_asset, AssetKind::MediaMovie, "A Tool", None, now).unwrap();
+    as_movie.touch(now);
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.assets().update(&as_movie))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err}");
+    assert!(err.to_string().contains("software record"), "{err}");
+
+    // Removing the record first unlocks the change.
+    t.factory
+        .clone()
+        .transact(&mut |uow| uow.software().delete(sw_asset))
+        .unwrap();
+    t.factory
+        .clone()
+        .transact(&mut |uow| uow.assets().update(&as_movie))
+        .unwrap();
+}
+
+#[test]
+fn relations_reject_reversed_related_to_at_the_sql_level() {
+    let t = env();
+    let mut software = t.software_service();
+    let a = software
+        .create_software(software_cmd("AppA", SoftwareCategory::Application))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let b = software
+        .create_software(software_cmd("AppB", SoftwareCategory::Runtime))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let (smaller, larger) = if a.to_string() < b.to_string() {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let (source, target) = (larger, smaller);
+
+    // Direct SQL in the non-canonical direction: the CHECK constraint on
+    // symmetric endpoint order must reject it, so both halves of one
+    // related_to fact cannot coexist even by bypassing the application layer.
+    let err = t
+        .factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.execute(
+                "INSERT INTO relations (id, source_asset_id, target_asset_id, relation_type, \
+                 note, provenance, created_at) VALUES ('22222222-2222-7222-8222-222222222222', \
+                 ?1, ?2, 'related_to', NULL, 'manual', '2026-01-01T00:00:00Z')",
+                rusqlite::params![source.to_string(), target.to_string()],
+            )
+        })
+        .unwrap()
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("CHECK constraint"),
+        "CHECK(related_to endpoint order) must reject the reversed row: {err}"
+    );
+
+    let count: i64 = t
+        .factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row("SELECT COUNT(*) FROM relations", [], |row| row.get(0))
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(count, 0, "no row may survive the rejected insert");
+
+    // And the repository seam rejects the same shape before it reaches SQL.
+    let reversed = Relation::new(
+        RelationId::generate(),
+        source,
+        target,
+        RelationType::RelatedTo,
+        RelationProvenance::Manual,
+        t.clock.now(),
+    )
+    .unwrap();
+    assert!(reversed.is_canonical() == (source.to_string() < target.to_string()));
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.relations().insert(&reversed))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }), "{err}");
+}
+
+#[test]
+fn relations_reject_inverse_type_at_the_repository_seam() {
+    let t = env();
+    let mut software = t.software_service();
+    let a = software
+        .create_software(software_cmd("AppA", SoftwareCategory::Application))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let b = software
+        .create_software(software_cmd("AppB", SoftwareCategory::Runtime))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    // A UnitOfWork write stating a fact via the inverse type must be rejected
+    // by the repository rather than stored as a duplicate representation.
+    let inverse = Relation::new(
+        RelationId::generate(),
+        b,
+        a,
+        RelationType::DependencyOf,
+        RelationProvenance::Manual,
+        t.clock.now(),
+    )
+    .unwrap();
+    let err = t
+        .factory
+        .clone()
+        .transact(&mut |uow| uow.relations().insert(&inverse))
+        .unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }), "{err}");
+    assert!(err.to_string().contains("depends_on"), "{err}");
+
+    let count: i64 = t
+        .factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row("SELECT COUNT(*) FROM relations", [], |row| row.get(0))
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(count, 0);
 }

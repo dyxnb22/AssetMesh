@@ -1,6 +1,8 @@
 # Contributing
 
-AssetMesh has completed its Phase 1 Media Records vertical slice and is now expanding the headless core across additional asset domains before building the desktop UI.
+AssetMesh has completed its Phase 1 (Media Records) and Phase 2 (Software
+Inventory) vertical slices and is now expanding the headless core across
+additional asset domains before building the desktop UI.
 
 Development principles:
 
@@ -13,6 +15,7 @@ Development principles:
 7. Keep AI/discovery advisory; canonical state must remain explainable.
 8. Do not move business rules, identity semantics, matching logic, merge behavior, or search semantics into presentation code.
 
-The completed first implementation target is `docs/08-media-records-v1.md`.
+Completed implementation targets: `docs/08-media-records-v1.md` and
+`docs/09-software-inventory-v1.md`.
 
-The current implementation target is **Phase 2 — Software Inventory vertical slice** in `docs/07-roadmap.md`. Phase 2 should remain usable through headless application services and CLI/test adapters; graphical presentation is intentionally deferred until Phase 5.
+The current implementation target is **Phase 3 — Services and Subscriptions** in `docs/07-roadmap.md`. New phases remain usable through headless application services and CLI/test adapters; graphical presentation is intentionally deferred until Phase 5.

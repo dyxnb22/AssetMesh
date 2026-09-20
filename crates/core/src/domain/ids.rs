@@ -67,3 +67,7 @@ define_id!(
     /// Identity of a shared tag.
     TagId
 );
+define_id!(
+    /// Identity of a single relation row between two assets.
+    RelationId
+);

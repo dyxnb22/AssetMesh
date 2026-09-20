@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 assetmesh-core = { workspace = true }
+assetmesh-providers = { workspace = true }
 assetmesh-storage-sqlite = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }

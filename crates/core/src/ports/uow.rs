@@ -11,7 +11,8 @@
 
 use crate::ports::repos::{
     ActivityReader, ActivityRepository, AssetReader, AssetRepository, ExternalRefReader,
-    ExternalRefRepository, MediaReader, MediaRepository, TagReader, TagRepository,
+    ExternalRefRepository, MediaReader, MediaRepository, RelationReader, RelationRepository,
+    SoftwareReader, SoftwareRepository, TagReader, TagRepository,
 };
 use crate::ports::search::{SearchIndex, SearchReader};
 use crate::AppResult;
@@ -20,9 +21,11 @@ use crate::AppResult;
 pub trait UnitOfWork {
     fn assets(&mut self) -> &mut dyn AssetRepository;
     fn media(&mut self) -> &mut dyn MediaRepository;
+    fn software(&mut self) -> &mut dyn SoftwareRepository;
     fn external_refs(&mut self) -> &mut dyn ExternalRefRepository;
     fn activity(&mut self) -> &mut dyn ActivityRepository;
     fn tags(&mut self) -> &mut dyn TagRepository;
+    fn relations(&mut self) -> &mut dyn RelationRepository;
     fn search_index(&mut self) -> &mut dyn SearchIndex;
 }
 
@@ -32,9 +35,11 @@ pub trait UnitOfWork {
 pub trait QueryUnitOfWork {
     fn assets(&mut self) -> &mut dyn AssetReader;
     fn media(&mut self) -> &mut dyn MediaReader;
+    fn software(&mut self) -> &mut dyn SoftwareReader;
     fn external_refs(&mut self) -> &mut dyn ExternalRefReader;
     fn activity(&mut self) -> &mut dyn ActivityReader;
     fn tags(&mut self) -> &mut dyn TagReader;
+    fn relations(&mut self) -> &mut dyn RelationReader;
     fn search_index(&mut self) -> &mut dyn SearchReader;
 }
 

@@ -74,6 +74,7 @@ impl MediaType {
             AssetKind::MediaTv => Some(MediaType::Tv),
             AssetKind::MediaAnime => Some(MediaType::Anime),
             AssetKind::MediaGame => Some(MediaType::Game),
+            _ => None,
         }
     }
 }

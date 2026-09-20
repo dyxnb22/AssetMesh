@@ -5,7 +5,7 @@ use assetmesh_core::domain::asset::{Asset, AssetKind, LifecycleState};
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::ports::repos::{AssetFilter, AssetReader, AssetRepository, LifecycleFilter};
 use assetmesh_core::{AppError, AppResult};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 pub struct SqliteAssetRepo<'conn> {
     pub(crate) conn: &'conn Connection,
@@ -132,6 +132,7 @@ impl AssetRepository for SqliteAssetRepo<'_> {
 
     fn update(&mut self, asset: &Asset) -> AppResult<()> {
         asset.validate()?;
+        self.ensure_kind_change_keeps_module_records_compatible(asset)?;
         let changed = self
             .conn
             .execute(
@@ -154,6 +155,60 @@ impl AssetRepository for SqliteAssetRepo<'_> {
             .map_err(crate::map_error)?;
         if changed == 0 {
             return Err(AppError::not_found("asset", asset.id));
+        }
+        Ok(())
+    }
+}
+
+impl SqliteAssetRepo<'_> {
+    /// Rejects a kind change that would strand the asset's existing module
+    /// record: a software record on a media.* asset (or vice versa) is an
+    /// invalid state the repository boundary must not write. Kinds within
+    /// one module may change (e.g. `media.movie` → `media.tv`); a change
+    /// across modules requires the module record to be removed first.
+    fn ensure_kind_change_keeps_module_records_compatible(&self, asset: &Asset) -> AppResult<()> {
+        let stored: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT kind FROM assets WHERE id = ?1",
+                [uuid_to_string(asset.id.as_uuid())],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(crate::map_error)?;
+        let Some(stored) = stored else {
+            return Ok(()); // an insert, or an asset that does not exist yet
+        };
+        if stored == asset.kind.as_str() {
+            return Ok(());
+        }
+        let stored_kind = AssetKind::parse(&stored)
+            .ok_or_else(|| AppError::storage(format!("unknown stored asset kind: {stored}")))?;
+        if stored_kind.module() == asset.kind.module() {
+            return Ok(());
+        }
+        // The record that would be stranded is the OLD module's: changing to
+        // software strands a media record, and changing away from software
+        // strands a software record.
+        let (table, module) = if asset.kind.module() == "software" {
+            ("media_records", stored_kind.module())
+        } else {
+            ("software_records", stored_kind.module())
+        };
+        let present: bool = self
+            .conn
+            .query_row(
+                &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE asset_id = ?1)"),
+                [uuid_to_string(asset.id.as_uuid())],
+                |row| row.get(0),
+            )
+            .map_err(crate::map_error)?;
+        if present {
+            return Err(AppError::conflict(format!(
+                "cannot change asset {} from {} to {} while it has a {} record; remove the \
+                 {} record first",
+                asset.id, stored_kind, asset.kind, module, module
+            )));
         }
         Ok(())
     }

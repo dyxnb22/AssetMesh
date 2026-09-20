@@ -10,8 +10,10 @@
 use crate::domain::activity::ActivityEvent;
 use crate::domain::asset::Asset;
 use crate::domain::external_ref::AssetExternalRef;
-use crate::domain::ids::{AssetId, ExternalRefId, TagId};
+use crate::domain::ids::{AssetId, ExternalRefId, RelationId, TagId};
 use crate::domain::media::{MediaEntry, MediaRecord, MediaStatus, MediaType};
+use crate::domain::relation::Relation;
+use crate::domain::software::{InstallSource, SoftwareCategory, SoftwareEntry, SoftwareRecord};
 use crate::domain::tag::Tag;
 use crate::{AppError, AppResult};
 
@@ -82,6 +84,63 @@ pub trait MediaReader {
 pub trait MediaRepository: MediaReader {
     fn upsert(&mut self, record: &MediaRecord) -> AppResult<()>;
     fn delete(&mut self, asset_id: AssetId) -> AppResult<()>;
+}
+
+/// Sort orders for software listing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SoftwareSort {
+    /// Most recently updated first.
+    #[default]
+    UpdatedDesc,
+    TitleAsc,
+}
+
+/// Typed software queries. Structured filtering remains typed application
+/// behavior; full-text search never replaces these filters (ADR 0006).
+#[derive(Debug, Clone, Default)]
+pub struct SoftwareFilter {
+    pub category: Option<SoftwareCategory>,
+    pub install_source: Option<InstallSource>,
+    pub tag: Option<String>,
+    pub sort: SoftwareSort,
+}
+
+/// Software list rows are pre-joined with their tags so list views avoid N+1
+/// lookups at the application layer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoftwareListRow {
+    pub entry: SoftwareEntry,
+    pub tags: Vec<String>,
+}
+
+pub trait SoftwareReader {
+    fn get(&mut self, asset_id: AssetId) -> AppResult<Option<SoftwareRecord>>;
+    fn list(&mut self, filter: &SoftwareFilter) -> AppResult<Vec<SoftwareListRow>>;
+    /// All software records, unsorted — used by projection rebuild and export.
+    fn list_all(&mut self) -> AppResult<Vec<SoftwareRecord>>;
+}
+
+pub trait SoftwareRepository: SoftwareReader {
+    fn upsert(&mut self, record: &SoftwareRecord) -> AppResult<()>;
+    fn delete(&mut self, asset_id: AssetId) -> AppResult<()>;
+}
+
+pub trait RelationReader {
+    fn get(&mut self, id: RelationId) -> AppResult<Option<Relation>>;
+    /// Relations stored with this asset as either endpoint.
+    fn list_for_asset(&mut self, asset_id: AssetId) -> AppResult<Vec<Relation>>;
+    /// Every relation, ordered by identity — used by export and merge.
+    fn list_all(&mut self) -> AppResult<Vec<Relation>>;
+}
+
+pub trait RelationRepository: RelationReader {
+    /// Inserts a relation. Fails with [`AppError::Conflict`] when the same
+    /// (source, target, type) relation — including the mirror-image row of a
+    /// symmetric type — already exists.
+    fn insert(&mut self, relation: &Relation) -> AppResult<()>;
+    /// Re-points one endpoint at another asset (merge move).
+    fn update(&mut self, relation: &Relation) -> AppResult<()>;
+    fn delete(&mut self, id: RelationId) -> AppResult<()>;
 }
 
 pub trait ExternalRefReader {

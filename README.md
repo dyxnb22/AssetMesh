@@ -103,17 +103,19 @@ Deliberately **not** implemented or frozen yet:
 - [Module System](docs/06-module-system.md)
 - [Roadmap](docs/07-roadmap.md)
 - [Media Records V1](docs/08-media-records-v1.md)
+- [Software Inventory V1](docs/09-software-inventory-v1.md)
 - [Architecture Decisions](docs/adr/README.md)
 - [Developer Setup & Implementation Notes](DEVELOPMENT.md)
 
 ## Current status
 
-**Phase 1 — Media Records vertical slice implemented** (headless core, no UI yet).
+**Phase 2 — Software Inventory vertical slice implemented** (headless core, no UI yet), after Phase 1 — Media Records.
 
 ```text
 AssetMesh/
 ├── crates/
 │   ├── core/            # domain + ports + application services (no infra deps)
+│   ├── providers/       # discovery adapters: macOS apps, Homebrew, npm/pipx
 │   ├── storage-sqlite/  # SQLite adapter: migrations, repositories, FTS5 search
 │   └── cli/             # assetmesh binary (thin adapter over application services)
 └── migrations/          # checksummed, ordered SQL migrations
@@ -121,18 +123,21 @@ AssetMesh/
 
 What works today:
 
-- shared `Asset` identity (UUIDv7) with Media module-owned typed details;
-- namespaced `AssetExternalRef` aliases with `UNIQUE(namespace, external_id)`;
-- explicit merge with tombstone/redirect (`merged_into`) semantics;
+- shared `Asset` identity (UUIDv7) with Media and Software module-owned typed details;
+- namespaced `AssetExternalRef` aliases with `UNIQUE(namespace, external_id)` (`bundle_id`, `homebrew_formula`, `homebrew_cask`, `npm`, `pipx`, ...);
+- explicit merge with tombstone/redirect (`merged_into`) semantics across Media and Software, including relation re-pointing;
 - Media CRUD/use cases with status/progress/rating invariants;
+- Software CRUD/use cases with category/install-source/location/purpose ("why installed") fields;
+- read-only discovery providers — macOS applications, Homebrew, npm/pipx CLI tools — producing advisory candidates that are classified (new / exact match / potential duplicate / conflict) and only become canonical through explicit adoption that never overwrites user-owned purpose/notes;
+- a minimal shared relation system (registry with inverse/symmetric semantics: `depends_on`, `uses`, `installed_via`, `related_to`);
 - atomic canonical-write + activity + projection commits (single short SQLite transaction);
-- rebuildable FTS5 search projection (with CJK/substring fallback);
+- rebuildable FTS5 search projection covering Media and Software (with CJK/substring fallback);
 - JSON/CSV legacy import with dry-run, matching precedence, and non-merging conflict reports;
-- portable export/import with independent DB / export / module-schema versions and round-trip tests;
+- portable export/import with independent DB / export / module-schema versions, round-trip tests, and documented Phase 1-bundle compatibility;
 - CLI exercising the same application layer future desktop, HTTP, or agent adapters can call.
 
-The next milestone is **Phase 2 — Software Inventory vertical slice**. It remains headless-first: software discovery, canonical adoption, search projection, relations, portability, migrations, and CLI/application coverage come before graphical presentation. The desktop shell is intentionally deferred until Phase 5, after Media, Software, Services, and unified-library contracts have been proven across multiple domains.
+The next milestone is **Phase 3 — Services and Subscriptions**. The desktop shell remains deferred until Phase 5, after Media, Software, Services, and unified-library contracts have been proven across multiple domains.
 
 Run `cargo test --workspace` and see [DEVELOPMENT.md](DEVELOPMENT.md) for setup, commands, and the contracts the implementation established.
 
-Still deliberately absent: desktop/React UI, HTTP/MCP servers, providers beyond the next planned discovery adapters, runtime discovery/monitoring outside Phase 2 software discovery scope, attachments/blobs (boundary defined by ADR 0009 only), sync, plugins, and background jobs.
+Still deliberately absent: desktop/React UI, HTTP/MCP servers, runtime discovery/monitoring (Phase 6), attachments/blobs (boundary defined by ADR 0009 only), sync, plugins, durable background jobs, and persistent discovery snapshots.

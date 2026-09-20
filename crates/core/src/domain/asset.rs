@@ -12,8 +12,8 @@ use std::fmt;
 
 /// The owning module/type of an asset, for example `media.movie`.
 ///
-/// Only the kinds required by Media V1 exist here. Future modules add their
-/// own kinds; the base `Asset` shape does not change.
+/// Only the kinds required by shipped modules exist here. Future modules add
+/// their own kinds; the base `Asset` shape does not change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AssetKind {
     #[serde(rename = "media.movie")]
@@ -24,6 +24,16 @@ pub enum AssetKind {
     MediaAnime,
     #[serde(rename = "media.game")]
     MediaGame,
+    #[serde(rename = "software.app")]
+    SoftwareApplication,
+    #[serde(rename = "software.cli")]
+    SoftwareCli,
+    #[serde(rename = "software.package")]
+    SoftwarePackage,
+    #[serde(rename = "software.runtime")]
+    SoftwareRuntime,
+    #[serde(rename = "software.tool")]
+    SoftwareTool,
 }
 
 impl AssetKind {
@@ -33,6 +43,11 @@ impl AssetKind {
             AssetKind::MediaTv => "media.tv",
             AssetKind::MediaAnime => "media.anime",
             AssetKind::MediaGame => "media.game",
+            AssetKind::SoftwareApplication => "software.app",
+            AssetKind::SoftwareCli => "software.cli",
+            AssetKind::SoftwarePackage => "software.package",
+            AssetKind::SoftwareRuntime => "software.runtime",
+            AssetKind::SoftwareTool => "software.tool",
         }
     }
 
@@ -42,6 +57,11 @@ impl AssetKind {
             "media.tv" => Some(AssetKind::MediaTv),
             "media.anime" => Some(AssetKind::MediaAnime),
             "media.game" => Some(AssetKind::MediaGame),
+            "software.app" => Some(AssetKind::SoftwareApplication),
+            "software.cli" => Some(AssetKind::SoftwareCli),
+            "software.package" => Some(AssetKind::SoftwarePackage),
+            "software.runtime" => Some(AssetKind::SoftwareRuntime),
+            "software.tool" => Some(AssetKind::SoftwareTool),
             _ => None,
         }
     }
@@ -53,6 +73,11 @@ impl AssetKind {
             | AssetKind::MediaTv
             | AssetKind::MediaAnime
             | AssetKind::MediaGame => "media",
+            AssetKind::SoftwareApplication
+            | AssetKind::SoftwareCli
+            | AssetKind::SoftwarePackage
+            | AssetKind::SoftwareRuntime
+            | AssetKind::SoftwareTool => "software",
         }
     }
 }

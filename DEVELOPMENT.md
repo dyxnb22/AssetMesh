@@ -1,8 +1,9 @@
 # Developer Setup & Implementation Notes
 
-This document covers how to build, test, and use the Phase 1 (Media Records)
-implementation, and records the concrete contracts the implementation
-established on top of the architecture docs and ADRs.
+This document covers how to build, test, and use the implementation (Phase 1
+Media Records + Phase 2 Software Inventory), and records the concrete
+contracts the implementation established on top of the architecture docs and
+ADRs.
 
 ## Requirements
 
@@ -12,8 +13,8 @@ established on top of the architecture docs and ADRs.
 ## Build & test
 
 ```bash
-cargo build                       # workspace: core, storage-sqlite, cli
-cargo test --workspace            # 63 tests: domain, use cases, sqlite, e2e
+cargo build                       # workspace: core, providers, storage-sqlite, cli
+cargo test --workspace            # 159 tests: domain, use cases, providers, sqlite, e2e
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features
 ```
@@ -24,27 +25,31 @@ cargo clippy --workspace --all-targets --all-features
 AssetMesh/
 ├── Cargo.toml                    # workspace
 ├── migrations/
-│   └── 0001_core_media_v1.sql    # database migration v1 (embedded at build time)
+│   ├── 0001_core_media_v1.sql    # database migration v1 (embedded at build time)
+│   └── 0002_software_relations_v1.sql  # software details + shared relations
 ├── crates/
 │   ├── core/                     # assetmesh-core: headless kernel (ADR 0001)
 │   │   └── src/
-│   │       ├── domain/           # Asset, MediaRecord, AssetExternalRef, Activity, Tag, SearchDocument
-│   │       ├── ports/            # repositories, UnitOfWork, SearchIndex, Clock, IdGenerator
-│   │       ├── application/      # use cases: media, asset/merge, search, import, portable export
+│   │       ├── domain/           # Asset, MediaRecord, SoftwareRecord, Relation, Refs, Activity, Tag, SearchDocument
+│   │       ├── ports/            # repositories, UnitOfWork, SearchIndex, discovery providers, Clock, IdGenerator
+│   │       ├── application/      # use cases: media, software + discovery/adoption, relations, asset/merge, search, import, portable export
 │   │       └── error.rs          # typed AppError model
+│   ├── providers/                # assetmesh-providers: macOS / Homebrew / npm+pipx discovery (seam-tested)
 │   ├── storage-sqlite/           # assetmesh-storage-sqlite: SQLite adapter
 │   │   └── src/
 │   │       ├── connection.rs     # shared pragma policy (foreign_keys, WAL, busy_timeout)
 │   │       ├── migrations.rs     # ordered, checksummed migration runner
 │   │       ├── uow.rs            # transaction boundary (IMMEDIATE tx, commit/rollback)
-│   │       └── repos/            # AssetRepository, MediaRepository, ..., FTS5 SearchIndex
+│   │       └── repos/            # Asset/Media/Software/ExternalRef/Relation/Tag/Activity repos, FTS5 SearchIndex
 │   └── cli/                      # assetmesh binary (thin adapter)
 └── docs/
 ```
 
 Dependency rule (verified by tests + crate boundaries): `cli → storage-sqlite →
-core`; `core` depends only on chrono/csv/serde/serde_json/thiserror/uuid — no
-database driver, UI framework, or transport.
+core` and `providers → core`; `core` depends only on
+chrono/csv/serde/serde_json/thiserror/uuid — no database driver, UI framework,
+OS API, or transport. Provider I/O (process execution, plist parsing) is
+confined to `assetmesh-providers` behind a `CommandRunner` seam.
 
 ## CLI usage
 
@@ -82,9 +87,10 @@ IDs may be given in full or as a unique prefix (≥4 chars).
 
 | Axis | Location | Current value |
 | --- | --- | --- |
-| Database migration version | `assetmesh_migrations` table (checksummed) | 1 |
+| Database migration version | `assetmesh_migrations` table (checksummed) | 2 |
 | Portable export format version | `manifest.json → version` | 1 (`EXPORT_VERSION`) |
-| Media module data schema version | `module_metadata` table + `manifest.json → modules.media.schema_version` | 1 (`MEDIA_SCHEMA_VERSION`) |
+| Media module data schema version | `module_metadata` + `manifest.json → modules.media.schema_version` | 1 (`MEDIA_SCHEMA_VERSION`) |
+| Software module data schema version | `module_metadata` + `manifest.json → modules.software.schema_version` | 1 (`SOFTWARE_SCHEMA_VERSION`) |
 
 A portable bundle with an unsupported format or module version is rejected
 before any canonical mutation. An already-applied database migration whose
@@ -100,8 +106,10 @@ assetmesh-export/
 ├── activity.jsonl
 ├── tags.json            # JSON array (tags are the only non-JSONL file)
 ├── asset_tags.jsonl
+├── relations.jsonl
 └── modules/
-    └── media.jsonl
+    ├── media.jsonl
+    └── software.jsonl
 ```
 
 - Rows are dedicated `*V1` wire DTOs (in `application/portable.rs`), not the
@@ -109,13 +117,24 @@ assetmesh-export/
   version 1. A checked-in fixture in `core/tests/export_tests.rs` pins the
   historical representation.
 - Search projections, provider cache, and secrets are never exported.
-- Every import (dry-run or commit) runs the same preflight: all six declared
+- Module sections are governed by manifest declaration: a section the
+  manifest declares is required, count-checked, and authoritative on import
+  (destination state for bundled assets that the bundle no longer carries is
+  reconciled away). A Phase 1 bundle predates Software/Relations: absent
+  sections import cleanly as empty and leave destination data of that kind
+  untouched, while a section file present WITHOUT its manifest declaration
+  fails loudly. The software section additionally enforces
+  kind/category compatibility; relations enforce endpoint existence,
+  no self-relations, and unique triples (symmetric `related_to` is stored in
+  canonical endpoint order).
+- Every import (dry-run or commit) runs the same preflight: all declared
   files must be present, decoded row counts must match the manifest,
-  identities (asset/media/ref/event/tag ids, ref pairs) must be unique, and
-  the reference graph must be internally consistent (module details and refs
-  point at bundled assets, kind/media-type compatibility, no dangling
-  memberships or events, merge redirects exist, are not self-referential and
-  are acyclic).
+  identities (asset/media/software/ref/event/tag/relation ids, ref pairs,
+  relation triples) must be unique, and the reference graph must be
+  internally consistent (module details and refs point at bundled assets,
+  kind/media-type/category compatibility, no dangling memberships, events, or
+  relations, merge redirects exist, are not self-referential and are
+  acyclic).
 - Restore is deterministic and **authoritative for every asset the bundle
   contains**: rows upsert by canonical AssetMesh ID, and destination module
   state the bundle no longer carries (e.g. a merged tombstone's old media
@@ -207,11 +226,45 @@ transactions.
   activity payload. The loser becomes a `merged` tombstone with
   `merged_into`. Relations/collections/attachment merges are deferred until
   those subsystems exist (ADR 0005).
+- **Software**: category ↔ asset kind are 1:1 and enforced on every write
+  path INCLUDING the repository boundary (`software.app|cli|package|runtime|tool`)
+  — even a direct UnitOfWork write cannot attach a software record to an
+  asset of another module. `version` ≤ 128 chars;
+  `install_location`/`executable_path`/`architecture` ≤ 1024; optional text
+  fields are trimmed and never contain control characters. `install_source`
+  is a closed enum (`macos_app`, `homebrew_formula`, `homebrew_cask`,
+  `npm_global`, `pipx`, `manual`, `system`, `unknown`).
+- **Purpose / "why installed"**: `purpose` and `notes` are user-owned.
+  Discovery/adoption never writes them from provider data; only explicit
+  user overrides do. Adoption's update path only FILLS missing fields —
+  existing version/location/architecture is never overwritten.
+- **Discovery**: providers are read-only adapters (macOS apps, Homebrew,
+  npm/pipx) staging advisory candidates; scans run outside transactions and
+  emit no activity. Classification follows ADR 0005: exact namespaced
+  external refs → `ExactMatch`, normalized-name similarity → review-only
+  `PotentialDuplicate`, anything ambiguous → `Conflict`. Adoption re-matches
+  inside the commit transaction and is the only route to canonical state;
+  candidates are ephemeral (no persisted snapshots). Namespaces in use:
+  `bundle_id`, `homebrew_formula`, `homebrew_cask`, `npm`, `pipx` (no
+  `path:` namespace — external IDs cannot contain whitespace and paths are
+  unstable).
+- **Relations**: shared `relations` table over Asset IDs. Registry:
+  `depends_on ↔ dependency_of`, `uses ↔ used_by`, `installed_via ↔ installs`,
+  `related_to` (symmetric). Every fact has exactly one canonical row:
+  inverse-pair types are never stored (a fact stated via `dependency_of` is
+  stored as `depends_on` with endpoints swapped; `related_to` is stored in
+  canonical endpoint order), and migration 0002 CHECK-constrains stored
+  types to the canonical set so duplicates are unrepresentable even to
+  direct SQL. Re-stating a fact from either endpoint is a conflict.
+  Relation IDs are application-generated (injected generator). Merge
+  re-points relations to the winner in canonical form, dropping duplicates
+  and self-loops.
 - **Activity events**: `asset.created`, `asset.archived`, `asset.merged`,
   `media.created`, `media.started`, `media.paused`, `media.dropped`,
   `media.completed`, `media.progress_changed`, `media.rating_changed`,
-  `media.imported` (actor `import`). Metadata-only edits deliberately emit no
-  event.
+  `media.imported` (actor `import`), `software.created`,
+  `software.adopted`, `relation.created`, `relation.removed`. Metadata-only
+  edits deliberately emit no event; discovery scans emit no event.
 - **Search**: FTS5 (`unicode61`) over the projected `SearchDocument`; queries
   fall back to substring `LIKE` when tokenization cannot serve them (e.g. CJK,
   short substrings). The projection is rebuildable via the `SearchService`
@@ -245,6 +298,11 @@ transactions.
 
 - `TagRepository::ensure` generates the tag ID in the adapter (still an
   application-generated UUIDv7, never an external ID).
+- docs/03 sketches dotted namespace names (`homebrew.formula`); the kernel
+  validation rule forbids dots, so the implemented namespaces use underscores
+  (`homebrew_formula`, `homebrew_cask`, `bundle_id`, `npm`, `pipx`).
+- Discovery snapshots are ephemeral by decision (docs/09): no persistence,
+  no background scan subsystem in Phase 2.
 - Filesystem bundle I/O (`write_bundle_to_directory` /
   `read_bundle_from_directory`) lives in core as a std-only reference
   adapter; moving it behind a dedicated adapter crate is deferred until a
@@ -258,10 +316,25 @@ transactions.
 
 - Domain invariants: unit tests in `core/src/domain/*`.
 - Use cases against in-memory port doubles: `core/tests/` (rollback
-  semantics mirror SQLite transactions).
+  semantics mirror SQLite transactions). Software coverage adds discovery
+  classification, adoption (create/update/purpose-preservation/rollback),
+  and scan-never-writes assertions.
+- Providers: `providers/tests/` — fixture `.app` bundles, fake command
+  runners for Homebrew/npm/pipx outputs (missing tool, failure, malformed
+  JSON), read-only command assertions. No test depends on the host machine's
+  installed software.
 - SQLite contract tests: `storage-sqlite/tests/` — pragmas, migrations
-  (fresh/reopen/tamper), CRUD, FK/unique enforcement, transaction atomicity,
-  search + rebuild, portable round trip on a real database.
+  (fresh/reopen/tamper/1→2 upgrade with Media data intact), CRUD, FK/unique
+  enforcement, transaction atomicity, search + rebuild, portable round trip
+  on a real database, relation constraints. The upgrade test runs against a
+  **real historical database**: `tests/fixtures/phase1_media_only.db` was
+  produced by the Phase 1 binary (commit `cdb0710`) through the CLI, so it
+  carries that release's actual layout, pragmas, migration ledger, and FTS5
+  shadow tables rather than a reconstruction from today's 0001 SQL. Its
+  ledger checksum must equal `PHASE1_MIGRATION_0001_CHECKSUM`; regenerate it
+  by checking out that commit, building the CLI, and creating media records
+  with the same commands.
 - CLI end-to-end: `cli/tests/cli_e2e.rs` drives the compiled binary through
-  create → start → progress → complete → rate → search → merge → export →
-  restore → idempotent re-import, plus dry-run/conflict/error behavior.
+  media and software lifecycles: create → query → discover (fixture root) →
+  adopt → re-adopt → relations → export → restore → idempotent re-import,
+  plus dry-run/conflict/error behavior and read-only discovery.
