@@ -104,12 +104,16 @@ Deliberately **not** implemented or frozen yet:
 - [Roadmap](docs/07-roadmap.md)
 - [Media Records V1](docs/08-media-records-v1.md)
 - [Software Inventory V1](docs/09-software-inventory-v1.md)
+- [Services & Subscriptions V1](docs/10-services-subscriptions-v1.md)
+- [Unified Library Core — Phase 4](docs/11-unified-library-core.md)
 - [Architecture Decisions](docs/adr/README.md)
 - [Developer Setup & Implementation Notes](DEVELOPMENT.md)
 
 ## Current status
 
-**Phase 3 — Services and Subscriptions complete** (headless core, no UI yet), after Phase 2 — Software Inventory and Phase 1 — Media Records.
+**Phase 3 — Services and Subscriptions is complete. Phase 4 — Unified Library Core is the current implementation target.** The desktop shell remains deferred until Phase 5.
+
+Phase 4 does not add another asset domain. It turns the existing Media, Software, and Services vertical slices into one stable application-facing library contract: unified list/detail/search DTOs, cross-module relation traversal and impact queries, global activity, deterministic duplicate review, and adapter-neutral pagination/filtering. See [docs/11-unified-library-core.md](docs/11-unified-library-core.md).
 
 ```text
 AssetMesh/
@@ -140,8 +144,8 @@ What works today:
 - migration 0003 verified against a real database written by the Phase 2 binary, so historical Media/Software/Relation data is proven to survive the upgrade; migration 0004 widens the stored relation-type CHECK to the Phase 3 service types (`hosted_on`, `points_to`) while leaving already-applied migrations immutable;
 - CLI exercising the same application layer future desktop, HTTP, or agent adapters can call.
 
-Services round-trip through the portable bundle via `modules/services.jsonl`: the manifest's `services` declaration is authoritative, so a bundle that predates Phase 3 leaves the destination's services untouched while a section file without its declaration is treated as corruption. Nothing in Phase 3 remains pending. The desktop shell remains deferred until Phase 5, after Media, Software, Services, and unified-library contracts have been proven across multiple domains.
+Services round-trip through the portable bundle via `modules/services.jsonl`: the manifest's `services` declaration is authoritative, so a bundle that predates Phase 3 leaves the destination's services untouched while a section file without its declaration is treated as corruption. Nothing in Phase 3 remains pending.
 
 Run `cargo test --workspace` and see [DEVELOPMENT.md](DEVELOPMENT.md) for setup, commands, and the contracts the implementation established.
 
-Still deliberately absent: desktop/React UI, HTTP/MCP servers, runtime discovery/monitoring (Phase 6), attachments/blobs (boundary defined by ADR 0009 only), sync, plugins, durable background jobs, and persistent discovery snapshots.
+Still deliberately absent: Phase 4 unified-library query/traversal/review contracts, desktop/React UI, HTTP/MCP servers, runtime discovery/monitoring (Phase 6), attachments/blobs (boundary defined by ADR 0009 only), sync, plugins, durable background jobs, and persistent discovery snapshots.
