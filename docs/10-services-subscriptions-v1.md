@@ -335,7 +335,9 @@ All Phase 2 canonicalization guarantees remain mandatory:
 - merges re-point, canonicalize, deduplicate, and remove self-loops;
 - the SQL CHECK constraint and Rust registry must evolve together in migration 0004.
 
-Phase 4 still owns general relation traversal/impact query services and presentation.
+Phase 4 owns general relation traversal/impact query services as part of the broader
+Unified Library Core contract (`docs/11-unified-library-core.md`). Graph visualization
+and other desktop presentation remain Phase 5.
 Phase 3 only adds relation semantics required by real Service use cases.
 
 ## CRUD application services
