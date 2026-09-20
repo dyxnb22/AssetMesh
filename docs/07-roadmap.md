@@ -155,31 +155,71 @@ Explicitly deferred:
 
 Exit criteria: SaaS, API, VPS, domain, and local-service assets can be created, edited, archived, searched, related, exported/imported, and rebuilt headlessly; subscription lifecycle metadata is deterministic; renewals are explicitly recordable; no credential material enters canonical/search/activity/export data; new relation types preserve canonical storage; a real Phase 2 database migrates safely; and Media, Software, and Services coexist on the same shared Asset identity, search, activity, relation, migration, merge, and portability contracts without cross-module table coupling.
 
-## Phase 4 — Cross-module Relations and Library Core
+## Phase 4 — Unified Library Core
 
-Purpose: stabilize the capabilities needed by a unified asset library before committing to presentation-layer patterns.
+Status: **current implementation target**. Detailed implementation contract: `docs/11-unified-library-core.md`.
+
+Purpose: turn the completed Media, Software, and Services vertical slices into one stable, transport-neutral application-facing asset library before committing to desktop presentation patterns.
+
+Phase 4 is deliberately not another asset-domain phase. It consolidates the cross-module read/query/review capabilities that a desktop, CLI, HTTP, or agent adapter should be able to consume without reaching into module repositories or reimplementing business rules.
+
+### Phase 4A — Unified Library Query
 
 Deliverables:
 
-- relation query services;
-- incoming/outgoing relation traversal;
-- inverse and symmetric relation behavior;
-- dependency / impact queries such as “what depends on this?”;
-- cross-module asset lookup;
-- global Search Projection queries;
-- shared filtering / sorting / pagination contracts;
-- duplicate and merge review application services;
-- activity querying across modules;
-- stable DTO/view-model boundaries suitable for CLI, desktop, HTTP, or agent adapters.
+- unified asset list/detail application service;
+- typed `AssetSummary` / `AssetDetailView` style DTO boundary;
+- typed module detail union rather than unstructured JSON;
+- cross-module lookup over canonical Asset identity;
+- shared filtering, sorting, lifecycle, tag, and pagination contracts;
+- stable deterministic ordering and page semantics;
+- search results mapped into the same summary vocabulary used by normal library listing.
+
+### Phase 4B — Relation Traversal and Impact
+
+Deliverables:
+
+- relation query services over the existing canonical relation rows;
+- incoming/outgoing/neighbors queries;
+- inverse and symmetric relation behavior preserved at the application boundary;
+- bounded cycle-safe traversal;
+- dependency/dependent queries;
+- explainable impact queries such as “what depends on this?” including path/depth evidence;
+- deterministic traversal ordering.
+
+### Phase 4C — Global Search, Activity, and Duplicate Review
+
+Deliverables:
+
+- filtered/paginated global Search Projection query contract;
+- cross-module activity query service with asset/type/time filters;
+- deterministic duplicate-candidate evidence;
+- explicit review flow that invokes existing merge semantics only after a caller chooses to merge;
+- no automatic merge and no opaque confidence score as canonical decision logic.
+
+### Phase 4D — Contract Hardening
+
+Deliverables:
+
+- stable adapter-neutral application contracts suitable for CLI, Phase 5 desktop, and future HTTP/MCP adapters;
+- CLI coverage over the same application services;
+- cross-module end-to-end tests for list/detail/search/relation traversal/impact/activity/duplicate review;
+- SQLite and in-memory/test-double behavior aligned at the application boundary;
+- no direct repository/SQLite access required by interface adapters for unified-library workflows.
 
 Explicitly deferred:
 
 - graph visualization;
-- desktop navigation;
-- shared React list/detail components;
-- visual relation explorer.
+- Tauri/React desktop implementation;
+- desktop navigation and shared visual components;
+- runtime monitoring/actions;
+- HTTP or MCP server implementation;
+- semantic/vector search;
+- plugin ABI;
+- sync/CRDTs;
+- speculative background-job infrastructure.
 
-Exit criteria: the application layer exposes a stable unified-library contract over Media, Software, Services, Search, Relations, Activity, Import/Export, and Merge operations.
+Exit criteria: an interface adapter can use only stable application contracts to list/page/search Media, Software, and Services as one library; open a complete typed asset detail; inspect incoming/outgoing relations; answer bounded dependency/dependent/impact queries with explainable paths; query cross-module activity; review duplicate evidence and invoke explicit merge; and do all of this without direct repository/SQLite access or duplicated module business logic.
 
 ## Phase 5 — Application Shell / Desktop UI
 
