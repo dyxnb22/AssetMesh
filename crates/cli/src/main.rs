@@ -15,7 +15,7 @@ use assetmesh_core::application::portable::{
 use assetmesh_core::application::relation_service::RelationService;
 use assetmesh_core::application::search_service::SearchService;
 use assetmesh_core::application::service_service::{
-    CreateService, Patch, ServiceService, UpdateService,
+    CreateService, Patch, RecordRenewal, ServiceService, UpdateService,
 };
 use assetmesh_core::application::software_discovery::ClassifiedCandidate;
 use assetmesh_core::application::software_service::{
@@ -37,7 +37,7 @@ use assetmesh_providers::{CliToolsProvider, HomebrewProvider, MacosApplicationsP
 use assetmesh_storage_sqlite::SharedSqlite;
 use clap::{Parser, Subcommand, ValueEnum};
 use format::{
-    print_adoption_outcome, print_import_report, print_media_detail, print_media_list,
+    fmt_time, print_adoption_outcome, print_import_report, print_media_detail, print_media_list,
     print_relation_views, print_scan_report, print_search_hits, print_service_detail,
     print_service_list, print_software_detail, print_software_list,
 };
@@ -450,6 +450,26 @@ enum ServiceCommand {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+    /// Record that a subscription renewed. The next renewal/expiry boundary is
+    /// whatever you pass — AssetMesh never computes one.
+    Renew {
+        id: String,
+        /// When the renewal happened (YYYY-MM-DD or RFC 3339). Required: a
+        /// renewal without a renewal moment is a caller error (docs/10).
+        #[arg(long)]
+        renewed_at: String,
+        /// Decimal amount charged (with --currency); updates the canonical cost.
+        #[arg(long)]
+        cost: Option<String>,
+        #[arg(long)]
+        currency: Option<String>,
+        /// Next renewal boundary, when known.
+        #[arg(long)]
+        next_renewal: Option<String>,
+        /// Next expiry boundary, when known.
+        #[arg(long)]
+        next_expiry: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -457,7 +477,7 @@ enum RelationCommand {
     /// Attach a relation between two assets.
     Add {
         source: String,
-        /// Relation type, e.g. depends_on, uses, installed_via, related_to.
+        /// Relation type, e.g. depends_on, uses, hosted_on, points_to, related_to.
         relation_type: String,
         target: String,
         #[arg(long)]
@@ -742,6 +762,10 @@ fn run(cli: Cli) -> Result<(), AppError> {
             println!(
                 "software: {} created, {} updated",
                 report.software_created, report.software_updated
+            );
+            println!(
+                "services: {} created, {} updated",
+                report.services_created, report.services_updated
             );
             println!(
                 "relations: {} created, {} updated",
@@ -1197,6 +1221,39 @@ fn run_service(
             let hits = search.search(&query, limit)?;
             print_search_hits(&hits);
         }
+        ServiceCommand::Renew {
+            id,
+            renewed_at,
+            cost,
+            currency,
+            next_renewal,
+            next_expiry,
+        } => {
+            let asset_id = resolve_asset_id(&factory, &id)?;
+            let (cost_minor, currency) = parse_money_pair(cost, currency)?;
+            // The renewal moment is required by the argument parser, never
+            // invented here: a renewal the caller cannot date is not a fact
+            // AssetMesh may timestamp on their behalf (docs/10).
+            let renewed_at = parse_service_timestamp(&renewed_at)?;
+            let view = services.record_renewal(RecordRenewal {
+                asset_id,
+                renewed_at,
+                charged_cost_minor: cost_minor,
+                currency,
+                next_renews_at: next_renewal
+                    .as_deref()
+                    .map(parse_service_timestamp)
+                    .transpose()?,
+                next_expires_at: next_expiry
+                    .as_deref()
+                    .map(parse_service_timestamp)
+                    .transpose()?,
+            })?;
+            let record = &view.entry.record;
+            println!("renewed {}", view.entry.asset.id);
+            println!("Renews:        {}", fmt_time(record.renews_at));
+            println!("Expires:       {}", fmt_time(record.expires_at));
+        }
     }
     Ok(())
 }
@@ -1575,7 +1632,8 @@ fn run_relation(
             let relation_type = RelationType::parse(&relation_type).ok_or_else(|| {
                 AppError::validation(format!(
                     "unknown relation type {relation_type:?}; expected one of: depends_on, \
-                     dependency_of, uses, used_by, installed_via, installs, related_to"
+                     dependency_of, uses, used_by, installed_via, installs, hosted_on, hosts, \
+                     points_to, pointed_to_by, related_to"
                 ))
             })?;
             let relation = relations.attach(

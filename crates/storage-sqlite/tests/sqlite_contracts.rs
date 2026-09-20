@@ -17,7 +17,9 @@ use assetmesh_core::application::{SharedClock, SharedIdGenerator};
 use assetmesh_core::domain::asset::{Asset, AssetKind};
 use assetmesh_core::domain::ids::{AssetId, RelationId};
 use assetmesh_core::domain::media::{MediaStatus, MediaType, Progress};
-use assetmesh_core::domain::relation::{Relation, RelationProvenance, RelationType};
+use assetmesh_core::domain::relation::{
+    Relation, RelationProvenance, RelationType, ALL_TYPES, STORABLE_TYPES,
+};
 use assetmesh_core::domain::service::{BillingCadence, ServiceRecord, ServiceType};
 use assetmesh_core::domain::software::SoftwareCategory;
 use assetmesh_core::ports::clock::Clock;
@@ -64,6 +66,9 @@ impl TestSqlite {
     }
     fn export_service(&self) -> PortableExportService<SharedSqlite> {
         PortableExportService::new(self.factory.clone(), self.clock.clone())
+    }
+    fn portable_import_service(&self) -> PortableImportService<SharedSqlite> {
+        PortableImportService::new(self.factory.clone())
     }
     fn service_service(
         &self,
@@ -1220,8 +1225,8 @@ fn migration_0003_upgrades_a_real_phase2_database_preserving_everything() {
     assert!(refs_before > 0);
     assert!(tags_before > 0);
 
-    // Opening with the current binary applies migration 0003.
-    let factory = SharedSqlite(Arc::new(
+    // Opening with the current binary applies migrations 0003 and 0004.
+    let mut factory = SharedSqlite(Arc::new(
         assetmesh_storage_sqlite::open(db_path.to_str().unwrap()).unwrap(),
     ));
     let version: i64 = factory
@@ -1243,6 +1248,54 @@ fn migration_0003_upgrades_a_real_phase2_database_preserving_everything() {
     assert_eq!(table_count(&db_path, "activity_events"), activity_before);
     assert_eq!(table_count(&db_path, "external_refs"), refs_before);
     assert_eq!(table_count(&db_path, "tags"), tags_before);
+
+    // Migration 0004 rebuilds the relations table, so the copied Phase 2 rows
+    // must still read back with their original types and endpoints — a rebuild
+    // that lost or mangled them would be silent otherwise.
+    let mut relations = RelationService::new(factory.clone(), clock_shared(), ids_shared());
+    let all: Vec<Relation> = factory.read(&mut |q| q.relations().list_all()).unwrap();
+    assert_eq!(all.len(), relations_before as usize);
+    for stored in &all {
+        assert!(
+            STORABLE_TYPES.contains(&stored.relation_type),
+            "a migrated row carries a type the registry no longer stores: {}",
+            stored.relation_type
+        );
+        assert!(
+            stored.is_canonical(),
+            "a migrated row is not in canonical form: {stored:?}"
+        );
+        let views = relations.list_for_asset(stored.source_asset_id).unwrap();
+        assert!(
+            views
+                .iter()
+                .any(|v| v.relation_id == stored.id && v.other_asset_id == stored.target_asset_id),
+            "migrated relation {} is unreadable from its source",
+            stored.id
+        );
+    }
+
+    // And the widened CHECK now accepts the Phase 3 service types. The
+    // relation itself is not written here: this test's later assertions count
+    // the fixture's relations, and a real write is covered by
+    // `sql_relations_check_accepts_the_new_types_and_rejects_their_inverses`.
+    let create_sql: String = factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'relations'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .unwrap()
+        .unwrap();
+    for service_type in ["hosted_on", "points_to"] {
+        assert!(
+            create_sql.contains(&format!("'{service_type}'")),
+            "the rebuilt relations table must accept {service_type}:\n{create_sql}"
+        );
+    }
 
     // The services module is registered with its V1 schema version.
     let services_version: i64 = factory
@@ -2091,16 +2144,434 @@ fn asset_repo_rejects_a_kind_change_that_strands_a_service_record() {
 }
 
 #[test]
-fn sqlite_export_refuses_when_service_records_exist() {
-    // The services wire format is Phase 3D. Until it exists the exporter must
-    // fail loudly rather than emit a bundle that would silently drop every
-    // ServiceRecord on restore.
+fn sqlite_service_round_trips_through_the_portable_bundle() {
+    // Phase 3D: the services section is real, so a ServiceRecord written by
+    // this binary survives export → import in SQLite (not just in the
+    // in-memory doubles).
     let t = env();
-    t.service_service()
-        .create_service(service_cmd("OpenAI", ServiceType::Saas))
+    let created = t
+        .service_service()
+        .create_service(CreateService {
+            provider: Some("Hetzner".into()),
+            plan: Some("CX22".into()),
+            cost_minor: Some(449),
+            currency: Some("eur".into()),
+            billing_cadence: Some(BillingCadence::Monthly),
+            renews_at: Some(ts("2026-11-01T00:00:00Z")),
+            auto_renew: Some(true),
+            ..service_cmd("Hetzner VPS", ServiceType::Vps)
+        })
+        .unwrap();
+    let id = created.entry.asset.id;
+
+    let bundle = t.export_service().export("test").unwrap();
+    assert_eq!(bundle.manifest.modules["services"].schema_version, 1);
+    assert_eq!(bundle.manifest.record_counts["services"], 1);
+
+    // Restore into a fresh database through the real SQLite adapter.
+    let restored = env();
+    let report = restored
+        .portable_import_service()
+        .import_bundle(&bundle, false)
+        .unwrap();
+    assert_eq!(report.services_created, 1);
+
+    let restored_record = restored
+        .service_service()
+        .get_service(id)
+        .unwrap()
+        .entry
+        .record;
+    assert_eq!(restored_record.service_type, ServiceType::Vps);
+    assert_eq!(restored_record.provider.as_deref(), Some("Hetzner"));
+    assert_eq!(restored_record.plan.as_deref(), Some("CX22"));
+    // Money round-trips as integer minor units with the normalized currency.
+    assert_eq!(restored_record.cost_minor, Some(449));
+    assert_eq!(restored_record.currency.as_deref(), Some("EUR"));
+    assert_eq!(
+        restored_record.billing_cadence,
+        Some(BillingCadence::Monthly)
+    );
+    assert_eq!(restored_record.renews_at, Some(ts("2026-11-01T00:00:00Z")));
+    assert_eq!(restored_record.auto_renew, Some(true));
+}
+
+// ---------------------------------------------------------------------------
+// Service relation types (Phase 3C)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn service_relation_types_persist_and_resolve_inverses_in_sqlite() {
+    let mut t = env();
+    let api = t
+        .service_service()
+        .create_service(service_cmd("AssetMesh API", ServiceType::Api))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let vps = t
+        .service_service()
+        .create_service(service_cmd("RackNerd VPS", ServiceType::Vps))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let domain = t
+        .service_service()
+        .create_service(service_cmd("assetmesh.dev", ServiceType::Domain))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    let mut relations = RelationService::new(t.factory.clone(), t.clock.clone(), t.ids.clone());
+    relations
+        .attach(
+            api,
+            RelationType::HostedOn,
+            vps,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap();
+    relations
+        .attach(
+            domain,
+            RelationType::PointsTo,
+            api,
+            None,
+            RelationProvenance::Manual,
+        )
         .unwrap();
 
-    let err = t.export_service().export("test").unwrap_err();
+    // Each endpoint reads the fact from its own side: the source keeps the
+    // stored primary type, the target gets the view-time inverse.
+    let api_relations = relations.list_for_asset(api).unwrap();
+    assert!(api_relations
+        .iter()
+        .any(|r| r.relation_type == RelationType::HostedOn && r.other_asset_id == vps));
+    assert!(api_relations
+        .iter()
+        .any(|r| r.relation_type == RelationType::PointedToBy && r.other_asset_id == domain));
+
+    let vps_relations = relations.list_for_asset(vps).unwrap();
+    assert!(vps_relations
+        .iter()
+        .any(|r| r.relation_type == RelationType::Hosts && r.other_asset_id == api));
+
+    let domain_relations = relations.list_for_asset(domain).unwrap();
+    assert!(domain_relations
+        .iter()
+        .any(|r| r.relation_type == RelationType::PointsTo && r.other_asset_id == api));
+
+    // Stating the same fact via the inverse type is a conflict, not a second
+    // row: one fact still has exactly one canonical row.
+    let err = relations
+        .attach(
+            vps,
+            RelationType::Hosts,
+            api,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap_err();
     assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
-    assert!(err.to_string().contains("service"), "{err}");
+    let err = relations
+        .attach(
+            api,
+            RelationType::PointedToBy,
+            domain,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
+
+    // Exactly two rows are stored, and they survive a reopen of the database.
+    let stored = t
+        .factory
+        .read(&mut |q| Ok(q.relations().list_all()?.len()))
+        .unwrap();
+    assert_eq!(stored, 2);
+}
+
+#[test]
+fn service_relation_types_remove_cleanly_from_both_endpoints() {
+    // docs/10 requires attach/remove coverage for both new inverse pairs.
+    // Removing the single canonical row must make the fact disappear from
+    // every endpoint's view, including the view-time inverse.
+    let mut t = env();
+    let api = t
+        .service_service()
+        .create_service(service_cmd("AssetMesh API", ServiceType::Api))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let vps = t
+        .service_service()
+        .create_service(service_cmd("RackNerd VPS", ServiceType::Vps))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let domain = t
+        .service_service()
+        .create_service(service_cmd("assetmesh.dev", ServiceType::Domain))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    let mut relations = RelationService::new(t.factory.clone(), t.clock.clone(), t.ids.clone());
+    let hosted_on = relations
+        .attach(
+            api,
+            RelationType::HostedOn,
+            vps,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap();
+    let points_to = relations
+        .attach(
+            domain,
+            RelationType::PointsTo,
+            api,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap();
+
+    // Removing by the canonical row's own id is enough: the inverse views are
+    // derived from that row, so they vanish with it.
+    relations.remove(hosted_on.id).unwrap();
+    relations.remove(points_to.id).unwrap();
+
+    for endpoint in [api, vps, domain] {
+        let views = relations.list_for_asset(endpoint).unwrap();
+        assert!(
+            views.is_empty(),
+            "{endpoint} still sees a removed relation: {views:?}"
+        );
+    }
+
+    // Nothing is left in storage, and the ids are gone rather than reused.
+    let stored = t
+        .factory
+        .read(&mut |q| {
+            Ok((
+                q.relations().list_all()?.len(),
+                q.relations().get(hosted_on.id)?.is_some(),
+                q.relations().get(points_to.id)?.is_some(),
+            ))
+        })
+        .unwrap();
+    assert_eq!(stored, (0, false, false));
+
+    // Re-stating either fact afterwards is a fresh attach, not a conflict —
+    // the canonical row really is gone.
+    relations
+        .attach(
+            api,
+            RelationType::HostedOn,
+            vps,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap();
+    relations
+        .attach(
+            domain,
+            RelationType::PointsTo,
+            api,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap();
+    let stored = t
+        .factory
+        .read(&mut |q| Ok(q.relations().list_all()?.len()))
+        .unwrap();
+    assert_eq!(stored, 2);
+}
+
+#[test]
+fn sql_relations_check_accepts_the_new_types_and_rejects_their_inverses() {
+    // The stored-type CHECK must stay in lockstep with the Rust registry
+    // (docs/10): the canonical primaries are storable, the view-time inverses
+    // are not — even for a direct write that skips the application layer.
+    let mut t = env();
+    let a = t
+        .service_service()
+        .create_service(service_cmd("API", ServiceType::Api))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let b = t
+        .service_service()
+        .create_service(service_cmd("VPS", ServiceType::Vps))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    for stored_type in ["hosted_on", "points_to"] {
+        t.factory
+            .transact(&mut |uow| {
+                uow.relations().insert(
+                    &Relation::new(
+                        RelationId::generate(),
+                        a,
+                        b,
+                        RelationType::parse(stored_type).unwrap(),
+                        RelationProvenance::Imported,
+                        chrono::Utc::now(),
+                    )
+                    .unwrap(),
+                )
+            })
+            .unwrap();
+    }
+    assert_eq!(
+        t.factory
+            .read(&mut |q| Ok(q.relations().list_all()?.len()))
+            .unwrap(),
+        2
+    );
+
+    // The inverse types are refused by the repository boundary (they are
+    // view-time derivations) before SQL ever sees them.
+    for inverse in ["hosts", "pointed_to_by"] {
+        let err = t
+            .factory
+            .transact(&mut |uow| {
+                uow.relations().insert(
+                    &Relation::new(
+                        RelationId::generate(),
+                        b,
+                        a,
+                        RelationType::parse(inverse).unwrap(),
+                        RelationProvenance::Imported,
+                        chrono::Utc::now(),
+                    )
+                    .unwrap(),
+                )
+            })
+            .unwrap_err();
+        assert!(matches!(err, AppError::Validation { .. }), "{err:?}");
+    }
+
+    // The SQL CHECK itself rejects an inverse, so the table cannot drift from
+    // the registry even if a future write path forgot to validate. Both asset
+    // ids are real rows, so the foreign keys are satisfied and the CHECK is the
+    // only constraint that can reject this write.
+    let err = t
+        .factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.execute(
+                "INSERT INTO relations (id, source_asset_id, target_asset_id, relation_type, \
+                 provenance, created_at) VALUES (?1, ?2, ?3, 'hosts', 'manual', ?4)",
+                [
+                    RelationId::generate().to_string(),
+                    b.to_string(),
+                    a.to_string(),
+                    chrono::Utc::now().to_rfc3339(),
+                ],
+            )
+        })
+        .unwrap()
+        .unwrap_err();
+    assert!(err.to_string().contains("CHECK"), "{err}");
+}
+
+#[test]
+fn the_stored_relation_type_check_matches_the_rust_registry() {
+    // The SQL CHECK is a hand-maintained mirror of the Rust registry, and a
+    // mirror nobody reads is a mirror that drifts. Reading the constraint
+    // back out of the schema and comparing it against
+    // `STORABLE_TYPES` makes drift a test failure instead of a
+    // runtime rejection on some future write path (docs/10 "Relations").
+    let mut t = env();
+    let create_sql: String = t
+        .factory
+        .0
+        .with_raw_connection(|conn| {
+            conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'relations'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap()
+        })
+        .unwrap();
+
+    // Pull the quoted type list out of `relation_type TEXT ... IN ('a', 'b')`.
+    let list = create_sql
+        .split("relation_type TEXT")
+        .nth(1)
+        .and_then(|rest| rest.split("IN (").nth(1))
+        .and_then(|rest| rest.split(')').next())
+        .unwrap_or_else(|| panic!("no relation_type CHECK found in:\n{create_sql}"));
+    let sql_types: Vec<String> = list
+        .split(',')
+        .map(|raw| raw.trim().trim_matches('\'').to_string())
+        .collect();
+
+    let registry_types: Vec<String> = STORABLE_TYPES
+        .iter()
+        .map(|t| t.as_str().to_string())
+        .collect();
+    assert_eq!(
+        sql_types, registry_types,
+        "the stored-type CHECK and the Rust registry disagree:\n{create_sql}"
+    );
+
+    // Every storable type really is accepted by the CHECK, and every inverse
+    // really is refused, so the two lists above are not merely similar text.
+    let a = t
+        .service_service()
+        .create_service(service_cmd("API", ServiceType::Api))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let b = t
+        .service_service()
+        .create_service(service_cmd("VPS", ServiceType::Vps))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    for relation_type in ALL_TYPES {
+        let outcome = t.factory.transact(&mut |uow| {
+            uow.relations().insert(
+                &Relation::new(
+                    RelationId::generate(),
+                    a,
+                    b,
+                    *relation_type,
+                    RelationProvenance::Imported,
+                    chrono::Utc::now(),
+                )
+                .unwrap(),
+            )
+        });
+        if STORABLE_TYPES.contains(relation_type) {
+            assert!(
+                outcome.is_ok(),
+                "{} is registered as storable but the write failed: {outcome:?}",
+                relation_type.as_str()
+            );
+        } else {
+            assert!(
+                matches!(outcome, Err(AppError::Validation { .. })),
+                "{} is a view-time inverse and must not reach SQL: {outcome:?}",
+                relation_type.as_str()
+            );
+        }
+    }
 }

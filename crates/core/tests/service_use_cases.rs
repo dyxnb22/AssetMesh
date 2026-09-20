@@ -8,7 +8,9 @@ mod support;
 
 use assetmesh_core::application::media_service::ExternalRefInput;
 use assetmesh_core::application::portable::PortableExportService;
-use assetmesh_core::application::service_service::{CreateService, Patch, UpdateService};
+use assetmesh_core::application::service_service::{
+    CreateService, Patch, RecordRenewal, UpdateService,
+};
 use assetmesh_core::application::software_service::{CreateSoftware, SoftwareService};
 use assetmesh_core::domain::asset::{AssetKind, LifecycleState};
 use assetmesh_core::domain::ids::AssetId;
@@ -695,39 +697,72 @@ fn create_software_cmd() -> CreateSoftware {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn export_refuses_when_service_records_exist() {
-    // The services wire format is Phase 3D: the exporter writes no services
-    // section, so a bundle written today could not restore a ServiceRecord.
-    // Refuse rather than hand the user a "backup" that silently drops every
-    // service.
+fn export_carries_service_records_through_the_portable_services_section() {
+    // Phase 3D: `modules/services.jsonl` exists, so a bundle written today can
+    // restore a ServiceRecord. The exporter no longer refuses, and the
+    // manifest declares the services module with its own schema version.
     let t = test_env();
     let mut services = t.service_service();
     services
         .create_service(full_cmd("OpenAI", ServiceType::Saas))
         .unwrap();
+    // An archived service is exported too: archiving is a lifecycle state,
+    // not a deletion.
+    let archived = services
+        .create_service(create_cmd("Retired SaaS", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    t.asset_service().archive_asset(archived).unwrap();
 
     let mut exporter = PortableExportService::new(t.factory.clone(), t.clock.clone());
-    let err = exporter.export("test").unwrap_err();
-    assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
-    assert!(err.to_string().contains("service"), "{err}");
+    let bundle = exporter.export("test").unwrap();
+    assert_eq!(bundle.manifest.modules["services"].schema_version, 1);
+    assert_eq!(bundle.manifest.record_counts["services"], 2);
+    let section = bundle.file("modules/services.jsonl").unwrap();
+    assert!(section.contains("OpenAI"), "{section}");
+    // The archived record is exported by identity: archiving is a lifecycle
+    // state, not a deletion (its name lives in assets.jsonl).
+    assert!(section.contains(&archived.to_string()), "{section}");
 
-    // The record survived the refused export untouched.
+    // The wire DTO carries the canonical vocabulary only: no key in the
+    // section can hold a credential (ADR 0010).
+    for line in section.lines().filter(|l| !l.trim().is_empty()) {
+        let row: serde_json::Value = serde_json::from_str(line).unwrap();
+        for key in row.as_object().unwrap().keys() {
+            assert!(
+                ![
+                    "password",
+                    "token",
+                    "secret",
+                    "credential",
+                    "cookie",
+                    "ssh_key",
+                    "api_key"
+                ]
+                .iter()
+                .any(|forbidden| key.contains(forbidden)),
+                "portable service row exposes a secret-shaped field: {key}"
+            );
+        }
+    }
+
+    // Both records survive the refused-export era: the library still lists two.
     assert_eq!(
-        t.service_service()
+        services
             .list_services(&ServiceFilter::default())
             .unwrap()
             .len(),
-        1
+        2
     );
 }
 
 #[test]
-fn merge_of_two_service_records_is_refused() {
-    // docs/10 merge rules 3/6: conflicting fields are surfaced for review and
-    // never silently chosen. Two same-type records disagreeing on provider,
-    // plan, cost, and renewal must not merge winner-takes-all; until the
-    // conflict review exists (Phase 3C) the merge is refused and both records
-    // survive untouched.
+fn merge_of_two_service_records_reports_reviewable_field_conflicts() {
+    // docs/10 merge rules 3/6: conflicting non-empty fields are surfaced for
+    // review and never silently chosen. The merge fails loudly, names every
+    // disagreeing field with both values, and leaves both records untouched.
     let t = test_env();
     let mut services = t.service_service();
 
@@ -752,12 +787,15 @@ fn merge_of_two_service_records_is_refused() {
         .merge_assets(loser.entry.asset.id, winner.entry.asset.id)
         .unwrap_err();
     assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
-    // Named so the failure is attributable to the service-record conflict,
-    // not to any other conflict the merge can raise.
-    assert!(
-        err.to_string().contains("both carry a") && err.to_string().contains("service record"),
-        "{err}"
-    );
+    // Every disagreeing field is named, with both values, so the conflict is
+    // reviewable rather than a generic refusal.
+    for field in ["provider", "plan", "cost"] {
+        assert!(err.to_string().contains(field), "{err}");
+    }
+    assert!(err.to_string().contains("OldProvider"), "{err}");
+    assert!(err.to_string().contains("NewProvider"), "{err}");
+    assert!(err.to_string().contains("999 USD"), "{err}");
+    assert!(err.to_string().contains("4999 USD"), "{err}");
 
     // The loser's commercial details were NOT discarded...
     assert_eq!(
@@ -800,6 +838,380 @@ fn merge_of_two_service_records_is_refused() {
             .as_deref(),
         Some("Pro")
     );
+}
+
+#[test]
+fn merge_of_two_service_records_deduplicates_equal_values_and_fills_gaps() {
+    // docs/10 merge rules 4/5: equal values deduplicate safely and an absent
+    // field is filled from the other side, so a merge of two records that do
+    // not actually disagree succeeds losslessly — nothing is discarded.
+    let t = test_env();
+    let mut services = t.service_service();
+
+    // Loser: shares provider/plan/cost with the winner, and is the only side
+    // carrying account_label, dashboard, notes, and the auto-renew setting.
+    let mut loser_cmd = create_cmd("ChatGPT Plus (old)", ServiceType::Saas);
+    loser_cmd.provider = Some("OpenAI".into());
+    loser_cmd.plan = Some("Plus".into());
+    loser_cmd.cost_minor = Some(1999);
+    loser_cmd.currency = Some("USD".into());
+    loser_cmd.account_label = Some("Personal".into());
+    loser_cmd.dashboard_url = Some("https://platform.openai.com".into());
+    loser_cmd.notes = Some("Family plan owner".into());
+    loser_cmd.auto_renew = Some(true);
+    let loser = services.create_service(loser_cmd).unwrap();
+
+    // Winner: same commercial facts, no extra metadata.
+    let mut winner_cmd = create_cmd("ChatGPT Plus", ServiceType::Saas);
+    winner_cmd.provider = Some("OpenAI".into());
+    winner_cmd.plan = Some("Plus".into());
+    winner_cmd.cost_minor = Some(1999);
+    winner_cmd.currency = Some("USD".into());
+    winner_cmd.renews_at = Some(ts("2026-11-01T00:00:00Z"));
+    let winner = services.create_service(winner_cmd).unwrap();
+
+    t.asset_service()
+        .merge_assets(loser.entry.asset.id, winner.entry.asset.id)
+        .unwrap();
+
+    let merged = t
+        .service_service()
+        .get_service(winner.entry.asset.id)
+        .unwrap()
+        .entry
+        .record;
+    // Deduplicated commercial facts.
+    assert_eq!(merged.provider.as_deref(), Some("OpenAI"));
+    assert_eq!(merged.plan.as_deref(), Some("Plus"));
+    assert_eq!(merged.cost_minor, Some(1999));
+    // Winner-only fields survive.
+    assert_eq!(merged.renews_at, Some(ts("2026-11-01T00:00:00Z")));
+    // Loser-only fields filled the winner's gaps.
+    assert_eq!(merged.account_label.as_deref(), Some("Personal"));
+    assert_eq!(
+        merged.dashboard_url.as_deref(),
+        Some("https://platform.openai.com")
+    );
+    assert_eq!(merged.notes.as_deref(), Some("Family plan owner"));
+    assert_eq!(merged.auto_renew, Some(true));
+
+    // No ServiceRecord is left on the loser tombstone.
+    assert!(t
+        .service_service()
+        .get_service(loser.entry.asset.id)
+        .is_err());
+
+    // The winner's projection reflects the merged record (notes are visible
+    // in the search body).
+    let mut search = t.search_service();
+    let hits = search.search("Family plan owner", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].asset_id, winner.entry.asset.id);
+}
+
+#[test]
+fn merge_moves_the_only_service_record_to_the_winner() {
+    // docs/10 merge rule 2: when only one side carries a ServiceRecord it
+    // moves to the winner (winner kind is compatible by the kind preflight).
+    let t = test_env();
+    let mut services = t.service_service();
+    let loser = services
+        .create_service(create_cmd("Old Name", ServiceType::Domain))
+        .unwrap();
+    let winner = services
+        .create_service(create_cmd("assetmesh.dev", ServiceType::Domain))
+        .unwrap();
+
+    t.asset_service()
+        .merge_assets(loser.entry.asset.id, winner.entry.asset.id)
+        .unwrap();
+
+    let moved = t
+        .service_service()
+        .get_service(winner.entry.asset.id)
+        .unwrap()
+        .entry
+        .record;
+    assert_eq!(moved.asset_id, winner.entry.asset.id);
+    assert!(t
+        .service_service()
+        .get_service(loser.entry.asset.id)
+        .is_err());
+}
+
+#[test]
+fn record_renewal_applies_explicit_facts_and_emits_one_event() {
+    let t = test_env();
+    let mut services = t.service_service();
+    let id = services
+        .create_service(full_cmd("OpenAI", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    let view = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: Some(2499),
+            currency: Some("usd".into()),
+            next_renews_at: Some(ts("2026-11-01T00:00:00Z")),
+            next_expires_at: Some(ts("2027-01-01T00:00:00Z")),
+        })
+        .unwrap();
+
+    // Explicit facts land on canonical state, normalized like every other
+    // write path (currency uppercased).
+    let record = &view.entry.record;
+    assert_eq!(record.cost_minor, Some(2499));
+    assert_eq!(record.currency.as_deref(), Some("USD"));
+    assert_eq!(record.renews_at, Some(ts("2026-11-01T00:00:00Z")));
+    assert_eq!(record.expires_at, Some(ts("2027-01-01T00:00:00Z")));
+    // Fields the command did not name are untouched.
+    assert_eq!(record.plan.as_deref(), Some("Plus"));
+    assert_eq!(record.auto_renew, Some(true));
+
+    // Exactly one renewal event, carrying only non-secret factual data.
+    let renewed: Vec<_> = view
+        .activity
+        .iter()
+        .filter(|e| e.event_type == "service.renewed")
+        .collect();
+    assert_eq!(renewed.len(), 1, "one renewal records one event");
+    let payload = &renewed[0].payload;
+    assert_eq!(payload["renewed_at"], "2026-10-01T00:00:00+00:00");
+    assert_eq!(payload["charged_cost_minor"], 2499);
+    // The payload reports the currency AS STORED. `usd` was typed; `USD` is
+    // the canonical form, and an exported activity event must not disagree
+    // with the record it describes.
+    assert_eq!(payload["currency"], "USD");
+    assert_eq!(payload["next_renews_at"], "2026-11-01T00:00:00+00:00");
+    assert_eq!(payload["next_expires_at"], "2027-01-01T00:00:00+00:00");
+    // No secret-shaped key may appear in the payload (ADR 0010).
+    for key in payload.as_object().unwrap().keys() {
+        assert!(
+            ![
+                "password",
+                "token",
+                "secret",
+                "credential",
+                "cookie",
+                "api_key"
+            ]
+            .iter()
+            .any(|forbidden| key.contains(forbidden)),
+            "renewal payload exposes a secret-shaped field: {key}"
+        );
+    }
+
+    // Durable: a fresh read shows the same values.
+    let reloaded = services.get_service(id).unwrap();
+    assert_eq!(
+        reloaded.entry.record.renews_at,
+        Some(ts("2026-11-01T00:00:00Z"))
+    );
+}
+
+#[test]
+fn record_renewal_never_computes_a_next_boundary() {
+    let t = test_env();
+    let mut services = t.service_service();
+    let id = services
+        .create_service(create_cmd("Odd Cycle", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    // A caller-known boundary that no calendar arithmetic would produce (28
+    // days, not a month; a 400-day cycle) is stored verbatim.
+    let view = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: None,
+            currency: None,
+            next_renews_at: Some(ts("2026-10-29T00:00:00Z")),
+            next_expires_at: None,
+        })
+        .unwrap();
+    assert_eq!(
+        view.entry.record.renews_at,
+        Some(ts("2026-10-29T00:00:00Z"))
+    );
+
+    // An unknown boundary leaves the stored one alone: it is neither cleared
+    // nor guessed. Clearing stays an explicit `service update`.
+    let view = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-29T00:00:00Z"),
+            charged_cost_minor: None,
+            currency: None,
+            next_renews_at: None,
+            next_expires_at: None,
+        })
+        .unwrap();
+    assert_eq!(
+        view.entry.record.renews_at,
+        Some(ts("2026-10-29T00:00:00Z"))
+    );
+    assert_eq!(view.entry.record.expires_at, None);
+    // Money the command did not mention is untouched too.
+    assert_eq!(view.entry.record.cost_minor, None);
+
+    // Two renewals record two events; nothing else emits activity.
+    let renewed = view
+        .activity
+        .iter()
+        .filter(|e| e.event_type == "service.renewed")
+        .count();
+    assert_eq!(renewed, 2);
+}
+
+#[test]
+fn record_renewal_publishes_a_currency_only_when_a_charge_was_reported() {
+    let t = test_env();
+    let mut services = t.service_service();
+    let id = services
+        .create_service(full_cmd("OpenAI", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    // A renewal that reports no charge reports no currency either. The
+    // record's pre-existing canonical cost is not this renewal's fact, so the
+    // event must not imply money changed when it did not.
+    let view = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-11-01T00:00:00Z"),
+            charged_cost_minor: None,
+            currency: None,
+            next_renews_at: None,
+            next_expires_at: None,
+        })
+        .unwrap();
+    let renewed: Vec<_> = view
+        .activity
+        .iter()
+        .filter(|e| e.event_type == "service.renewed")
+        .collect();
+    assert_eq!(renewed.len(), 1);
+    let payload = &renewed[0].payload;
+    assert_eq!(payload["charged_cost_minor"], serde_json::Value::Null);
+    assert_eq!(payload["currency"], serde_json::Value::Null);
+
+    // The stored money is untouched by a renewal that reported none.
+    assert_eq!(view.entry.record.cost_minor, Some(1999));
+    assert_eq!(view.entry.record.currency.as_deref(), Some("USD"));
+}
+
+#[test]
+fn record_renewal_validates_money_lifecycle_and_missing_records() {
+    let t = test_env();
+    let mut services = t.service_service();
+    let id = services
+        .create_service(full_cmd("OpenAI", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    // Cost without currency is rejected before anything is written.
+    let err = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: Some(2499),
+            currency: None,
+            next_renews_at: None,
+            next_expires_at: None,
+        })
+        .unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }), "{err:?}");
+    assert_eq!(
+        services.get_service(id).unwrap().entry.record.cost_minor,
+        Some(1999),
+        "a rejected renewal changed nothing"
+    );
+
+    // A service asset without a record is not found, not silently created.
+    let media_id = t
+        .media_service()
+        .create_media(CreateMedia {
+            title: "Hades".into(),
+            media_type: MediaType::Game,
+            ..create_media_cmd()
+        })
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let err = services
+        .record_renewal(RecordRenewal {
+            asset_id: media_id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: None,
+            currency: None,
+            next_renews_at: None,
+            next_expires_at: None,
+        })
+        .unwrap_err();
+    assert!(matches!(err, AppError::NotFound { .. }), "{err:?}");
+
+    // An archived service is read-only: the shared lifecycle still governs.
+    t.asset_service().archive_asset(id).unwrap();
+    let err = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: None,
+            currency: None,
+            next_renews_at: None,
+            next_expires_at: None,
+        })
+        .unwrap_err();
+    assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
+}
+
+#[test]
+fn record_renewal_updates_the_search_projection() {
+    let mut t = test_env();
+    let mut services = t.service_service();
+    let id = services
+        .create_service(create_cmd("Odd Cycle", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+
+    services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: Some(500),
+            currency: Some("EUR".into()),
+            next_renews_at: Some(ts("2026-11-01T00:00:00Z")),
+            next_expires_at: None,
+        })
+        .unwrap();
+
+    // The renewal's cost/boundary are search-visible facts (projection body).
+    let mut search = t.search_service();
+    let hits = search.search("2026-11-01", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].asset_id, id);
+
+    // And the projection is still rebuildable from canonical data alone.
+    t.factory
+        .transact(&mut |uow| uow.search_index().replace_all(&[]))
+        .unwrap();
+    search.rebuild().unwrap();
+    let hits = search.search("2026-11-01", 10).unwrap();
+    assert_eq!(hits.len(), 1);
 }
 
 #[test]

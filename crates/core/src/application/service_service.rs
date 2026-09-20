@@ -103,6 +103,29 @@ impl Patch<String> {
     }
 }
 
+/// Records that a subscription/service renewed (docs/10 renewal use case).
+///
+/// The command carries explicit facts only — it never computes a next renewal
+/// date. `renewed_at` is when the renewal happened; `next_renews_at` /
+/// `next_expires_at` are the next boundaries the caller knows, when known (a
+/// cancelled subscription has a next expiry and no next renewal; a usage-based
+/// plan may know neither). This avoids ambiguous month-length, timezone,
+/// provider-policy, and usage-based billing arithmetic.
+#[derive(Debug, Clone)]
+pub struct RecordRenewal {
+    pub asset_id: AssetId,
+    /// When this renewal happened/was observed.
+    pub renewed_at: Timestamp,
+    /// Amount actually charged at this renewal, in integer minor units;
+    /// paired with `currency` (ADR 0010). Applies to the canonical cost.
+    pub charged_cost_minor: Option<i64>,
+    pub currency: Option<String>,
+    /// Next expected renewal/charge boundary, when known.
+    pub next_renews_at: Option<Timestamp>,
+    /// Next known end of entitlement, when known.
+    pub next_expires_at: Option<Timestamp>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct UpdateService {
     pub asset_id: AssetId,
@@ -327,6 +350,105 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
             uow.services().upsert(&record)?;
 
             update_service_projection(uow, &asset, &record)?;
+            Ok(())
+        })?;
+
+        self.get_service(cmd.asset_id)
+    }
+
+    /// Records an explicit renewal: one short transaction that applies the
+    /// caller-supplied next-boundary/cost facts, appends exactly one
+    /// `service.renewed` event, and refreshes the projection when a visible
+    /// canonical field changed (docs/10).
+    ///
+    /// No calendar arithmetic happens here. The next renewal/expiry boundary
+    /// is whatever the caller supplied, so month length, timezone, and
+    /// provider policy stay the caller's decision. An absent boundary means
+    /// "unknown", never "computed".
+    pub fn record_renewal(&mut self, cmd: RecordRenewal) -> AppResult<ServiceView> {
+        // Money is a pair before anything is written (ADR 0010); validating up
+        // front keeps a malformed command from reaching the transaction.
+        match (cmd.charged_cost_minor, cmd.currency.as_deref()) {
+            (None, None) | (Some(_), Some(_)) => {}
+            _ => {
+                return Err(AppError::validation(
+                    "charged cost and currency must be both present or both absent",
+                ))
+            }
+        }
+
+        self.factory.transact(&mut |uow| {
+            // One transaction loads the asset, the record, and writes both the
+            // canonical change and its event (ADR 0007).
+            let asset = crate::application::shared::load_active_asset(uow, cmd.asset_id)?;
+            let mut record = load_service_record(uow, cmd.asset_id)?;
+
+            if record.service_type.asset_kind() != asset.kind {
+                return Err(AppError::conflict(format!(
+                    "service record type {} requires asset kind {}, but asset {} has kind {}",
+                    record.service_type,
+                    record.service_type.asset_kind(),
+                    asset.id,
+                    asset.kind
+                )));
+            }
+
+            // Kept for the projection decision below: only a change to a
+            // search-visible field is worth rewriting the document.
+            let before = record.clone();
+
+            if let Some(cost) = cmd.charged_cost_minor {
+                record.cost_minor = Some(cost);
+                record.currency = cmd.currency.clone();
+            }
+            // Explicit next boundaries only: `None` means the caller does not
+            // know, which leaves the stored value alone. There is deliberately
+            // no `Clear` here — forgetting to pass a boundary must not erase a
+            // known one, so clearing stays an explicit `service update`.
+            if let Some(next) = cmd.next_renews_at {
+                record.renews_at = Some(next);
+            }
+            if let Some(next) = cmd.next_expires_at {
+                record.expires_at = Some(next);
+            }
+
+            // Same canonicalization point as every other write path: money
+            // pairing, currency normalization, text/URL/domain rules.
+            record.validate()?;
+
+            uow.services().upsert(&record)?;
+
+            // The event carries the currency AS STORED, not as typed: `usd`
+            // and `USD` are the same currency, and an activity event is an
+            // exportable durable fact that must not disagree with the
+            // canonical record it describes. A renewal that reported no charge
+            // publishes no currency at all — the record's pre-existing cost is
+            // not this renewal's fact.
+            let charged_currency = match cmd.charged_cost_minor {
+                Some(_) => record.currency.clone(),
+                None => None,
+            };
+
+            // The renewal fact itself is event-worthy, so a renewal is always
+            // recorded as provenance (never an invoice ledger). Ordinary
+            // metadata edits still emit nothing (docs/10 activity policy).
+            uow.activity().append(&ActivityEvent::new(
+                event_types::SERVICE_RENEWED,
+                Some(cmd.asset_id),
+                actors::USER,
+                json!({
+                    "renewed_at": cmd.renewed_at.to_rfc3339(),
+                    "charged_cost_minor": cmd.charged_cost_minor,
+                    "currency": charged_currency,
+                    "next_renews_at": cmd.next_renews_at.map(|t| t.to_rfc3339()),
+                    "next_expires_at": cmd.next_expires_at.map(|t| t.to_rfc3339()),
+                }),
+                cmd.renewed_at,
+            ))?;
+
+            if before != record {
+                update_service_projection(uow, &asset, &record)?;
+            }
             Ok(())
         })?;
 

@@ -22,6 +22,15 @@ pub enum RelationType {
     UsedBy,
     InstalledVia,
     Installs,
+    /// A service/asset runs on another (a VPS, a host). Inverse of `Hosts`.
+    HostedOn,
+    /// View-time inverse of `HostedOn`; never stored.
+    Hosts,
+    /// A domain/name resolves to another asset (an API, a server). Inverse of
+    /// `PointedToBy`.
+    PointsTo,
+    /// View-time inverse of `PointsTo`; never stored.
+    PointedToBy,
     RelatedTo,
 }
 
@@ -34,6 +43,10 @@ impl RelationType {
             RelationType::UsedBy => "used_by",
             RelationType::InstalledVia => "installed_via",
             RelationType::Installs => "installs",
+            RelationType::HostedOn => "hosted_on",
+            RelationType::Hosts => "hosts",
+            RelationType::PointsTo => "points_to",
+            RelationType::PointedToBy => "pointed_to_by",
             RelationType::RelatedTo => "related_to",
         }
     }
@@ -46,6 +59,10 @@ impl RelationType {
             "used_by" => Some(RelationType::UsedBy),
             "installed_via" => Some(RelationType::InstalledVia),
             "installs" => Some(RelationType::Installs),
+            "hosted_on" => Some(RelationType::HostedOn),
+            "hosts" => Some(RelationType::Hosts),
+            "points_to" => Some(RelationType::PointsTo),
+            "pointed_to_by" => Some(RelationType::PointedToBy),
             "related_to" => Some(RelationType::RelatedTo),
             _ => None,
         }
@@ -61,13 +78,18 @@ impl RelationType {
             RelationType::UsedBy => RelationType::Uses,
             RelationType::InstalledVia => RelationType::Installs,
             RelationType::Installs => RelationType::InstalledVia,
+            RelationType::HostedOn => RelationType::Hosts,
+            RelationType::Hosts => RelationType::HostedOn,
+            RelationType::PointsTo => RelationType::PointedToBy,
+            RelationType::PointedToBy => RelationType::PointsTo,
             RelationType::RelatedTo => RelationType::RelatedTo,
         }
     }
 
     /// The canonical storage representative of an inverse pair. Inverse
-    /// types (`dependency_of`, `used_by`, `installs`) are view-time
-    /// derivations of their primary (`depends_on`, `uses`, `installed_via`)
+    /// types (`dependency_of`, `used_by`, `installs`, `hosts`,
+    /// `pointed_to_by`) are view-time derivations of their primary
+    /// (`depends_on`, `uses`, `installed_via`, `hosted_on`, `points_to`)
     /// and are never stored: a fact stated with an inverse type is stored as
     /// its primary with the endpoints swapped, so every fact has exactly one
     /// row representation.
@@ -76,8 +98,18 @@ impl RelationType {
             RelationType::DependencyOf => RelationType::DependsOn,
             RelationType::UsedBy => RelationType::Uses,
             RelationType::Installs => RelationType::InstalledVia,
+            RelationType::Hosts => RelationType::HostedOn,
+            RelationType::PointedToBy => RelationType::PointsTo,
             other => *other,
         }
+    }
+
+    /// Whether this type may be stored as a canonical row. Inverse types are
+    /// view-time derivations of their primary and are never stored, so a fact
+    /// stated with an inverse type is rewritten into its primary with the
+    /// endpoints swapped.
+    pub const fn is_storable(&self) -> bool {
+        is_storable(*self)
     }
 
     /// Symmetric types read identically from both endpoints; canonical
@@ -97,6 +129,60 @@ impl RelationType {
         }
     }
 }
+
+/// Every relation type in the registry. Exhaustive on purpose: adding a
+/// variant without classifying it below breaks compilation until the author
+/// decides whether it is storable.
+pub const ALL_TYPES: &[RelationType] = &[
+    RelationType::DependsOn,
+    RelationType::DependencyOf,
+    RelationType::Uses,
+    RelationType::UsedBy,
+    RelationType::InstalledVia,
+    RelationType::Installs,
+    RelationType::HostedOn,
+    RelationType::Hosts,
+    RelationType::PointsTo,
+    RelationType::PointedToBy,
+    RelationType::RelatedTo,
+];
+
+/// Whether a type may be stored as a canonical row. Inverse types are
+/// view-time derivations of their primary and are never stored, so a fact
+/// stated with an inverse type is rewritten into its primary with the
+/// endpoints swapped.
+///
+/// Exhaustive on purpose (no wildcard arm): a new registry variant that
+/// nobody classified fails to compile here.
+const fn is_storable(relation_type: RelationType) -> bool {
+    match relation_type {
+        RelationType::DependsOn
+        | RelationType::Uses
+        | RelationType::InstalledVia
+        | RelationType::HostedOn
+        | RelationType::PointsTo
+        | RelationType::RelatedTo => true,
+        RelationType::DependencyOf
+        | RelationType::UsedBy
+        | RelationType::Installs
+        | RelationType::Hosts
+        | RelationType::PointedToBy => false,
+    }
+}
+
+/// Every relation type that may appear in a stored row, in registry order.
+/// This is the single Rust-side source of truth for the stored-type CHECK
+/// constraint in the SQLite schema (migration `0004_service_relations_v1`);
+/// the storage contract tests read that CHECK back out of the schema and
+/// compare it against this list, so drift fails a test instead of a write.
+pub const STORABLE_TYPES: &[RelationType] = &[
+    RelationType::DependsOn,
+    RelationType::Uses,
+    RelationType::InstalledVia,
+    RelationType::HostedOn,
+    RelationType::PointsTo,
+    RelationType::RelatedTo,
+];
 
 impl std::fmt::Display for RelationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -185,7 +271,7 @@ impl Relation {
     /// the storage-level guarantees (one row per fact) hold even for direct
     /// UnitOfWork writes that skip the application services.
     pub fn is_canonical(&self) -> bool {
-        if self.relation_type != self.relation_type.primary() {
+        if !self.relation_type.is_storable() {
             return false;
         }
         if self.relation_type.is_symmetric()
@@ -202,7 +288,7 @@ impl Relation {
     /// keeps the "exactly one row per fact" invariant unbroken at the
     /// repository seam.
     pub fn ensure_canonical(&self) -> AppResult<()> {
-        if self.relation_type != self.relation_type.primary() {
+        if !self.relation_type.is_storable() {
             return Err(AppError::validation(format!(
                 "{} is the view-time inverse of {}; store the fact as {} from {} to {}",
                 self.relation_type,
@@ -266,6 +352,10 @@ mod tests {
             RelationType::UsedBy,
             RelationType::InstalledVia,
             RelationType::Installs,
+            RelationType::HostedOn,
+            RelationType::Hosts,
+            RelationType::PointsTo,
+            RelationType::PointedToBy,
             RelationType::RelatedTo,
         ] {
             let inverse = relation_type.inverse();
@@ -407,7 +497,167 @@ mod tests {
         );
         assert_eq!(RelationType::UsedBy.primary(), RelationType::Uses);
         assert_eq!(RelationType::Installs.primary(), RelationType::InstalledVia);
+        assert_eq!(RelationType::Hosts.primary(), RelationType::HostedOn);
+        assert_eq!(RelationType::PointedToBy.primary(), RelationType::PointsTo);
         assert_eq!(RelationType::RelatedTo.primary(), RelationType::RelatedTo);
+    }
+
+    #[test]
+    fn storable_types_are_exactly_the_primary_representatives() {
+        // `STORABLE_TYPES` is what the SQL stored-type CHECK mirrors, so it
+        // must agree with `primary()` for every registry variant: a type is
+        // storable if and only if it is its own primary.
+        let expected: Vec<RelationType> = ALL_TYPES
+            .iter()
+            .copied()
+            .filter(|t| t.primary() == *t)
+            .collect();
+        assert_eq!(STORABLE_TYPES, expected.as_slice());
+
+        // The classification is stated once, exhaustively; both views of it
+        // (storable list and primary collapse) must agree for every variant.
+        for relation_type in ALL_TYPES {
+            assert_eq!(
+                STORABLE_TYPES.contains(relation_type),
+                is_storable(*relation_type),
+                "{} is classified inconsistently",
+                relation_type.as_str()
+            );
+            assert_eq!(
+                is_storable(*relation_type),
+                relation_type.primary() == *relation_type,
+                "{} must be storable exactly when it is its own primary",
+                relation_type.as_str()
+            );
+        }
+
+        // And no inverse leaks into storage: every non-primary type names a
+        // primary that IS stored, so the rewrite always has a target.
+        for relation_type in ALL_TYPES.iter().filter(|t| t.primary() != **t) {
+            let primary = relation_type.primary();
+            assert!(
+                STORABLE_TYPES.contains(&primary),
+                "{} maps to unstorable primary {primary}",
+                relation_type.as_str()
+            );
+            assert_ne!(relation_type.as_str(), primary.as_str());
+        }
+    }
+
+    #[test]
+    fn service_relation_types_round_trip_through_the_registry() {
+        // The Phase 3 service-relation pair parses, names, and inverts exactly
+        // like the Phase 2 pair (docs/10 "Relations").
+        for (stored, inverse) in [
+            ("hosted_on", "hosts"),
+            ("hosts", "hosted_on"),
+            ("points_to", "pointed_to_by"),
+            ("pointed_to_by", "points_to"),
+        ] {
+            let parsed = RelationType::parse(stored).unwrap();
+            assert_eq!(parsed.as_str(), stored);
+            assert_eq!(parsed.inverse().as_str(), inverse);
+            // Neither direction is symmetric: one fact has one row, and the
+            // two directions are DIFFERENT facts.
+            assert!(!parsed.is_symmetric());
+        }
+        assert_eq!(
+            RelationType::parse("HOSTED_ON"),
+            Some(RelationType::HostedOn)
+        );
+        assert_eq!(RelationType::parse("hosts"), Some(RelationType::Hosts));
+        assert_eq!(RelationType::parse("hostedby"), None);
+    }
+
+    #[test]
+    fn service_relation_facts_have_exactly_one_canonical_row() {
+        let a = AssetId::from_uuid(uuid::Uuid::from_u128(1));
+        let b = AssetId::from_uuid(uuid::Uuid::from_u128(2));
+        let now = chrono::Utc::now();
+
+        // Stating "A hosted_on B" from either endpoint collapses onto the same
+        // canonical triple, so the SQL UNIQUE(source, target, type) row is one.
+        let direct = Relation::new(
+            RelationId::generate(),
+            a,
+            b,
+            RelationType::HostedOn,
+            RelationProvenance::Manual,
+            now,
+        )
+        .unwrap()
+        .canonical_form();
+        let via_inverse = Relation::new(
+            RelationId::generate(),
+            b,
+            a,
+            RelationType::Hosts,
+            RelationProvenance::Manual,
+            now,
+        )
+        .unwrap()
+        .canonical_form();
+        assert_eq!(direct.source_asset_id, via_inverse.source_asset_id);
+        assert_eq!(direct.target_asset_id, via_inverse.target_asset_id);
+        assert_eq!(direct.relation_type, RelationType::HostedOn);
+
+        // The same holds for points_to.
+        let via_inverse = Relation::new(
+            RelationId::generate(),
+            b,
+            a,
+            RelationType::PointedToBy,
+            RelationProvenance::Manual,
+            now,
+        )
+        .unwrap()
+        .canonical_form();
+        assert_eq!(via_inverse.relation_type, RelationType::PointsTo);
+        assert_eq!(via_inverse.source_asset_id, a);
+
+        // The opposite direction is a different fact and stays distinct.
+        let opposite = Relation::new(
+            RelationId::generate(),
+            b,
+            a,
+            RelationType::HostedOn,
+            RelationProvenance::Manual,
+            now,
+        )
+        .unwrap()
+        .canonical_form();
+        assert_eq!(opposite.source_asset_id, b);
+        assert_eq!(opposite.relation_type, RelationType::HostedOn);
+
+        // Viewing the stored row from each endpoint resolves the inverse.
+        assert_eq!(
+            direct.relation_type.effective_from(a, a),
+            RelationType::HostedOn
+        );
+        assert_eq!(
+            direct.relation_type.effective_from(a, b),
+            RelationType::Hosts
+        );
+    }
+
+    #[test]
+    fn inverse_service_relation_types_are_never_canonical_storage() {
+        let a = AssetId::from_uuid(uuid::Uuid::from_u128(1));
+        let b = AssetId::from_uuid(uuid::Uuid::from_u128(2));
+        let now = chrono::Utc::now();
+        for inverse in [RelationType::Hosts, RelationType::PointedToBy] {
+            let stated = Relation::new(
+                RelationId::generate(),
+                b,
+                a,
+                inverse,
+                RelationProvenance::Manual,
+                now,
+            )
+            .unwrap();
+            assert!(!stated.is_canonical(), "{inverse} must not be canonical");
+            assert!(stated.ensure_canonical().is_err());
+        }
     }
 
     #[test]

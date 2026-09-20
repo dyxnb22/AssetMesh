@@ -186,11 +186,15 @@ record_renewal(service_id,
 The command:
 
 1. loads and validates the Service asset in one short write transaction;
-2. applies explicitly supplied next-boundary/cost metadata;
+2. applies explicitly supplied next-boundary/cost metadata, never deriving a
+   boundary from the billing cadence;
 3. appends one `service.renewed` activity event containing only non-secret factual
    renewal data;
-4. updates the Search Projection if visible canonical fields changed;
-5. is a no-op only when the command carries no state/event-worthy renewal fact.
+4. updates the Search Projection only if visible canonical fields changed;
+5. always appends the event, because `renewed_at` is a required argument — a
+   renewal command that carries no renewal moment is a caller error, not a
+   silent no-op. Money is optional but must be supplied as a pair
+   (`charged_cost_minor` together with `currency`) whenever either is present.
 
 Phase 3 does not create an invoice ledger. The activity event is historical provenance,
 not a general accounting subsystem.
@@ -329,7 +333,7 @@ All Phase 2 canonicalization guarantees remain mandatory:
 - one fact has exactly one canonical row;
 - service attach/remove paths do not bypass the shared Relation service/repository;
 - merges re-point, canonicalize, deduplicate, and remove self-loops;
-- the SQL CHECK constraint and Rust registry must evolve together in migration 0003.
+- the SQL CHECK constraint and Rust registry must evolve together in migration 0004.
 
 Phase 4 still owns general relation traversal/impact query services and presentation.
 Phase 3 only adds relation semantics required by real Service use cases.
@@ -456,9 +460,12 @@ Storage-level CHECK constraints should enforce representation-level invariants w
 practical, including enum values and paired money fields when SQLite semantics permit;
 domain/repository validation remains authoritative for richer invariants.
 
-Migration 0003 also updates the relations-table stored-type CHECK to include the new
-canonical primary relation types (`hosted_on`, `points_to`) while preserving existing
-rows and uniqueness/canonical-row guarantees.
+Migration 0004 (not 0003) updates the relations-table stored-type CHECK to include the
+new canonical primary relation types (`hosted_on`, `points_to`) while preserving existing
+rows and uniqueness/canonical-row guarantees. Migration 0003 already shipped with the
+Phase 3 core and is applied by every existing database, and the checksum guard makes an
+already-applied migration immutable, so the CHECK change had to arrive as a new migration
+rather than as an edit to 0003.
 
 `module_metadata` gains `('services', 1)`.
 
@@ -508,8 +515,10 @@ Before mutation it validates:
 - external-ref uniqueness;
 - relation canonicalizability and endpoint existence;
 - duplicate Service detail rows;
-- no Service detail on merged/tombstone identities unless the portable contract
-  explicitly reconciles them through the winner;
+- no Service detail on merged/tombstone identities: the portable contract has no
+  "re-home this row onto the winner" rule, so a service row on a tombstone is a
+  preflight error for dry-run and commit alike (a merge always removes the
+  loser's record, so a well-formed export never emits one);
 - declared authoritative reconciliation does not create cross-module stranded state.
 
 For the bundled canonical identity, declared Services data is authoritative in the
@@ -627,7 +636,7 @@ Exit: canonical Services are durable/searchable with repository-boundary enforce
 
 ### Phase 3C — Service-specific behavior
 
-- `record_renewal`;
+- `record_renewal` (implemented: `RecordRenewal` in `application/service_service.rs`);
 - `hosted_on`/`hosts` and `points_to`/`pointed_to_by` registry + SQL support;
 - activity policy;
 - merge behavior;
@@ -645,7 +654,8 @@ Exit: Services demonstrate real domain behavior beyond generic CRUD.
 - focused review for secret leakage, money precision, relation canonicalization,
   migration safety, cross-module merge, and authoritative restore.
 
-Exit: Phase 3 satisfies the full vertical-slice contract.
+Exit: Phase 3 satisfies the full vertical-slice contract. All four batches (3A-3D) are
+implemented and covered by unit, repository, and CLI end-to-end tests.
 
 ## Exit criteria
 

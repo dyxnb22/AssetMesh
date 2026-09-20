@@ -23,7 +23,7 @@ fn fmt_rating(rating: Option<f64>) -> String {
         .unwrap_or_else(|| "-".into())
 }
 
-fn fmt_time(ts: Option<chrono::DateTime<chrono::Utc>>) -> String {
+pub(crate) fn fmt_time(ts: Option<chrono::DateTime<chrono::Utc>>) -> String {
     ts.map(|t| t.format("%Y-%m-%d").to_string())
         .unwrap_or_else(|| "-".into())
 }

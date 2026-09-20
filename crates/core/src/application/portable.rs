@@ -19,7 +19,8 @@
 //! ├── relations.jsonl
 //! └── modules/
 //!     ├── media.jsonl
-//!     └── software.jsonl
+//!     ├── software.jsonl
+//!     └── services.jsonl
 //! ```
 //!
 //! Module sections are governed by manifest declaration (ADR 0008): a
@@ -27,10 +28,10 @@
 //! `manifest.modules` (and its count in `record_counts`), and the section is
 //! then authoritative — including reconciliation of destination state the
 //! bundle no longer carries. A Phase 1 bundle predates Software and
-//! Relations: the absent section means "contains no such state", imports
-//! cleanly, and leaves any pre-existing destination data of that kind
-//! untouched. A section file present WITHOUT its manifest declaration is
-//! bundle corruption and fails loudly.
+//! Relations; a Phase 2 bundle predates Services: the absent section means
+//! "contains no such state", imports cleanly, and leaves any pre-existing
+//! destination data of that kind untouched. A section file present WITHOUT
+//! its manifest declaration is bundle corruption and fails loudly.
 //!
 //! Every import (dry-run or commit) runs the same preflight: declared files
 //! must be present, decoded row counts must match the manifest, identities
@@ -47,6 +48,7 @@ use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::{ActivityId, AssetId, ExternalRefId, RelationId, TagId};
 use crate::domain::media::{MediaRecord, MediaType};
 use crate::domain::relation::{Relation, RelationProvenance, RelationType};
+use crate::domain::service::{BillingCadence, ServiceRecord, ServiceType};
 use crate::domain::software::{InstallSource, SoftwareCategory, SoftwareRecord};
 use crate::domain::tag::Tag;
 use crate::domain::Timestamp;
@@ -70,9 +72,8 @@ pub use crate::domain::media::SCHEMA_VERSION as MEDIA_SCHEMA_VERSION;
 pub use crate::domain::software::SCHEMA_VERSION as SOFTWARE_SCHEMA_VERSION;
 
 /// Services module data schema version — owned by the Services module
-/// (`domain::service::SCHEMA_VERSION`). The portable services section
-/// itself lands in Phase 3D; the version is already part of the shared
-/// module-version contract that storage validates on open.
+/// (`domain::service::SCHEMA_VERSION`). Declared in the manifest of every
+/// current export, alongside `media` and `software`.
 pub use crate::domain::service::SCHEMA_VERSION as SERVICES_SCHEMA_VERSION;
 
 // ---------------------------------------------------------------------------
@@ -137,6 +138,30 @@ pub struct PortableSoftwareRecordV1 {
     pub discovered_at: Option<String>,
     pub installed_at: Option<String>,
     pub architecture: Option<String>,
+}
+
+/// Services module wire DTO (docs/10 "Portable data").
+///
+/// The canonical vocabulary only — no field here can hold a credential
+/// (ADR 0010), and none is added without breaking format version 1 for a
+/// reader that knows the field set. Money stays integer minor units.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortableServiceRecordV1 {
+    pub asset_id: String,
+    pub service_type: String,
+    pub provider: Option<String>,
+    pub account_label: Option<String>,
+    pub endpoint_url: Option<String>,
+    pub dashboard_url: Option<String>,
+    pub domain_name: Option<String>,
+    pub plan: Option<String>,
+    pub cost_minor: Option<i64>,
+    pub currency: Option<String>,
+    pub billing_cadence: Option<String>,
+    pub renews_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub auto_renew: Option<bool>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -355,6 +380,69 @@ impl PortableSoftwareRecordV1 {
     }
 }
 
+impl PortableServiceRecordV1 {
+    fn from_domain(record: &ServiceRecord) -> Self {
+        PortableServiceRecordV1 {
+            asset_id: id_to_wire(record.asset_id.as_uuid()),
+            service_type: record.service_type.as_str().to_string(),
+            provider: record.provider.clone(),
+            account_label: record.account_label.clone(),
+            endpoint_url: record.endpoint_url.clone(),
+            dashboard_url: record.dashboard_url.clone(),
+            domain_name: record.domain_name.clone(),
+            plan: record.plan.clone(),
+            cost_minor: record.cost_minor,
+            currency: record.currency.clone(),
+            billing_cadence: record.billing_cadence.map(|c| c.as_str().to_string()),
+            renews_at: record.renews_at.map(ts_to_wire),
+            expires_at: record.expires_at.map(ts_to_wire),
+            auto_renew: record.auto_renew,
+            notes: record.notes.clone(),
+        }
+    }
+
+    fn into_domain(self) -> AppResult<ServiceRecord> {
+        Ok(ServiceRecord {
+            asset_id: AssetId::from_uuid(id_from_wire(&self.asset_id, "service")?),
+            service_type: ServiceType::parse(&self.service_type).ok_or_else(|| {
+                AppError::validation(format!(
+                    "bundle service has unknown type {:?}",
+                    self.service_type
+                ))
+            })?,
+            provider: self.provider,
+            account_label: self.account_label,
+            endpoint_url: self.endpoint_url,
+            dashboard_url: self.dashboard_url,
+            domain_name: self.domain_name,
+            plan: self.plan,
+            cost_minor: self.cost_minor,
+            currency: self.currency,
+            billing_cadence: self
+                .billing_cadence
+                .as_deref()
+                .map(|raw| {
+                    BillingCadence::parse(raw).ok_or_else(|| {
+                        AppError::validation(format!(
+                            "bundle service has unknown billing_cadence {raw:?}"
+                        ))
+                    })
+                })
+                .transpose()?,
+            renews_at: match &self.renews_at {
+                Some(t) => Some(ts_from_wire(t, "service.renews_at")?),
+                None => None,
+            },
+            expires_at: match &self.expires_at {
+                Some(t) => Some(ts_from_wire(t, "service.expires_at")?),
+                None => None,
+            },
+            auto_renew: self.auto_renew,
+            notes: self.notes,
+        })
+    }
+}
+
 impl PortableRelationV1 {
     fn from_domain(relation: &Relation) -> Self {
         PortableRelationV1 {
@@ -510,15 +598,17 @@ pub const V1_CORE_FILE_PATHS: [&str; 5] = [
 ];
 
 /// Module data files. `modules/media.jsonl` is required (every real export
-/// has always carried Media); `modules/software.jsonl` is present iff the
-/// manifest declares the software module.
+/// has always carried Media); `modules/software.jsonl` and
+/// `modules/services.jsonl` are present because every current export declares
+/// those modules (docs/10).
 pub const V1_MEDIA_FILE_PATH: &str = "modules/media.jsonl";
 pub const V1_SOFTWARE_FILE_PATH: &str = "modules/software.jsonl";
+pub const V1_SERVICES_FILE_PATH: &str = "modules/services.jsonl";
 pub const V1_RELATIONS_FILE_PATH: &str = "relations.jsonl";
 
 /// Every file path a current exporter writes (a superset of what older
 /// exporters wrote; readers pick up whichever exist).
-pub const V1_FILE_PATHS: [&str; 8] = [
+pub const V1_FILE_PATHS: [&str; 9] = [
     "assets.jsonl",
     "external_refs.jsonl",
     "activity.jsonl",
@@ -527,6 +617,7 @@ pub const V1_FILE_PATHS: [&str; 8] = [
     "relations.jsonl",
     "modules/media.jsonl",
     "modules/software.jsonl",
+    "modules/services.jsonl",
 ];
 
 pub struct PortableExportService<F: UnitOfWorkFactory> {
@@ -569,22 +660,10 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                 ))
             })?;
 
-        // The services wire format is Phase 3D and does not exist yet: this
-        // exporter writes no `modules/services.jsonl` and the manifest declares
-        // no services section, so a bundle written today could not restore a
-        // ServiceRecord. Exporting anyway would hand the user a backup that
-        // silently drops every service, so refuse instead (docs/10 portability;
-        // a lossy bundle is worse than a loud failure). Note this counts
-        // records of every lifecycle: archiving a service does not unblock the
-        // export, only deleting the record does.
-        if !services.is_empty() {
-            return Err(AppError::conflict(format!(
-                "cannot export: {} service record(s) exist but the portable services format is \
-                 not implemented yet (Phase 3D); the bundle would lose them. Delete the service \
-                 records, or wait for services export support",
-                services.len()
-            )));
-        }
+        // Services export through `modules/services.jsonl`: the wire DTO
+        // carries the canonical vocabulary only, so no credential material can
+        // reach a bundle (ADR 0010). An archived service is still exported —
+        // archiving is a lifecycle state, not a deletion.
 
         let created_at = self.clock.now();
 
@@ -601,6 +680,11 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
             .map(PortableSoftwareRecordV1::from_domain)
             .collect();
         software.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
+        let mut services: Vec<PortableServiceRecordV1> = services
+            .iter()
+            .map(PortableServiceRecordV1::from_domain)
+            .collect();
+        services.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
         let mut refs: Vec<PortableExternalRefV1> = refs
             .iter()
             .map(PortableExternalRefV1::from_domain)
@@ -649,6 +733,12 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                         schema_version: SOFTWARE_SCHEMA_VERSION,
                     },
                 ),
+                (
+                    "services".to_string(),
+                    ModuleVersion {
+                        schema_version: SERVICES_SCHEMA_VERSION,
+                    },
+                ),
             ]),
             record_counts: BTreeMap::from([
                 ("assets".to_string(), assets.len()),
@@ -658,6 +748,7 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                 ("asset_tags".to_string(), asset_tags_rows.len()),
                 ("media".to_string(), media.len()),
                 ("software".to_string(), software.len()),
+                ("services".to_string(), services.len()),
                 ("relations".to_string(), relations.len()),
             ]),
         };
@@ -694,6 +785,10 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
             ExportFile {
                 path: "modules/software.jsonl".into(),
                 content: to_jsonl(&software)?,
+            },
+            ExportFile {
+                path: "modules/services.jsonl".into(),
+                content: to_jsonl(&services)?,
             },
         ];
 
@@ -839,6 +934,8 @@ pub struct PortableImportReport {
     pub media_updated: usize,
     pub software_created: usize,
     pub software_updated: usize,
+    pub services_created: usize,
+    pub services_updated: usize,
     pub external_refs_created: usize,
     pub external_refs_deduplicated: usize,
     pub activity_created: usize,
@@ -853,6 +950,8 @@ struct DecodedBundle {
     media: Vec<MediaRecord>,
     /// Empty when the bundle predates the Software module (undeclared).
     software: Vec<SoftwareRecord>,
+    /// Empty when the bundle predates the Services module (undeclared).
+    services: Vec<ServiceRecord>,
     refs: Vec<AssetExternalRef>,
     activity: Vec<ActivityEvent>,
     tags: Vec<Tag>,
@@ -864,6 +963,10 @@ struct DecodedBundle {
     /// undeclared sections are legacy compatibility and leave destination
     /// state untouched.
     software_declared: bool,
+    /// Same contract for the Services module (docs/10 "Portable data"): a
+    /// declared section is authoritative, an undeclared one means the bundle
+    /// predates Services and must not erase destination service data.
+    services_declared: bool,
     relations_declared: bool,
 }
 
@@ -1095,6 +1198,13 @@ fn dispositions(decoded: &DecodedBundle, snapshot: &DestinationSnapshot) -> Port
             report.software_created += 1;
         }
     }
+    for record in &decoded.services {
+        if snapshot.service_asset_ids.contains(&record.asset_id) {
+            report.services_updated += 1;
+        } else {
+            report.services_created += 1;
+        }
+    }
     for reference in &decoded.refs {
         match snapshot
             .ref_pairs
@@ -1189,6 +1299,9 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
             for record in &decoded.software {
                 uow.software().upsert(record)?;
             }
+            for record in &decoded.services {
+                uow.services().upsert(record)?;
+            }
 
             for reference in &decoded.refs {
                 let known = snapshot
@@ -1277,12 +1390,17 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
                 let bundled_media = decoded.media.iter().any(|m| m.asset_id == asset.id);
                 let bundled_software = decoded.software_declared
                     && decoded.software.iter().any(|s| s.asset_id == asset.id);
+                let bundled_service = decoded.services_declared
+                    && decoded.services.iter().any(|s| s.asset_id == asset.id);
 
                 if !bundled_media {
                     uow.media().delete(asset.id)?;
                 }
                 if decoded.software_declared && !bundled_software {
                     uow.software().delete(asset.id)?;
+                }
+                if decoded.services_declared && !bundled_service {
+                    uow.services().delete(asset.id)?;
                 }
 
                 if asset.lifecycle_state == crate::domain::asset::LifecycleState::Merged {
@@ -1305,6 +1423,17 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
                     let tags = uow.tags().list_for_asset(asset.id)?;
                     let refs = uow.external_refs().list_for_asset(asset.id)?;
                     let document = crate::application::projection::project_software(
+                        asset, &record, &tags, &refs,
+                    );
+                    uow.search_index().upsert(&document)?;
+                } else if bundled_service {
+                    let record = uow
+                        .services()
+                        .get(asset.id)?
+                        .ok_or_else(|| AppError::not_found("service record", asset.id))?;
+                    let tags = uow.tags().list_for_asset(asset.id)?;
+                    let refs = uow.external_refs().list_for_asset(asset.id)?;
+                    let document = crate::application::projection::project_service(
                         asset, &record, &tags, &refs,
                     );
                     uow.search_index().upsert(&document)?;
@@ -1363,6 +1492,21 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         }
         None => false,
     };
+    // Services module: same declaration contract (docs/10 "Portable data").
+    // Declared → required, count-checked, and authoritative; undeclared → a
+    // bundle predating Services, which must not erase destination service
+    // state; a section file without the declaration is corruption.
+    let services_declared = match manifest.modules.get("services") {
+        Some(module) if module.schema_version == SERVICES_SCHEMA_VERSION => true,
+        Some(module) => {
+            return Err(AppError::unsupported_schema_version(
+                "services module",
+                module.schema_version,
+                format!("schema_version {SERVICES_SCHEMA_VERSION}"),
+            ))
+        }
+        None => false,
+    };
     let relations_declared = manifest.record_counts.contains_key("relations");
 
     // Core files: a v1 bundle declares its full core shape; missing files
@@ -1393,6 +1537,20 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         return Err(AppError::validation(
             "bundle contains modules/software.jsonl but its manifest does not declare \
              the software module",
+        ));
+    }
+    if services_declared {
+        let content = bundle.file(V1_SERVICES_FILE_PATH).ok_or_else(|| {
+            AppError::validation(format!(
+                "bundle declares the services module but is missing required file \
+                 {V1_SERVICES_FILE_PATH:?}"
+            ))
+        })?;
+        file_content.insert(V1_SERVICES_FILE_PATH, content);
+    } else if bundle.file(V1_SERVICES_FILE_PATH).is_some() {
+        return Err(AppError::validation(
+            "bundle contains modules/services.jsonl but its manifest does not declare \
+             the services module",
         ));
     }
     if relations_declared {
@@ -1444,6 +1602,22 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
             return Err(AppError::validation(format!(
                 "bundle count mismatch: manifest declares {} software records, found {}",
                 count_of("software")?,
+                rows.len()
+            )));
+        }
+        rows
+    } else {
+        Vec::new()
+    };
+    let service_rows: Vec<PortableServiceRecordV1> = if services_declared {
+        let rows = decode_jsonl(
+            file_content["modules/services.jsonl"],
+            "modules/services.jsonl",
+        )?;
+        if rows.len() != count_of("services")? {
+            return Err(AppError::validation(format!(
+                "bundle count mismatch: manifest declares {} service records, found {}",
+                count_of("services")?,
                 rows.len()
             )));
         }
@@ -1529,6 +1703,17 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         })?;
         software.push(record);
     }
+    let mut services = Vec::with_capacity(service_rows.len());
+    for row in service_rows {
+        let mut record = row.into_domain()?;
+        // The same single canonicalization point as every other write path:
+        // text normalization, URL shape, domain-name rules, money pairing, and
+        // currency form are all enforced here, before any mutation.
+        record.validate().map_err(|e| {
+            AppError::validation(format!("bundle service record {}: {e}", record.asset_id))
+        })?;
+        services.push(record);
+    }
     let mut relations = Vec::with_capacity(relation_rows.len());
     for row in relation_rows {
         let relation = row.into_domain()?;
@@ -1589,6 +1774,15 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         if !software_ids.insert(record.asset_id) {
             return Err(AppError::validation(format!(
                 "bundle contains duplicate software record for asset {}",
+                record.asset_id
+            )));
+        }
+    }
+    let mut service_ids = HashSet::new();
+    for record in &services {
+        if !service_ids.insert(record.asset_id) {
+            return Err(AppError::validation(format!(
+                "bundle contains duplicate service record for asset {}",
                 record.asset_id
             )));
         }
@@ -1691,6 +1885,40 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
             )));
         }
     }
+    for record in &services {
+        let asset = assets
+            .iter()
+            .find(|a| a.id == record.asset_id)
+            .ok_or_else(|| {
+                AppError::validation(format!(
+                    "bundle service record references missing asset {}",
+                    record.asset_id
+                ))
+            })?;
+        // Kind ↔ type is 1:1 (docs/10): a bundle cannot attach a saas record
+        // to a service.api asset, or any service record to a media/software
+        // asset. The repository boundary enforces this too, but preflight must
+        // fail identically for dry-run and commit, before any mutation.
+        if asset.kind != record.service_type.asset_kind() {
+            return Err(AppError::validation(format!(
+                "bundle asset {} has kind {} but its service record is a {}",
+                asset.id, asset.kind, record.service_type
+            )));
+        }
+        // A merged identity carries no module detail (docs/10): the portable
+        // contract has no "re-home this row onto the winner" rule, so a service
+        // row on a tombstone is bundle corruption — not something import may
+        // silently keep (stranding detail on a dead identity) or silently drop
+        // (losing a fact the caller meant to move). The merge use case always
+        // removes the loser's record, so a well-formed export never emits one.
+        if asset.lifecycle_state == crate::domain::asset::LifecycleState::Merged {
+            return Err(AppError::validation(format!(
+                "bundle service record {} is attached to merged asset {}; a merged identity \
+                 carries no service detail",
+                record.asset_id, asset.id
+            )));
+        }
+    }
     for relation in &relations {
         if !asset_ids.contains(&relation.source_asset_id) {
             return Err(AppError::validation(format!(
@@ -1779,12 +2007,14 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         assets,
         media,
         software,
+        services,
         refs,
         activity,
         tags,
         asset_tags: asset_tag_rows,
         relations,
         software_declared,
+        services_declared,
         relations_declared,
     })
 }

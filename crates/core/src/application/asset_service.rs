@@ -208,30 +208,25 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
                 (None, _) => {}
             }
 
-            // Service details: the kind-equality check above guarantees both
-            // records are the same ServiceType (docs/10 merge rule 1), but two
-            // records of one type still disagree on provider, plan, cost, or
-            // renewal, and rules 3/6 forbid silently choosing a survivor. The
-            // field-level conflict review that would resolve them is Phase 3C,
-            // so a merge of two service assets is refused outright rather than
-            // winner-takes-all — the whole transaction rolls back and both
-            // records survive untouched. A record still moves when the winner
-            // has none (rule 2).
+            // Service details (docs/10 merge rules 1-8). The kind-equality
+            // check above guarantees both records are the same ServiceType
+            // (rule 1), so the remaining question is field-level: equal values
+            // deduplicate (rule 4), an empty field is filled from the other
+            // side (rule 5), and anything still disagreeing is a reviewable
+            // conflict rather than a silent survivor choice (rules 3/6). The
+            // merge is therefore lossless whenever it succeeds — no value is
+            // discarded, so unlike Media/Software there is no loser payload to
+            // preserve. No rule prefers a value by timestamp (rule 8).
             let loser_service = uow.services().get(loser_id)?;
             let winner_service = uow.services().get(winner_id)?;
             match (loser_service, winner_service) {
-                (Some(_loser_rec), Some(winner_rec)) => {
-                    return Err(AppError::conflict(format!(
-                        "cannot merge service {loser} into {winner}: both carry a {ty} service \
-                         record, and merging two service records needs explicit conflict review \
-                         (provider, plan, cost, renewal) which is not implemented yet; reconcile \
-                         the records and delete one asset first",
-                        loser = loser_id,
-                        winner = winner_id,
-                        ty = winner_rec.service_type
-                    )));
+                (Some(loser_rec), Some(winner_rec)) => {
+                    let merged = merge_service_records(loser_rec, winner_rec, loser_id, winner_id)?;
+                    uow.services().delete(loser_id)?;
+                    uow.services().upsert(&merged)?;
                 }
                 (Some(loser_rec), None) => {
+                    // Only one side carries a record: it moves (rule 2).
                     let mut moved = loser_rec;
                     moved.asset_id = winner_id;
                     uow.services().delete(loser_id)?;
@@ -296,11 +291,11 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
             if let Some(details) = loser_software_json {
                 payload["loser_software_details"] = details;
             }
-            // No `loser_service_details` payload: the only arm that would
-            // produce one (both sides carrying a record) is refused above, so
-            // there is never a discarded service record to preserve. Phase 3C
-            // conflict resolution will reinstate this when it can resolve
-            // field-level conflicts instead of refusing.
+            // No `loser_service_details` payload: the service merge resolves
+            // every field (equal values deduplicate, empty ones are filled), so
+            // a successful merge discards nothing and there is no losing record
+            // to preserve. Media/Software need the payload because their
+            // survivor-wins rule really does drop the loser's record.
             uow.activity().append(&ActivityEvent::new(
                 event_types::ASSET_MERGED,
                 Some(winner_id),
@@ -393,4 +388,152 @@ pub(crate) fn refresh_projection(uow: &mut dyn UnitOfWork, asset: &Asset) -> App
         uow.search_index().remove(asset.id)?;
     }
     Ok(())
+}
+
+/// Merges two same-type ServiceRecords field by field (docs/10 merge rules
+/// 3-6, 8).
+///
+/// - equal normalized values deduplicate (rule 4);
+/// - an absent value is filled from the other side (rule 5);
+/// - two different non-empty values are a conflict, never a silent pick
+///   (rules 3/6): the caller gets a reviewable list of every disagreeing
+///   field with both values, and nothing is written (the merge transaction
+///   rolls back).
+///
+/// Money is compared as the `(cost_minor, currency)` pair, since the two are
+/// only meaningful together (ADR 0010). No rule prefers a value by timestamp,
+/// and provider metadata never overrides user-owned fields (rule 8) — the
+/// only authority is the field value itself.
+fn merge_service_records(
+    loser_record: crate::domain::service::ServiceRecord,
+    winner_record: crate::domain::service::ServiceRecord,
+    loser_id: AssetId,
+    winner_id: AssetId,
+) -> AppResult<crate::domain::service::ServiceRecord> {
+    // Normalize both sides so comparison happens on canonical values (the
+    // repository already normalizes on write, but a merge must not depend on
+    // that to be correct).
+    let mut loser = loser_record;
+    let mut winner = winner_record;
+    loser.validate()?;
+    winner.validate()?;
+
+    let mut merged = winner.clone();
+    merged.asset_id = winner_id;
+    // The kind-equality preflight guarantees both records carry the same type.
+    merged.service_type = winner.service_type;
+
+    let mut conflicts: Vec<String> = Vec::new();
+
+    /// Resolves one optional field: equal values deduplicate, an absent value
+    /// fills from the loser, and a genuine disagreement is recorded for the
+    /// reviewable conflict list.
+    fn resolve<T: PartialEq + std::fmt::Debug + Clone>(
+        field: &str,
+        winner: &mut Option<T>,
+        loser: &Option<T>,
+        conflicts: &mut Vec<String>,
+    ) {
+        match (winner.as_ref(), loser.as_ref()) {
+            (Some(kept), Some(other)) if kept != other => {
+                conflicts.push(format!("{field}: {kept:?} vs {other:?}"))
+            }
+            (Some(_), Some(_)) => {}
+            (None, Some(other)) => *winner = Some(other.clone()),
+            (Some(_), None) | (None, None) => {}
+        }
+    }
+
+    resolve(
+        "provider",
+        &mut merged.provider,
+        &loser.provider,
+        &mut conflicts,
+    );
+    resolve(
+        "account_label",
+        &mut merged.account_label,
+        &loser.account_label,
+        &mut conflicts,
+    );
+    resolve(
+        "endpoint_url",
+        &mut merged.endpoint_url,
+        &loser.endpoint_url,
+        &mut conflicts,
+    );
+    resolve(
+        "dashboard_url",
+        &mut merged.dashboard_url,
+        &loser.dashboard_url,
+        &mut conflicts,
+    );
+    resolve(
+        "domain_name",
+        &mut merged.domain_name,
+        &loser.domain_name,
+        &mut conflicts,
+    );
+    resolve("plan", &mut merged.plan, &loser.plan, &mut conflicts);
+    resolve("notes", &mut merged.notes, &loser.notes, &mut conflicts);
+    resolve(
+        "billing_cadence",
+        &mut merged.billing_cadence,
+        &loser.billing_cadence,
+        &mut conflicts,
+    );
+    resolve(
+        "renews_at",
+        &mut merged.renews_at,
+        &loser.renews_at,
+        &mut conflicts,
+    );
+    resolve(
+        "expires_at",
+        &mut merged.expires_at,
+        &loser.expires_at,
+        &mut conflicts,
+    );
+    resolve(
+        "auto_renew",
+        &mut merged.auto_renew,
+        &loser.auto_renew,
+        &mut conflicts,
+    );
+
+    // Money is one fact, not two fields: compare the pair.
+    match (
+        (merged.cost_minor, merged.currency.as_deref()),
+        (loser.cost_minor, loser.currency.as_deref()),
+    ) {
+        ((Some(kept), Some(kept_currency)), (Some(other), Some(other_currency)))
+            if kept != other || kept_currency != other_currency =>
+        {
+            conflicts.push(format!(
+                "cost: {kept} {kept_currency} vs {other} {other_currency}"
+            ));
+        }
+        ((None, _), (Some(other), Some(other_currency))) => {
+            merged.cost_minor = Some(other);
+            merged.currency = Some(other_currency.to_string());
+        }
+        _ => {}
+    }
+
+    if !conflicts.is_empty() {
+        return Err(AppError::conflict(format!(
+            "cannot merge service {loser} into {winner}: both carry a {ty} service record and \
+             these fields disagree: {list}. Resolve the conflict by editing one record first",
+            loser = loser_id,
+            winner = winner_id,
+            ty = merged.service_type,
+            list = conflicts.join("; ")
+        )));
+    }
+
+    // The merged record must still satisfy the module invariants (money
+    // pairing above keeps them paired; validate is the single
+    // canonicalization point).
+    merged.validate()?;
+    Ok(merged)
 }

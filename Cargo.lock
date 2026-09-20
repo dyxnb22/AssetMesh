@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "assetmesh-cli"
-version = "0.3.0-alpha.1"
+version = "0.3.0"
 dependencies = [
  "assetmesh-core",
  "assetmesh-providers",
@@ -88,7 +88,7 @@ dependencies = [
 
 [[package]]
 name = "assetmesh-core"
-version = "0.3.0-alpha.1"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "csv",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "assetmesh-providers"
-version = "0.3.0-alpha.1"
+version = "0.3.0"
 dependencies = [
  "assetmesh-core",
  "plist",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "assetmesh-storage-sqlite"
-version = "0.3.0-alpha.1"
+version = "0.3.0"
 dependencies = [
  "assetmesh-core",
  "chrono",

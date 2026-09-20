@@ -28,6 +28,9 @@ pub mod event_types {
     pub const SOFTWARE_CREATED: &str = "software.created";
     pub const SOFTWARE_ADOPTED: &str = "software.adopted";
     pub const SERVICE_CREATED: &str = "service.created";
+    /// An explicit renewal was recorded (docs/10 renewal use case). Historical
+    /// provenance only — AssetMesh keeps no invoice ledger.
+    pub const SERVICE_RENEWED: &str = "service.renewed";
     pub const RELATION_CREATED: &str = "relation.created";
     pub const RELATION_REMOVED: &str = "relation.removed";
 }

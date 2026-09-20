@@ -915,3 +915,357 @@ fn service_cli_rejects_bad_money_and_credentials() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn service_renewal_and_relations_work_end_to_end() {
+    let dir = unique_dir("service-renewal");
+    let db = "e2e.db";
+
+    let api = create_service(&dir, db, &["--name", "AssetMesh API", "--type", "api"]);
+    let vps = create_service(
+        &dir,
+        db,
+        &[
+            "--name",
+            "RackNerd VPS",
+            "--type",
+            "vps",
+            "--plan",
+            "CX22",
+            "--cost",
+            "49.00",
+            "--currency",
+            "USD",
+        ],
+    );
+
+    // `hosted_on` is a first-class stored type; `relation list` resolves the
+    // inverse for the target endpoint.
+    let (out, err, ok) = run(&dir, db, &["relation", "add", &api, "hosted_on", &vps]);
+    assert!(ok, "relation add should succeed: {err}");
+    assert!(out.contains("hosted_on"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["relation", "list", &vps]);
+    assert!(ok);
+    assert!(
+        out.contains("hosts"),
+        "the inverse is derived at view time: {out}"
+    );
+    assert!(out.contains("1 relation(s)"), "{out}");
+
+    // Re-stating the fact through the inverse type is a conflict, never a
+    // second canonical row.
+    let (_, err, ok) = run(&dir, db, &["relation", "add", &vps, "hosts", &api]);
+    assert!(!ok, "stating an inverse must be refused");
+    assert!(err.contains("conflict") || err.contains("already"), "{err}");
+
+    // `points_to` behaves the same way.
+    let domain = create_service(
+        &dir,
+        db,
+        &[
+            "--name",
+            "assetmesh.dev",
+            "--type",
+            "domain",
+            "--domain",
+            "assetmesh.dev",
+        ],
+    );
+    let (out, err, ok) = run(&dir, db, &["relation", "add", &domain, "points_to", &api]);
+    assert!(ok, "points_to should succeed: {err}");
+    assert!(out.contains("points_to"), "{out}");
+    let (out, _, ok) = run(&dir, db, &["relation", "list", &api]);
+    assert!(ok);
+    assert!(out.contains("pointed_to_by"), "{out}");
+
+    // The error text teaches the full registry, including the new types.
+    let (_, err, ok) = run(&dir, db, &["relation", "add", &api, "teleports_to", &vps]);
+    assert!(!ok);
+    assert!(
+        err.contains("hosted_on") && err.contains("points_to"),
+        "{err}"
+    );
+
+    // --- record_renewal -------------------------------------------------
+    // An explicit renewal applies only the facts it carries.
+    let (out, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "renew",
+            &vps,
+            "--renewed-at",
+            "2026-10-01",
+            "--cost",
+            "59.00",
+            "--currency",
+            "USD",
+            "--next-renewal",
+            "2026-11-01",
+        ],
+    );
+    assert!(ok, "renew should succeed: {err}");
+    assert!(out.contains("renewed "), "{out}");
+    assert!(out.contains("2026-11-01"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["service", "get", &vps]);
+    assert!(ok);
+    assert!(out.contains("USD 59.00"), "{out}");
+    assert!(out.contains("2026-11-01"), "{out}");
+    // Exactly one provenance event for the renewal — no metadata spam.
+    assert_eq!(out.matches("service.renewed").count(), 1, "{out}");
+    assert!(out.contains("service.renewed"), "{out}");
+
+    // A second renewal that carries only a new cost updates the cost and
+    // leaves the boundary alone: AssetMesh never computes one.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "renew",
+            &vps,
+            "--renewed-at",
+            "2026-11-01",
+            "--cost",
+            "69.00",
+            "--currency",
+            "USD",
+        ],
+    );
+    assert!(ok, "second renew should succeed: {err}");
+    let (out, _, ok) = run(&dir, db, &["service", "get", &vps]);
+    assert!(ok);
+    assert!(out.contains("USD 69.00"), "{out}");
+    assert!(
+        out.contains("2026-11-01"),
+        "the boundary stays as last stated: {out}"
+    );
+
+    // Money is still set or cleared as a pair, and a negative amount is
+    // rejected at the CLI boundary.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "renew",
+            &vps,
+            "--cost",
+            "79.00",
+            "--renewed-at",
+            "2026-12-01",
+        ],
+    );
+    assert!(!ok);
+    assert!(
+        err.contains("currency") || err.contains("together"),
+        "{err}"
+    );
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "renew",
+            &vps,
+            "--cost=-1.00",
+            "--currency",
+            "USD",
+            "--renewed-at",
+            "2026-12-01",
+        ],
+    );
+    assert!(!ok);
+    assert!(err.contains("cost"), "{err}");
+
+    // --renewed-at is required: the CLI must not invent the renewal moment,
+    // and a rejected command must leave the canonical record untouched.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "renew",
+            &vps,
+            "--cost",
+            "89.00",
+            "--currency",
+            "USD",
+        ],
+    );
+    assert!(!ok, "omitting --renewed-at must fail");
+    assert!(err.contains("renewed-at"), "{err}");
+    let (out, _, ok) = run(&dir, db, &["service", "get", &vps]);
+    assert!(ok);
+    assert!(
+        out.contains("USD 69.00"),
+        "a rejected renewal writes nothing: {out}"
+    );
+    assert!(
+        out.contains("2026-11-01"),
+        "the boundary is unchanged: {out}"
+    );
+    assert_eq!(
+        out.matches("service.renewed").count(),
+        2,
+        "no renewal event was appended: {out}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn services_round_trip_through_the_portable_bundle_end_to_end() {
+    let dir = unique_dir("service-portable");
+    let db = "e2e.db";
+    let bundle = dir.join("bundle");
+
+    let api = create_service(
+        &dir,
+        db,
+        &[
+            "--name",
+            "AssetMesh API",
+            "--type",
+            "api",
+            "--provider",
+            "Hetzner",
+            "--plan",
+            "CX22",
+        ],
+    );
+    let vps = create_service(
+        &dir,
+        db,
+        &[
+            "--name",
+            "RackNerd VPS",
+            "--type",
+            "vps",
+            "--cost",
+            "49.00",
+            "--currency",
+            "USD",
+        ],
+    );
+    run(&dir, db, &["relation", "add", &api, "hosted_on", &vps]);
+    run(
+        &dir,
+        db,
+        &[
+            "service",
+            "renew",
+            &vps,
+            "--renewed-at",
+            "2026-10-01",
+            "--cost",
+            "59.00",
+            "--currency",
+            "USD",
+            "--next-renewal",
+            "2026-11-01",
+        ],
+    );
+
+    // 1. export writes the Phase 3 services section.
+    let (out, err, ok) = run(&dir, db, &["export", bundle.to_str().unwrap()]);
+    assert!(ok, "export should succeed: {err}");
+    assert!(out.contains("services: 2"), "{out}");
+
+    let services_file = bundle.join("modules").join("services.jsonl");
+    assert!(
+        services_file.exists(),
+        "the bundle must carry modules/services.jsonl"
+    );
+    let services_text = std::fs::read_to_string(&services_file).unwrap();
+    let lines: Vec<&str> = services_text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+    assert_eq!(lines.len(), 2, "{lines:#?}");
+    // Each row carries the canonical asset id it belongs to (import restores
+    // by id) and no credential-shaped field at all (ADR 0010: the secret
+    // boundary is structural — no credential field exists to leak).
+    for line in &lines {
+        assert!(line.contains("\"asset_id\""), "{line}");
+        for secret in ["api_key", "password", "token", "secret", "cookie"] {
+            assert!(!line.contains(secret), "{line}");
+        }
+    }
+
+    // The manifest declares the module with its schema version (an undeclared
+    // section is corruption; an absent declaration means a pre-Phase 3 bundle).
+    let manifest = std::fs::read_to_string(bundle.join("manifest.json")).unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    assert_eq!(
+        manifest["modules"]["services"]["schema_version"],
+        serde_json::json!(1),
+        "{manifest:#}"
+    );
+    assert_eq!(manifest["record_counts"]["services"], serde_json::json!(2));
+
+    // 2. import into a fresh database restores services, renewal history, and
+    // the service relation.
+    let fresh = dir.join("fresh");
+    std::fs::create_dir_all(&fresh).unwrap();
+    let db2 = "fresh.db";
+    let (out, err, ok) = run(&fresh, db2, &["import", bundle.to_str().unwrap()]);
+    assert!(ok, "import should succeed: {err}");
+    assert!(out.contains("services: 2 created"), "{out}");
+    assert!(out.contains("relations: 1 created"), "{out}");
+
+    let (out, _, ok) = run(&fresh, db2, &["service", "get", &vps]);
+    assert!(ok, "the restored record must be readable: {out}");
+    assert!(out.contains("RackNerd VPS"), "{out}");
+    assert!(out.contains("USD 59.00"), "{out}");
+    assert!(out.contains("2026-11-01"), "{out}");
+    assert!(
+        out.contains("service.renewed"),
+        "activity is restored: {out}"
+    );
+
+    let (out, _, ok) = run(&fresh, db2, &["relation", "list", &vps]);
+    assert!(ok);
+    assert!(out.contains("hosts"), "{out}");
+
+    let (out, _, ok) = run(&fresh, db2, &["service", "search", "racknerd"]);
+    assert!(ok, "the projection is rebuilt on import: {out}");
+    assert!(out.contains("RackNerd VPS"), "{out}");
+
+    // 3. re-importing is idempotent: nothing new is created, no activity is
+    // duplicated, and the record is unchanged. (`updated` is honest — the
+    // destination row is rewritten from the bundle, not skipped.)
+    let (out, _, ok) = run(&fresh, db2, &["import", bundle.to_str().unwrap()]);
+    assert!(ok, "{out}");
+    assert!(out.contains("assets: 0 created"), "{out}");
+    assert!(out.contains("services: 0 created"), "{out}");
+    assert!(out.contains("activity: 0 events"), "{out}");
+    let (out, _, ok) = run(&fresh, db2, &["service", "list"]);
+    assert!(ok);
+    assert!(out.contains("2 record(s)"), "no duplicate rows: {out}");
+    let (out, _, ok) = run(&fresh, db2, &["service", "get", &vps]);
+    assert!(ok);
+    assert_eq!(out.matches("service.renewed").count(), 1, "{out}");
+    assert!(out.contains("USD 59.00"), "{out}");
+
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_dir_all(&fresh).ok();
+}
+
+/// Creates a service through the real CLI and returns its id.
+fn create_service(dir: &std::path::Path, db: &str, args: &[&str]) -> String {
+    let mut argv = vec!["service", "add"];
+    argv.extend_from_slice(args);
+    let (out, err, ok) = run(dir, db, &argv);
+    assert!(ok, "service add should succeed: {err}");
+    assert!(out.starts_with("created "), "{out}");
+    out.lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("created ")
+        .trim()
+        .to_string()
+}

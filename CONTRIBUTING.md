@@ -15,7 +15,10 @@ Development principles:
 7. Keep AI/discovery advisory; canonical state must remain explainable.
 8. Do not move business rules, identity semantics, matching logic, merge behavior, or search semantics into presentation code.
 
-Completed implementation targets: `docs/08-media-records-v1.md` and
-`docs/09-software-inventory-v1.md`.
+Completed implementation targets: `docs/08-media-records-v1.md`,
+`docs/09-software-inventory-v1.md`, and `docs/10-services-subscriptions-v1.md`.
 
-The current implementation target is **Phase 3 — Services and Subscriptions** in `docs/07-roadmap.md`. New phases remain usable through headless application services and CLI/test adapters; graphical presentation is intentionally deferred until Phase 5.
+The current implementation target is **Phase 4 — Relation Graph and Impact
+Queries** in `docs/07-roadmap.md`. New phases remain usable through headless
+application services and CLI/test adapters; graphical presentation is
+intentionally deferred until Phase 5.

@@ -107,9 +107,9 @@ Exit criteria: installed software and CLI tools can be discovered, reviewed, ado
 
 ## Phase 3 — Services and Subscriptions vertical slice
 
-Status: **canonical core complete (Phase 3B); service-specific behavior and portability pending**. See `docs/10-services-subscriptions-v1.md` and ADR 0010.
+Status: **complete (Phase 3A-3D)**. See `docs/10-services-subscriptions-v1.md` and ADR 0010.
 
-Implemented so far:
+Implemented:
 
 - all five service asset kinds (`service.saas`, `service.api`, `service.vps`, `service.domain`, `service.local`) with module-owned typed details;
 - service CRUD application services with repository-boundary kind/type invariants enforced in both the domain layer and SQL;
@@ -117,15 +117,12 @@ Implemented so far:
 - subscription plan, integer-minor-unit cost, currency, billing cadence, renewal, expiry, and auto-renew metadata, with cost/currency paired at every layer;
 - explicit patch semantics distinguishing "leave unchanged" from "clear";
 - Service -> SearchDocument projection with no credential material, rebuilt from canonical data;
-- migration 0003, verified against a real database produced by the Phase 2 binary;
-- CLI coverage over the same application layer future adapters will use.
-
-Still pending (Phase 3C/3D):
-
-- explicit `record_renewal` application use case without guessed billing-calendar arithmetic;
-- relation registry additions for `hosted_on`/`hosts` and `points_to`/`pointed_to_by`, preserving canonical one-row storage;
-- Service-specific merge conflict semantics;
-- portable `modules/services.jsonl` schema with backward-compatible declaration semantics.
+- explicit `record_renewal` (Phase 3C): the renewal moment and the charged amount are caller-supplied facts; the next renewal/expiry boundary is stated, never derived from billing cadence, and exactly one `service.renewed` activity event is appended as historical provenance;
+- relation registry additions for `hosted_on`/`hosts` and `points_to`/`pointed_to_by` (Phase 3C), with inverses resolved at view time so each fact keeps exactly one canonical row;
+- Service-specific merge semantics (Phase 3C): equal values deduplicate, empty fields fill from the other side, and any still-disagreeing field makes the merge fail with a reviewable conflict listing both values instead of a silent survivor pick;
+- portable `modules/services.jsonl` schema (Phase 3D) with declaration-driven import: an absent declaration means the bundle predates Phase 3 and the destination's services are left untouched, while a section file without its declaration is corruption;
+- migration 0003, verified against a real database produced by the Phase 2 binary, plus migration 0004 widening the stored relation-type CHECK to the Phase 3 service types;
+- CLI and end-to-end coverage over the same application layer future adapters will use.
 
 Purpose: validate that the shared AssetMesh kernel can support a third substantially different domain with commercial lifecycle metadata and service relationships, without turning AssetMesh into a cloud-management, monitoring, accounting, or credential-storage system.
 

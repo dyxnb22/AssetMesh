@@ -1,9 +1,9 @@
 # Developer Setup & Implementation Notes
 
 This document covers how to build, test, and use the implementation (Phase 1
-Media Records + Phase 2 Software Inventory), and records the concrete
-contracts the implementation established on top of the architecture docs and
-ADRs.
+Media Records + Phase 2 Software Inventory + Phase 3 Services and
+Subscriptions), and records the concrete contracts the implementation
+established on top of the architecture docs and ADRs.
 
 ## Requirements
 
@@ -27,7 +27,8 @@ AssetMesh/
 ├── migrations/
 │   ├── 0001_core_media_v1.sql         # database migration v1 (embedded at build time)
 │   ├── 0002_software_relations_v1.sql # software details + shared relations
-│   └── 0003_services_v1.sql           # services details (module schema v1)
+│   ├── 0003_services_v1.sql           # services details (module schema v1)
+│   └── 0004_service_relations_v1.sql  # service relation types in the stored-type CHECK
 ├── crates/
 │   ├── core/                     # assetmesh-core: headless kernel (ADR 0001)
 │   │   └── src/
@@ -88,7 +89,14 @@ assetmesh service get <id>
 assetmesh service update <id> --plan Pro         # other fields left unchanged
 assetmesh service update <id> --notes ""         # empty clears a text field
 assetmesh service update <id> --clear-cost       # removes cost AND currency
+assetmesh service renew <id> --renewed-at 2026-10-01 --cost 29.99 \
+    --currency USD --next-renewal 2026-11-01      # explicit facts only
 assetmesh service search openai
+
+# Relations (inverse types are accepted and resolved at view time)
+assetmesh relation add <api-id> hosted_on <vps-id>
+assetmesh relation add <domain-id> points_to <api-id>
+assetmesh relation list <vps-id>               # shows `hosts`
 
 assetmesh export <dir>              # portable bundle (see below)
 assetmesh import <dir>              # restore canonical data by canonical ID
@@ -100,11 +108,11 @@ IDs may be given in full or as a unique prefix (≥4 chars).
 
 | Axis | Location | Current value |
 | --- | --- | --- |
-| Database migration version | `assetmesh_migrations` table (checksummed) | 3 |
+| Database migration version | `assetmesh_migrations` table (checksummed) | 4 |
 | Portable export format version | `manifest.json → version` | 1 (`EXPORT_VERSION`) |
 | Media module data schema version | `module_metadata` + `manifest.json → modules.media.schema_version` | 1 (`MEDIA_SCHEMA_VERSION`) |
 | Software module data schema version | `module_metadata` + `manifest.json → modules.software.schema_version` | 1 (`SOFTWARE_SCHEMA_VERSION`) |
-| Services module data schema version | `module_metadata` (no portable section yet) | 1 (`SERVICES_SCHEMA_VERSION`) |
+| Services module data schema version | `module_metadata` + `manifest.json → modules.services.schema_version` | 1 (`SERVICES_SCHEMA_VERSION`) |
 
 A portable bundle with an unsupported format or module version is rejected
 before any canonical mutation. An already-applied database migration whose
@@ -123,7 +131,8 @@ assetmesh-export/
 ├── relations.jsonl
 └── modules/
     ├── media.jsonl
-    └── software.jsonl
+    ├── software.jsonl
+    └── services.jsonl
 ```
 
 - Rows are dedicated `*V1` wire DTOs (in `application/portable.rs`), not the
@@ -131,10 +140,6 @@ assetmesh-export/
   version 1. A checked-in fixture in `core/tests/export_tests.rs` pins the
   historical representation.
 - Search projections, provider cache, and secrets are never exported.
-- There is no `modules/services.jsonl` yet (Phase 3D). Until it exists the
-  exporter **refuses to run** when any ServiceRecord is present, because a
-  bundle written now could not restore one — a loud failure instead of a
-  backup that silently drops every service.
 - Module sections are governed by manifest declaration: a section the
   manifest declares is required, count-checked, and authoritative on import
   (destination state for bundled assets that the bundle no longer carries is
@@ -143,6 +148,7 @@ assetmesh-export/
   untouched, while a section file present WITHOUT its manifest declaration
   fails loudly. The software section additionally enforces
   kind/category compatibility; relations enforce endpoint existence,
+  and services enforce kind ↔ service type compatibility.
   no self-relations, and unique triples (symmetric `related_to` is stored in
   canonical endpoint order).
 - Every import (dry-run or commit) runs the same preflight: all declared
@@ -242,14 +248,17 @@ transactions.
   tags union, media details move if the winner has none — if both exist the
   survivor wins and the loser's record is preserved inside the `asset.merged`
   activity payload. The loser becomes a `merged` tombstone with
-  `merged_into`. **Services are the exception**: merging two assets that both
-  carry a `ServiceRecord` is refused outright, because two same-type records
-  can still conflict on provider/plan/cost/renewal and docs/10 forbids
-  silently choosing a survivor — the transaction rolls back and both records
-  survive untouched. A service record still moves when the winner has none.
-  Field-level service conflict review is Phase 3C (see docs/10 merge rules
-  3/6). Relations/collections/attachment merges are deferred until those
-  subsystems exist (ADR 0005).
+  `merged_into`. **Services merge field by field instead** (docs/10 merge
+  rules 3-6): the kind-equality preflight already guarantees both records are
+  the same `ServiceType`, so equal normalized values deduplicate, an absent
+  field is filled from the loser, and money is compared as the
+  `(cost_minor, currency)` pair. Anything still disagreeing makes the merge
+  fail with a reviewable conflict listing every field and both values — never
+  a silent survivor pick — and the transaction rolls back leaving both records
+  intact. Because a successful merge discards nothing, there is no
+  `loser_service_details` payload (unlike Media/Software, whose survivor-wins
+  rule really does drop the loser's record). Relations/collections/attachment
+  merges are deferred until those subsystems exist (ADR 0005).
 - **Asset kind vs module discriminator**: the typed detail's own discriminator
   (media type / software category / service type) is only consistent with the
   kind assigned at creation, and no application write path ever re-types an
@@ -373,9 +382,9 @@ transactions.
   media, software, and service lifecycles: create → query → discover
   (fixture root) → adopt → re-adopt → relations → export → restore →
   idempotent re-import, plus dry-run/conflict/error behavior and read-only
-  discovery. The export → restore → re-import chain covers Media and
-  Software today (the services wire format is Phase 3D); service coverage is
+  discovery. The export → restore → re-import chain covers Media, Software,
+  and Services (including `modules/services.jsonl`); service coverage is
   CRUD, subscription billing (decimal → integer minor units), explicit
-  patch/clear semantics, credential rejection, and archive-read-only
-  behavior. `assetmesh export` refuses to run while ServiceRecords exist
-  rather than emit a bundle that could not restore them.
+  patch/clear semantics, `service renew`, `hosted_on`/`points_to` relations
+  and their view-time inverses, credential rejection, and
+  archive-read-only behavior.
