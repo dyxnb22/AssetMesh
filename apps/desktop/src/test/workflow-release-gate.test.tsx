@@ -1,10 +1,22 @@
+//! Release gate: walks the whole frontend stack over the fake transport.
+//!
+//! This is end-to-end over the *frontend* — App shell, feature components, the
+//! transport seam, and the state behind them — driven through
+//! `./fake-transport`. It deliberately stops short of a browser binary and the
+//! real Tauri IPC: the adapter and storage contracts run in
+//! `apps/desktop/src-tauri/tests/` against real SQLite.
+//!
+//! `npm run test:e2e` runs this file only, so a release can be gated on the
+//! cross-workspace workflows surviving contact with each other. Unit tests live
+//! alongside their modules and run under `npm test`.
+
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../app/App';
 import { setTransport } from '../features/library/transport';
 import { FakeDesktopTransport } from './fake-transport';
 
-describe('Desktop Hardening & Release Gate End-to-End Workflow (P5-10)', () => {
+describe('Release Gate: cross-workspace desktop workflows (P5-10)', () => {
   let fakeTransport: FakeDesktopTransport;
 
   beforeEach(() => {
@@ -23,7 +35,7 @@ describe('Desktop Hardening & Release Gate End-to-End Workflow (P5-10)', () => {
     setTransport(fakeTransport);
   });
 
-  it('Full E2E Loop: Create -> Search -> Open Detail -> Mutate -> Attach Relation -> Export Bundle', async () => {
+  it('Create -> Search -> Open Detail -> Mutate -> Attach Relation -> Export Bundle', async () => {
     render(<App />);
 
     // Wait for App shell to bootstrap

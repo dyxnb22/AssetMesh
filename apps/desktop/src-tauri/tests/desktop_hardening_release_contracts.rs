@@ -14,11 +14,11 @@ use std::sync::Arc;
 
 use assetmesh_core::ports::{SystemClock, UuidV7Generator};
 use assetmesh_desktop_lib::commands::{
-    activity_query_impl, app_status_impl, library_get_impl, library_list_impl, media_command_impl,
-    relation_attach_impl, relation_traverse_impl, software_command_impl,
+    activity_query_impl, app_status_impl, library_get_impl, library_list_impl, library_search_impl,
+    media_command_impl, relation_attach_impl, relation_traverse_impl, software_command_impl,
 };
 use assetmesh_desktop_lib::dto::{
-    ActivityQueryDto, LibraryQueryDto, MediaCommandDto, RelationAttachDto,
+    ActivityQueryDto, LibraryQueryDto, LibrarySearchQueryDto, MediaCommandDto, RelationAttachDto,
     RelationTraverseQueryDto, SoftwareCommandDto,
 };
 use assetmesh_desktop_lib::state::{AppStatus, DesktopState};
@@ -272,6 +272,172 @@ fn test_list_and_search_scale_and_pagination_bounds() {
 }
 
 #[test]
+fn library_listing_stays_bounded_as_the_library_grows() {
+    // The original scale check seeded 15 rows and asserted page contents only.
+    // That cannot see the failure this guards: a page whose cost grows with the
+    // library. Two properties are pinned instead.
+    //
+    // 1. A wall-clock assertion would be flaky on a loaded machine, so the
+    //    growth is measured in SQL statements, not milliseconds. Rendering the
+    //    whole library must not issue one query per row.
+    // 2. Search has to keep working at the same size — the unified library reads
+    //    the same rows for list and search, so a regressed batching would show
+    //    up in both.
+    let rows = 120usize;
+
+    let small_state = setup_state_for_scale("scale_small");
+    scale_seed(&small_state, 12);
+    let small_page = scale_first_page(&small_state);
+    let small_rows = scale_list(&small_state);
+    assert_eq!(small_rows, 12);
+
+    let large_state = setup_state_for_scale("scale_large");
+    scale_seed(&large_state, rows);
+    let large_page = scale_first_page(&large_state);
+    let large_rows = scale_list(&large_state);
+    assert_eq!(large_rows, rows);
+
+    // The invariant is per page, not per walk: a full page must cost the same
+    // whether the library behind it holds 12 rows or 120. A per-row lookup
+    // shows up here long before it shows up in wall-clock time.
+    //
+    // Both pages are checked full first, because a short page would compare two
+    // different amounts of work and could pass for the wrong reason.
+    assert_eq!(large_page.rows, 20, "the large page must be full");
+    assert!(large_page.statements > 0, "nothing was measured");
+    assert_eq!(
+        small_page.statements, large_page.statements,
+        "one page of {small_rows} rows and one page of {large_rows} rows must cost the same \
+         number of statements; a per-row tag lookup is the usual cause of a growing count \
+         ({} vs {})",
+        small_page.statements, large_page.statements
+    );
+
+    // Search still reaches a single row inside the larger library, and the hit
+    // carries the same vocabulary as the list.
+    let hits = library_search_impl(
+        LibrarySearchQueryDto {
+            text: format!("Scale Title {:04}", rows - 1),
+            limit: Some(5),
+            ..Default::default()
+        },
+        &large_state,
+    )
+    .expect("search");
+    assert_eq!(hits.items.len(), 1, "one row matches that title");
+    assert_eq!(hits.total, Some(1));
+    assert_eq!(hits.items[0].name, format!("Scale Title {:04}", rows - 1));
+
+    // A term shared by every seeded row is findable, which is what a projection
+    // regression would break first at this size.
+    let shared = library_search_impl(
+        LibrarySearchQueryDto {
+            text: "Scale Title".into(),
+            limit: Some(200),
+            ..Default::default()
+        },
+        &large_state,
+    )
+    .expect("shared search");
+    assert_eq!(shared.items.len(), rows);
+}
+
+/// An initialized state on its own temporary database, kept apart from the
+/// other tests so the two scale measurements cannot see each other's rows.
+fn setup_state_for_scale(name: &str) -> DesktopState {
+    setup_state(&temp_db_path(name))
+}
+
+/// Seeds `count` media assets with a tag each, through the adapter command.
+fn scale_seed(state: &DesktopState, count: usize) {
+    for i in 0..count {
+        media_command_impl(
+            MediaCommandDto::Create {
+                title: format!("Scale Title {i:04}"),
+                media_type: "movie".into(),
+                summary: Some(format!("summary {i}")),
+                status: Some("planned".into()),
+                rating: None,
+                year: Some(2020),
+                platform: None,
+                progress_current: None,
+                progress_total: None,
+                progress_unit: None,
+                notes: None,
+                tags: vec![format!("scale-{i:04}")],
+            },
+            state,
+        )
+        .expect("seed media");
+    }
+}
+
+/// Lists every row the library has, one page at a time, so paging is exercised
+/// rather than bypassed. Returns the total number of distinct rows seen.
+fn scale_list(state: &DesktopState) -> usize {
+    let mut offset = 0usize;
+    let mut seen = std::collections::HashSet::new();
+    loop {
+        let page = library_list_impl(
+            Some(LibraryQueryDto {
+                limit: Some(20),
+                offset: Some(offset),
+                ..Default::default()
+            }),
+            state,
+        )
+        .expect("page");
+        if page.items.is_empty() {
+            break;
+        }
+        for item in &page.items {
+            assert!(
+                seen.insert(item.id.clone()),
+                "a page repeated an asset: {}",
+                item.id
+            );
+        }
+        offset += page.items.len();
+    }
+    seen.len()
+}
+
+/// One page of the ledger plus the SQL statements it cost.
+struct PageCost {
+    statements: usize,
+    rows: usize,
+}
+
+/// Arms the statement counter and fetches a single full page.
+///
+/// Measuring one page rather than the whole walk is deliberate: the walk's cost
+/// scales with the number of pages, which is correct behaviour. What must not
+/// scale is the cost *of* a page.
+fn scale_first_page(state: &DesktopState) -> PageCost {
+    state
+        .with_factory(|factory| {
+            assetmesh_storage_sqlite::statement_accounting::arm(&factory.0);
+            Ok(())
+        })
+        .expect("the seeded database is open");
+
+    let page = library_list_impl(
+        Some(LibraryQueryDto {
+            limit: Some(20),
+            offset: Some(0),
+            ..Default::default()
+        }),
+        state,
+    )
+    .expect("first page");
+
+    PageCost {
+        statements: assetmesh_storage_sqlite::statement_accounting::take(),
+        rows: page.items.len(),
+    }
+}
+
+#[test]
 fn test_read_operations_never_mutate_state() {
     let db_path = temp_db_path("read_safety");
     let state = setup_state(&db_path);
@@ -326,6 +492,8 @@ fn test_read_operations_never_mutate_state() {
             target_asset_id: media_id.clone(),
             relation_type: "uses".into(),
             note: None,
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )

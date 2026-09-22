@@ -21,3 +21,15 @@ tauri = { version = "2", features = [] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+# Test-only: lets a contract test tamper with a migrated database directly so
+# it can assert how `initialize` classifies a diverged schema. Never linked
+# into the shipped binary.
+rusqlite = { workspace = true }
+# Test-only: Tauri's mock runtime, so a command's `State<'_>` extraction can be
+# exercised for real instead of assumed. `generate_handler!` does not eagerly
+# type-check the state type, so this is the only thing that catches a mismatch
+# such as `State<'_, Arc<DesktopState>>` against a plain `manage(DesktopState)`.
+# Features unify only for test builds of this crate, never for the shipped one.
+tauri = { version = "2", features = ["test"] }

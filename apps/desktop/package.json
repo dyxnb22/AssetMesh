@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vitest run --testPathPattern=e2e"
+    "test:e2e": "vitest run src/test/workflow-release-gate.test.tsx"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.66.0",
