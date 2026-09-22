@@ -55,8 +55,21 @@ export type AppStatus =
   | { status: 'setup_failure'; message: string }
   | { status: 'corrupt_failure'; message: string };
 
+export type DesktopErrorCategory =
+  | 'invalid_input'
+  | 'not_found'
+  | 'conflict'
+  | 'stale_revision'
+  | 'setup_required'
+  | 'storage_busy'
+  | 'unavailable'
+  | 'permission_denied'
+  | 'unsupported'
+  | 'corrupt_data'
+  | 'internal';
+
 export interface DesktopError {
-  category: string;
+  category: DesktopErrorCategory | string;
   message: string;
 }
 
@@ -431,6 +444,12 @@ export interface ActivityQuery {
   asset_id?: string;
   event_types?: string[];
   modules?: string[];
+  /**
+   * Only events about assets of these kinds, e.g. `media.anime`. Narrower than
+   * `modules`: Media owns several kinds, so "movie events only" is not a module
+   * question.
+   */
+  kinds?: string[];
   actors?: string[];
   since?: string;
   until?: string;
@@ -517,6 +536,7 @@ export interface ImportPreview {
   record_counts: Record<string, number>;
   modules: string[];
   dispositions: ImportReport;
+  fingerprint: string;
   errors: string[];
 }
 

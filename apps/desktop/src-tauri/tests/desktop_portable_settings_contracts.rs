@@ -172,7 +172,7 @@ fn test_import_preview_and_apply_are_symmetric() {
 
     // Run apply
     let receipt =
-        portable_import_apply_impl(&bundle_dir.to_string_lossy(), &dest_state).expect("apply");
+        portable_import_apply_impl(&bundle_dir.to_string_lossy(), &preview.fingerprint, &dest_state).expect("apply");
     assert!(receipt.success);
 
     // EXACT FIELD-FOR-FIELD SYMMETRY:
@@ -213,7 +213,7 @@ fn test_import_rejects_malformed_bundle_and_preserves_destination() {
     assert!(!preview.errors.is_empty());
 
     // Apply fails loudly
-    let apply_res = portable_import_apply_impl(&bad_dir.to_string_lossy(), &state);
+    let apply_res = portable_import_apply_impl(&bad_dir.to_string_lossy(), &preview.fingerprint, &state);
     assert!(apply_res.is_err());
 
     // Destination is completely preserved!
@@ -246,7 +246,7 @@ fn test_import_rejects_unsupported_version() {
         .iter()
         .any(|e| e.contains("Unsupported export version 999")));
 
-    let apply_res = portable_import_apply_impl(&bad_dir.to_string_lossy(), &state);
+    let apply_res = portable_import_apply_impl(&bad_dir.to_string_lossy(), &preview.fingerprint, &state);
     assert!(apply_res.is_err());
 }
 
@@ -304,7 +304,7 @@ fn test_import_rejects_collision_and_preserves_state() {
             || e.to_lowercase().contains("conflict")));
 
     // Apply fails without mutating state
-    let apply_res = portable_import_apply_impl(&bundle_dir.to_string_lossy(), &state);
+    let apply_res = portable_import_apply_impl(&bundle_dir.to_string_lossy(), &preview.fingerprint, &state);
     assert!(apply_res.is_err());
 
     // Destination still has only the original software asset
@@ -312,6 +312,45 @@ fn test_import_rejects_collision_and_preserves_state() {
     assert_eq!(list.total, Some(1));
     assert_eq!(list.items[0].id, sw_id);
     assert_eq!(list.items[0].kind, "software.cli");
+}
+
+#[test]
+fn test_import_rejects_fingerprint_mismatch_on_tampered_bundle() {
+    let (source_state, _src_db) = setup_test_state("src_tamper");
+    create_test_media("Original Title", &source_state);
+
+    let bundle_dir = temp_dir_path("tamper_bundle");
+    portable_export_impl(&bundle_dir.to_string_lossy(), &source_state).expect("export");
+
+    let (dest_state, _dest_db) = setup_test_state("dest_tamper");
+
+    // Preview computes initial fingerprint
+    let preview =
+        portable_import_preview_impl(&bundle_dir.to_string_lossy(), &dest_state).expect("preview");
+    assert!(preview.valid);
+    assert!(!preview.fingerprint.is_empty());
+    let original_fingerprint = preview.fingerprint.clone();
+
+    // Tamper with bundle after preview: modify manifest.json or files
+    let assets_file = bundle_dir.join("assets.jsonl");
+    let content = fs::read_to_string(&assets_file).expect("read assets");
+    let tampered = content.replace("Original Title", "Tampered Title");
+    fs::write(&assets_file, tampered).expect("write tampered assets");
+
+    // Apply with previewed fingerprint must fail with conflict!
+    let apply_err = portable_import_apply_impl(
+        &bundle_dir.to_string_lossy(),
+        &original_fingerprint,
+        &dest_state,
+    )
+    .expect_err("apply must fail on tampered content");
+
+    assert_eq!(apply_err.category, assetmesh_desktop_lib::error::DesktopErrorCategory::Conflict);
+    assert!(apply_err.message.contains("Bundle content changed since preview"));
+
+    // Destination library remains completely empty
+    let list = library_list_impl(Some(LibraryQueryDto::default()), &dest_state).expect("list");
+    assert_eq!(list.total, Some(0));
 }
 
 #[test]
@@ -339,9 +378,65 @@ fn test_settings_reports_real_db_and_provider_status() {
     assert!(settings.capabilities.modules.contains(&"services".into()));
 }
 
+/// Canned `osascript` replies, so the chooser contract is exercised without
+/// raising a real macOS dialog that would block on a human.
+#[derive(Debug)]
+struct FakeChooserRunner {
+    stdout: String,
+    cancelled: bool,
+    ran_with: std::sync::Mutex<Vec<String>>,
+}
+
+impl FakeChooserRunner {
+    fn new(stdout: &str, cancelled: bool) -> Self {
+        FakeChooserRunner {
+            stdout: stdout.to_string(),
+            cancelled,
+            ran_with: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn ran_with(&self) -> Vec<String> {
+        self.ran_with.lock().unwrap().clone()
+    }
+}
+
+impl assetmesh_providers::CommandRunner for FakeChooserRunner {
+    fn run(
+        &self,
+        program: &str,
+        args: &[&str],
+    ) -> Result<std::process::Output, assetmesh_providers::CommandError> {
+        assert_eq!(program, "osascript");
+        *self.ran_with.lock().unwrap() = args.iter().map(|s| s.to_string()).collect();
+        let status = if self.cancelled {
+            std::process::Command::new("false").output().unwrap().status
+        } else {
+            std::process::Command::new("true").output().unwrap().status
+        };
+        Ok(std::process::Output {
+            status,
+            stdout: self.stdout.as_bytes().to_vec(),
+            stderr: Vec::new(),
+        })
+    }
+}
+
 #[test]
 fn test_pick_directory_cancellation_returns_none() {
-    // Calling pick_directory_impl in headless or non-interactive mode gracefully returns Ok(None)
-    let res = pick_directory_impl(Some("Select Folder".to_string()));
-    assert!(res.is_ok());
+    let runner = FakeChooserRunner::new("", true);
+    let res = pick_directory_impl(Some("Select Folder".to_string()), &runner);
+    assert!(res.unwrap().is_none());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_pick_directory_returns_trimmed_selection_and_prompts() {
+    let runner = FakeChooserRunner::new("/Users/dev/Downloads/\n", false);
+    let res = pick_directory_impl(Some("Select Folder".to_string()), &runner);
+    assert_eq!(res.unwrap().as_deref(), Some("/Users/dev/Downloads/"));
+
+    let script = runner.ran_with().join(" ");
+    assert!(script.contains("choose folder"), "got {script}");
+    assert!(script.contains("Select Folder"), "got {script}");
 }

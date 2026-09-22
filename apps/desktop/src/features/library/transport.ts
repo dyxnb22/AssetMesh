@@ -55,7 +55,7 @@ export interface DesktopTransport {
   pickDirectory(prompt?: string): Promise<string | null>;
   portableExport(targetDir: string): Promise<ExportReceipt>;
   portableImportPreview(sourceDir: string): Promise<ImportPreview>;
-  portableImportApply(sourceDir: string): Promise<ImportReceipt>;
+  portableImportApply(sourceDir: string, expectedFingerprint: string): Promise<ImportReceipt>;
   getAppSettings(): Promise<AppSettings>;
 }
 
@@ -148,8 +148,8 @@ export class TauriTransport implements DesktopTransport {
     return await invoke<ImportPreview>('portable_import_preview', { sourceDir });
   }
 
-  async portableImportApply(sourceDir: string): Promise<ImportReceipt> {
-    return await invoke<ImportReceipt>('portable_import_apply', { sourceDir });
+  async portableImportApply(sourceDir: string, expectedFingerprint: string): Promise<ImportReceipt> {
+    return await invoke<ImportReceipt>('portable_import_apply', { sourceDir, expectedFingerprint });
   }
 
   async getAppSettings(): Promise<AppSettings> {
@@ -160,12 +160,12 @@ export class TauriTransport implements DesktopTransport {
 export function normalizeDesktopError(err: unknown): DesktopError {
   if (typeof err === 'object' && err !== null) {
     const obj = err as Record<string, unknown>;
-    const category = typeof obj.category === 'string' ? obj.category : 'internal_error';
+    const category = typeof obj.category === 'string' ? obj.category : 'internal';
     const message = typeof obj.message === 'string' ? obj.message : String(err);
     return { category, message };
   }
   return {
-    category: 'internal_error',
+    category: 'internal',
     message: String(err),
   };
 }

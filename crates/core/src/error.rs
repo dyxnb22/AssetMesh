@@ -94,6 +94,12 @@ impl AppError {
         }
     }
 
+    pub fn permission_denied(message: impl Into<String>) -> Self {
+        AppError::PermissionDenied {
+            message: message.into(),
+        }
+    }
+
     pub fn unsupported_schema_version(
         context: impl Into<String>,
         found: impl std::fmt::Display,
@@ -140,6 +146,37 @@ impl AppError {
         }
     }
 
+    /// Human-readable detail WITHOUT the error's template prefix.
+    ///
+    /// Adapters should pair `category()` with this, not with `to_string()`:
+    /// `to_string()` renders the thiserror template, so a `Storage` failure
+    /// would reach the UI as "storage failure: <detail>", repeating the
+    /// category the adapter already derived from `category()`. Returning the
+    /// detail separately also keeps one variant's template wording from
+    /// becoming load-bearing — callers classify by variant, not by text.
+    pub fn message(&self) -> String {
+        match self {
+            AppError::Validation { message }
+            | AppError::Conflict { message }
+            | AppError::ImportConflict { message }
+            | AppError::ProviderUnavailable { message }
+            | AppError::PermissionDenied { message }
+            | AppError::StorageBusy { message }
+            | AppError::Storage { message }
+            | AppError::SetupRequired { message }
+            | AppError::CorruptData { message } => message.clone(),
+            AppError::NotFound { entity, id } => format!("{entity} {id}"),
+            AppError::UnsupportedSchemaVersion {
+                context,
+                found,
+                supported,
+            } => format!("{context}: found {found}, supported {supported}"),
+            AppError::StaleRevision { expected, found } => {
+                format!("expected revision {expected}, found {found}")
+            }
+        }
+    }
+
     /// Returns true when the error describes transient storage contention that
     /// a caller may retry (ADR 0007 failure behavior).
     pub fn is_retryable(&self) -> bool {
@@ -148,3 +185,37 @@ impl AppError {
 }
 
 pub type AppResult<T> = Result<T, AppError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_excludes_the_template_prefix() {
+        // `category()` already carries the semantics, so `message()` must not
+        // repeat the template wording a caller would otherwise see twice.
+        let err = AppError::storage("disk gone");
+        assert_eq!(err.category(), "internal");
+        assert_eq!(err.message(), "disk gone");
+        assert!(err.to_string().starts_with("storage failure: "));
+    }
+
+    #[test]
+    fn message_renders_variants_without_a_plain_field() {
+        let err = AppError::not_found("asset", "abc");
+        assert_eq!(err.message(), "asset abc");
+
+        let err = AppError::stale_revision(3, 1);
+        assert_eq!(err.message(), "expected revision 3, found 1");
+
+        let err = AppError::unsupported_schema_version("database", 4, "<= 3");
+        assert_eq!(err.message(), "database: found 4, supported <= 3");
+    }
+
+    #[test]
+    fn only_storage_busy_is_retryable() {
+        assert!(AppError::storage_busy("locked").is_retryable());
+        assert!(!AppError::storage("boom").is_retryable());
+        assert!(!AppError::corrupt_data("bad").is_retryable());
+    }
+}

@@ -1,14 +1,12 @@
 //! Portable export/import and app settings commands (P5-09).
 
 use std::path::Path;
-use std::sync::Arc;
 
 use assetmesh_core::application::library_service::AppCapabilities;
 use assetmesh_core::application::portable::{
     read_bundle_from_directory, write_bundle_to_directory, PortableExportService,
     PortableImportService, EXPORT_FORMAT, EXPORT_VERSION,
 };
-use assetmesh_core::ports::SystemClock;
 use assetmesh_providers::{CommandRunner, MacosApplicationsProvider, SystemCommandRunner};
 use tauri::State;
 
@@ -21,10 +19,16 @@ use crate::state::{AppStatus, DesktopState};
 
 #[tauri::command]
 pub fn pick_directory(prompt: Option<String>) -> Result<Option<String>, DesktopError> {
-    pick_directory_impl(prompt)
+    pick_directory_impl(prompt, &SystemCommandRunner)
 }
 
-pub fn pick_directory_impl(prompt: Option<String>) -> Result<Option<String>, DesktopError> {
+/// Opens the native directory chooser. `runner` is the seam around the
+/// `osascript` child process: without it any test that reaches this code pops
+/// a real modal dialog and blocks until a human dismisses it.
+pub fn pick_directory_impl(
+    prompt: Option<String>,
+    runner: &dyn CommandRunner,
+) -> Result<Option<String>, DesktopError> {
     #[cfg(target_os = "macos")]
     {
         // Try osascript choose folder on macOS
@@ -33,11 +37,7 @@ pub fn pick_directory_impl(prompt: Option<String>) -> Result<Option<String>, Des
             r#"POSIX path of (choose folder with prompt "{}")"#,
             prompt_text.replace('"', "\\\"")
         );
-        if let Ok(output) = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output()
-        {
+        if let Ok(output) = runner.run("osascript", &["-e", &script]) {
             if output.status.success() {
                 let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !path.is_empty() {
@@ -51,7 +51,7 @@ pub fn pick_directory_impl(prompt: Option<String>) -> Result<Option<String>, Des
 
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = prompt;
+        let _ = (prompt, runner);
     }
 
     Ok(None)
@@ -76,8 +76,7 @@ pub fn portable_export_impl(
     }
 
     state.with_factory(|factory| {
-        let clock = Arc::new(SystemClock);
-        let mut service = PortableExportService::new(factory.clone(), clock);
+        let mut service = PortableExportService::new(factory.clone(), state.clock.clone());
         let bundle = service.export(env!("CARGO_PKG_VERSION"))?;
 
         let target_path = Path::new(target_dir);
@@ -129,11 +128,13 @@ pub fn portable_import_preview_impl(
                 record_counts: Default::default(),
                 modules: Vec::new(),
                 dispositions: ImportReportDto::default(),
-                errors: vec![format!("Failed to read bundle: {err}")],
+                fingerprint: String::new(),
+                errors: vec![DesktopError::from(err).message],
             });
         }
     };
 
+    let fingerprint = bundle.fingerprint().map_err(DesktopError::from)?;
     let manifest = bundle.manifest.clone();
     let mut errors = Vec::new();
 
@@ -165,6 +166,7 @@ pub fn portable_import_preview_impl(
             record_counts: manifest.record_counts,
             modules,
             dispositions: ImportReportDto::default(),
+            fingerprint,
             errors,
         });
     }
@@ -182,6 +184,7 @@ pub fn portable_import_preview_impl(
                 record_counts: manifest.record_counts,
                 modules,
                 dispositions: ImportReportDto::from(report),
+                fingerprint,
                 errors: Vec::new(),
             }),
             Err(err) => Ok(ImportPreviewDto {
@@ -194,7 +197,8 @@ pub fn portable_import_preview_impl(
                 record_counts: manifest.record_counts,
                 modules,
                 dispositions: ImportReportDto::default(),
-                errors: vec![err.to_string()],
+                fingerprint,
+                errors: vec![DesktopError::from(err).message],
             }),
         }
     })
@@ -203,13 +207,15 @@ pub fn portable_import_preview_impl(
 #[tauri::command]
 pub fn portable_import_apply(
     source_dir: String,
+    expected_fingerprint: String,
     state: State<'_, DesktopState>,
 ) -> Result<ImportReceiptDto, DesktopError> {
-    portable_import_apply_impl(&source_dir, &state)
+    portable_import_apply_impl(&source_dir, &expected_fingerprint, &state)
 }
 
 pub fn portable_import_apply_impl(
     source_dir: &str,
+    expected_fingerprint: &str,
     state: &DesktopState,
 ) -> Result<ImportReceiptDto, DesktopError> {
     if source_dir.trim().is_empty() {
@@ -218,19 +224,33 @@ pub fn portable_import_apply_impl(
         ));
     }
 
+    if expected_fingerprint.trim().is_empty() {
+        return Err(DesktopError::invalid_input(
+            "Expected bundle fingerprint cannot be empty",
+        ));
+    }
+
     let source_path = Path::new(source_dir);
     let bundle = read_bundle_from_directory(source_path)
-        .map_err(|e| DesktopError::invalid_input(format!("Cannot read bundle: {e}")))?;
+        .map_err(DesktopError::from)?;
+
+    let actual_fingerprint = bundle.fingerprint().map_err(DesktopError::from)?;
+    if actual_fingerprint != expected_fingerprint {
+        return Err(DesktopError::conflict(format!(
+            "Bundle content changed since preview; expected fingerprint {}, found {}",
+            expected_fingerprint, actual_fingerprint
+        )));
+    }
 
     if bundle.manifest.format != EXPORT_FORMAT {
-        return Err(DesktopError::validation(format!(
+        return Err(DesktopError::invalid_input(format!(
             "Unsupported format {:?}, expected {:?}",
             bundle.manifest.format, EXPORT_FORMAT
         )));
     }
 
     if bundle.manifest.version != EXPORT_VERSION {
-        return Err(DesktopError::validation(format!(
+        return Err(DesktopError::invalid_input(format!(
             "Unsupported export version {}, supported version is {}",
             bundle.manifest.version, EXPORT_VERSION
         )));

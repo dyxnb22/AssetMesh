@@ -17,6 +17,12 @@ export const ImportExportView: React.FC = () => {
   const [importDir, setImportDir] = useState<string>('');
   const [isPreviewing, setIsPreviewing] = useState<boolean>(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  // What the last preview asked the backend to inspect. Tracked separately from
+  // `importPreview.source_dir` — that is the backend's own report and may
+  // legitimately differ (it resolves and normalizes the path), so judging
+  // staleness against the request rather than the report avoids a false
+  // "stale" on a path the backend merely cleaned up.
+  const [previewedRequest, setPreviewedRequest] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
   const [isApplying, setIsApplying] = useState<boolean>(false);
@@ -60,6 +66,7 @@ export const ImportExportView: React.FC = () => {
         setImportDir(picked);
         // Reset previous preview / receipt
         setImportPreview(null);
+        setPreviewedRequest(null);
         setImportReceipt(null);
         setImportError(null);
         setIsConfirmed(false);
@@ -71,7 +78,8 @@ export const ImportExportView: React.FC = () => {
 
   // Run Import Preflight Preview
   const handlePreviewImport = async () => {
-    if (!importDir.trim()) {
+    const source = importDir.trim();
+    if (!source) {
       setImportError('Please specify the source bundle directory.');
       return;
     }
@@ -80,8 +88,9 @@ export const ImportExportView: React.FC = () => {
     setImportReceipt(null);
     setIsConfirmed(false);
     try {
-      const preview = await transport.portableImportPreview(importDir.trim());
+      const preview = await transport.portableImportPreview(source);
       setImportPreview(preview);
+      setPreviewedRequest(source);
       if (!preview.valid && preview.errors.length > 0) {
         setImportError(preview.errors.join('; '));
       }
@@ -92,15 +101,24 @@ export const ImportExportView: React.FC = () => {
     }
   };
 
+  // A preview describes one directory. If the field no longer matches the
+  // request that produced it, the confirmation on screen refers to a bundle
+  // nobody inspected, so the apply must be refused rather than run against
+  // whatever happens to be in the input.
+  const previewIsStale =
+    importPreview !== null && previewedRequest !== importDir.trim();
+
   // Run Explicit Apply
   const handleApplyImport = async () => {
-    if (!importPreview || !importPreview.valid || !isConfirmed) {
+    if (!importPreview || !importPreview.valid || !isConfirmed || previewIsStale) {
       return;
     }
     setIsApplying(true);
     setImportError(null);
     try {
-      const receipt = await transport.portableImportApply(importDir.trim());
+      // Apply the directory the backend inspected, not whatever the field says
+      // now — `source_dir` is the backend's own report.
+      const receipt = await transport.portableImportApply(importPreview.source_dir, importPreview.fingerprint);
       setImportReceipt(receipt);
     } catch (err) {
       setImportError(normalizeDesktopError(err).message);
@@ -484,7 +502,13 @@ export const ImportExportView: React.FC = () => {
                 aria-label="Source bundle directory"
                 placeholder="/path/to/exported-bundle"
                 value={importDir}
-                onChange={(e) => setImportDir(e.target.value)}
+                onChange={(e) => {
+                  setImportDir(e.target.value);
+                  // A receipt belongs to a bundle that has already been applied.
+                  // Editing the source must not leave it on screen attached to a
+                  // directory that is no longer the one that produced it.
+                  setImportReceipt(null);
+                }}
                 style={{
                   flex: 1,
                   padding: '8px 12px',
@@ -683,6 +707,24 @@ export const ImportExportView: React.FC = () => {
                     gap: '12px',
                   }}
                 >
+                  {previewIsStale && (
+                    <div
+                      data-testid="import-stale-notice"
+                      style={{
+                        padding: '10px 12px',
+                        backgroundColor: 'rgba(182, 59, 50, 0.08)',
+                        border: '1px solid var(--color-danger)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--color-danger)',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <strong>Preflight no longer applies.</strong> The field now points at a
+                      different directory than the one inspected above ({previewedRequest}). Re-run
+                      the preview to import it.
+                    </div>
+                  )}
+
                   <label
                     style={{
                       display: 'flex',
@@ -708,11 +750,11 @@ export const ImportExportView: React.FC = () => {
                   <div>
                     <button
                       data-testid="apply-import-button"
-                      disabled={!isConfirmed || isApplying}
+                      disabled={!isConfirmed || isApplying || previewIsStale}
                       onClick={handleApplyImport}
                       style={{
-                        cursor: !isConfirmed || isApplying ? 'not-allowed' : 'pointer',
-                        opacity: !isConfirmed || isApplying ? 0.6 : 1,
+                        cursor: !isConfirmed || isApplying || previewIsStale ? 'not-allowed' : 'pointer',
+                        opacity: !isConfirmed || isApplying || previewIsStale ? 0.6 : 1,
                         padding: '9px 20px',
                         fontSize: '13px',
                         fontWeight: 600,

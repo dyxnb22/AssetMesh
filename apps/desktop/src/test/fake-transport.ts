@@ -177,7 +177,11 @@ export class FakeDesktopTransport implements DesktopTransport {
 
     // Module
     if (query?.modules && query.modules.length > 0) {
-      filtered = filtered.filter((a) => query.modules!.some((m) => a.kind.startsWith(m)));
+      filtered = filtered.filter((a) =>
+        query.modules!.some((m) =>
+          m === 'services' ? a.kind.startsWith('service.') : a.kind.startsWith(m)
+        )
+      );
     }
 
     // Kinds
@@ -258,7 +262,11 @@ export class FakeDesktopTransport implements DesktopTransport {
 
     // Module
     if (query.modules && query.modules.length > 0) {
-      filtered = filtered.filter((a) => query.modules!.some((m) => a.kind.startsWith(m)));
+      filtered = filtered.filter((a) =>
+        query.modules!.some((m) =>
+          m === 'services' ? a.kind.startsWith('service.') : a.kind.startsWith(m)
+        )
+      );
     }
 
     // Kinds
@@ -1481,6 +1489,17 @@ export class FakeDesktopTransport implements DesktopTransport {
     if (query?.modules && query.modules.length > 0) {
       filtered = filtered.filter((e) => e.module && query.modules!.includes(e.module));
     }
+    // Resolved the way the backend resolves it: through the event's asset to
+    // the asset's *current* kind. An event whose asset is gone has no kind and
+    // therefore cannot satisfy a kind filter.
+    if (query?.kinds && query.kinds.length > 0) {
+      const kindOf = (id: string | null): string | null =>
+        (id && this.assets.find((a) => a.id === id)?.kind) ?? null;
+      filtered = filtered.filter((e) => {
+        const kind = kindOf(e.asset_id);
+        return kind !== null && query.kinds!.includes(kind);
+      });
+    }
     if (query?.event_types && query.event_types.length > 0) {
       filtered = filtered.filter((e) => query.event_types!.includes(e.event_type));
     }
@@ -1786,6 +1805,11 @@ export class FakeDesktopTransport implements DesktopTransport {
   public nextPickedDirectory: string | null | undefined = undefined;
   public nextImportPreview: ImportPreview | null = null;
   public nextImportReceipt: ImportReceipt | null = null;
+  /// Every directory `portableImportApply` was actually called with, in order.
+  /// Lets a test assert which bundle the UI committed to, not just that it did.
+  public importApplyCalls: string[] = [];
+  /// Every directory `portableImportPreview` was actually called with, in order.
+  public importPreviewCalls: string[] = [];
 
   async pickDirectory(prompt?: string): Promise<string | null> {
     void prompt;
@@ -1853,6 +1877,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       err.category = 'invalid_input';
       throw err;
     }
+    this.importPreviewCalls.push(sourceDir);
 
     if (this.nextImportPreview) {
       return this.nextImportPreview;
@@ -1885,6 +1910,7 @@ export class FakeDesktopTransport implements DesktopTransport {
           tags_created: 0,
         },
         errors: ['Failed to read bundle: invalid json syntax in assets.jsonl'],
+        fingerprint: 'sha256-malformed-' + sourceDir,
       };
     }
 
@@ -1915,6 +1941,7 @@ export class FakeDesktopTransport implements DesktopTransport {
           tags_created: 0,
         },
         errors: ['Unsupported export version 999, supported version is 1'],
+        fingerprint: 'sha256-unsupported-' + sourceDir,
       };
     }
 
@@ -1945,6 +1972,7 @@ export class FakeDesktopTransport implements DesktopTransport {
           tags_created: 0,
         },
         errors: ['Collision: external ref imdb:tt0000001 is already attached to another asset'],
+        fingerprint: 'sha256-collision-' + sourceDir,
       };
     }
 
@@ -1974,29 +2002,42 @@ export class FakeDesktopTransport implements DesktopTransport {
         services_updated: 0,
         relations_created: 1,
         relations_updated: 0,
-        external_refs_created: 0,
+        external_refs_created: 2,
         external_refs_deduplicated: 0,
         activity_created: 3,
         tags_created: 2,
       },
+      fingerprint: 'sha256-valid-' + sourceDir,
       errors: [],
     };
   }
 
-  async portableImportApply(sourceDir: string): Promise<ImportReceipt> {
+  async portableImportApply(sourceDir: string, expectedFingerprint?: string): Promise<ImportReceipt> {
     if (!sourceDir || !sourceDir.trim()) {
       const err = new Error('Source directory cannot be empty') as Error & { category?: string };
       err.category = 'invalid_input';
       throw err;
     }
+    if (expectedFingerprint !== undefined && !expectedFingerprint.trim()) {
+      const err = new Error('Expected bundle fingerprint cannot be empty') as Error & { category?: string };
+      err.category = 'invalid_input';
+      throw err;
+    }
+    this.importApplyCalls.push(sourceDir);
 
     if (this.nextImportReceipt) {
       return this.nextImportReceipt;
     }
 
+    if (expectedFingerprint && (expectedFingerprint.includes('mismatch') || expectedFingerprint === 'mismatch')) {
+      const err = new Error('Bundle content changed since preview') as Error & { category?: string };
+      err.category = 'conflict';
+      throw err;
+    }
+
     if (sourceDir.includes('malformed') || sourceDir.includes('unsupported')) {
       const err = new Error('Bundle validation failed') as Error & { category?: string };
-      err.category = 'validation';
+      err.category = 'invalid_input';
       throw err;
     }
 
@@ -2011,7 +2052,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       const err = new Error(preview.errors[0] || 'Import preflight rejected') as Error & {
         category?: string;
       };
-      err.category = 'validation';
+      err.category = 'invalid_input';
       throw err;
     }
 

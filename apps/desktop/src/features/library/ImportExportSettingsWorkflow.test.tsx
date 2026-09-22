@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../../app/App';
 import { FakeDesktopTransport } from '../../test/fake-transport';
@@ -217,5 +217,108 @@ describe('Import/Export and Settings Workflow UI (P5-09)', () => {
     await screen.findByTestId('settings-workspace');
     expect(screen.getByText('Settings & Environment')).toBeInTheDocument();
     expect(screen.getByText('Local Database')).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Preview/apply path binding
+  // -------------------------------------------------------------------------
+
+  it('applies the bundle the preflight inspected, not whatever the field says now', async () => {
+    // The apply used to send the live input, so a backend that resolved or
+    // normalized the path imported something other than what it had inspected.
+    // Simulated here: the preview reports a different `source_dir` than the
+    // path typed, which is what a resolving backend does.
+    const preview = fakeTransport.nextImportPreview;
+    expect(preview).toBeNull(); // confirm the default echo path is not in play
+    fakeTransport.nextImportPreview = {
+      ...(await new FakeDesktopTransport().portableImportPreview('/typed/path')),
+    };
+    fakeTransport.nextImportPreview.source_dir = '/resolved/by/backend';
+
+    render(<ImportExportView />);
+    fireEvent.click(screen.getByTestId('tab-import'));
+
+    fireEvent.change(screen.getByTestId('import-dir-input'), {
+      target: { value: '/typed/path' },
+    });
+    fireEvent.click(screen.getByTestId('preview-import-button'));
+    await screen.findByTestId('import-preview-container');
+
+    fireEvent.click(screen.getByTestId('import-confirm-checkbox'));
+    fireEvent.click(screen.getByTestId('apply-import-button'));
+    await screen.findByTestId('import-receipt');
+
+    // Not the typed path — the one the backend says it read.
+    expect(fakeTransport.importApplyCalls).toEqual(['/resolved/by/backend']);
+  });
+
+  it('applies the previewed directory when the field still matches it', async () => {
+    // The ordinary path, so the binding above is not the only thing holding it
+    // together: an untouched field must still apply what was previewed.
+    render(<ImportExportView />);
+    fireEvent.click(screen.getByTestId('tab-import'));
+
+    fireEvent.change(screen.getByTestId('import-dir-input'), {
+      target: { value: '/path/to/valid-bundle' },
+    });
+    fireEvent.click(screen.getByTestId('preview-import-button'));
+    await screen.findByTestId('import-preview-container');
+
+    fireEvent.click(screen.getByTestId('import-confirm-checkbox'));
+    fireEvent.click(screen.getByTestId('apply-import-button'));
+    await screen.findByTestId('import-receipt');
+
+    expect(fakeTransport.importApplyCalls).toEqual(['/path/to/valid-bundle']);
+  });
+
+  it('refuses to apply once the source field no longer matches the preview', async () => {
+    render(<ImportExportView />);
+    fireEvent.click(screen.getByTestId('tab-import'));
+
+    fireEvent.change(screen.getByTestId('import-dir-input'), {
+      target: { value: '/path/to/valid-bundle' },
+    });
+    fireEvent.click(screen.getByTestId('preview-import-button'));
+    await screen.findByTestId('import-preview-container');
+    fireEvent.click(screen.getByTestId('import-confirm-checkbox'));
+
+    // Redirect the field to a different bundle after confirming. The checkbox
+    // on screen is still checked, but it no longer describes what would run.
+    fireEvent.change(screen.getByTestId('import-dir-input'), {
+      target: { value: '/path/to/other-bundle' },
+    });
+
+    const applyBtn = screen.getByTestId('apply-import-button');
+    expect(applyBtn).toBeDisabled();
+    expect(screen.getByTestId('import-stale-notice')).toBeInTheDocument();
+    expect(fakeTransport.importApplyCalls).toEqual([]);
+
+    // Re-running the preview for the new path clears the staleness.
+    fireEvent.click(screen.getByTestId('preview-import-button'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('import-stale-notice')).not.toBeInTheDocument();
+    });
+    expect(applyBtn).toBeDisabled(); // confirmation reset by the fresh preview
+  });
+
+  it('drops the import receipt when the source field changes', async () => {
+    // A receipt belongs to a bundle that has already been applied; leaving it
+    // attached to a directory the user has since moved off is misleading.
+    render(<ImportExportView />);
+    fireEvent.click(screen.getByTestId('tab-import'));
+
+    fireEvent.change(screen.getByTestId('import-dir-input'), {
+      target: { value: '/path/to/valid-bundle' },
+    });
+    fireEvent.click(screen.getByTestId('preview-import-button'));
+    await screen.findByTestId('import-preview-container');
+    fireEvent.click(screen.getByTestId('import-confirm-checkbox'));
+    fireEvent.click(screen.getByTestId('apply-import-button'));
+    await screen.findByTestId('import-receipt');
+
+    fireEvent.change(screen.getByTestId('import-dir-input'), {
+      target: { value: '/path/to/valid-bundle-2' },
+    });
+    expect(screen.queryByTestId('import-receipt')).not.toBeInTheDocument();
   });
 });

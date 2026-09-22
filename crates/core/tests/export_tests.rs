@@ -927,3 +927,91 @@ fn interrupted_export_swap_recovers_previous_bundle() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn export_refuses_to_overwrite_non_bundle_directory_and_preserves_sentinel() {
+    use assetmesh_core::application::portable::write_bundle_to_directory;
+
+    let dir = std::env::temp_dir().join(format!("assetmesh-nonbundle-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("user_files");
+    std::fs::create_dir_all(&target).unwrap();
+
+    let sentinel_path = target.join("sentinel.txt");
+    std::fs::write(&sentinel_path, "critical user data").unwrap();
+
+    let env = test_env();
+    let mut export = env.export_service();
+    let bundle = export.export("v1").unwrap();
+
+    let err = write_bundle_to_directory(&bundle, &target)
+        .expect_err("must refuse to overwrite non-bundle directory");
+
+    assert!(
+        err.to_string().contains("not an AssetMesh export bundle"),
+        "error message should be clear: {err}"
+    );
+
+    // Verify sentinel was preserved
+    assert_eq!(
+        std::fs::read_to_string(&sentinel_path).unwrap(),
+        "critical user data"
+    );
+
+    // Verify no swap directory or partial staging remains
+    let swap = dir.join(".user_files.swap");
+    assert!(!swap.exists(), "no swap directory should remain");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn export_refuses_to_overwrite_regular_file_and_preserves_content() {
+    use assetmesh_core::application::portable::write_bundle_to_directory;
+
+    let dir = std::env::temp_dir().join(format!("assetmesh-filetarget-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("plain_file.txt");
+    std::fs::write(&target, "do not delete me").unwrap();
+
+    let env = test_env();
+    let mut export = env.export_service();
+    let bundle = export.export("v1").unwrap();
+
+    let err = write_bundle_to_directory(&bundle, &target)
+        .expect_err("must refuse to overwrite regular file");
+
+    assert!(err.to_string().contains("not an AssetMesh export bundle"));
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "do not delete me");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn export_cleanly_overwrites_existing_valid_bundle() {
+    use assetmesh_core::application::portable::{read_bundle_from_directory, write_bundle_to_directory};
+
+    let dir = std::env::temp_dir().join(format!("assetmesh-overwrite-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("valid_bundle");
+
+    let env = test_env();
+    let mut export = env.export_service();
+    let bundle_v1 = export.export("v1.0").unwrap();
+    write_bundle_to_directory(&bundle_v1, &target).expect("initial export");
+
+    let initial = read_bundle_from_directory(&target).unwrap();
+    assert_eq!(initial.manifest.app_version, "v1.0");
+
+    let bundle_v2 = export.export("v2.0").unwrap();
+    write_bundle_to_directory(&bundle_v2, &target).expect("overwrite existing bundle");
+
+    let updated = read_bundle_from_directory(&target).unwrap();
+    assert_eq!(updated.manifest.app_version, "v2.0");
+
+    let swap = dir.join(".valid_bundle.swap");
+    assert!(!swap.exists(), "swap dir removed after clean overwrite");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+

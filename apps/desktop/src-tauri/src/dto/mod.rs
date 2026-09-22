@@ -2,9 +2,9 @@
 
 use assetmesh_core::application::library_service::{
     AssetDetailView, AssetSummary, LibraryModule, LibraryQuery, LibrarySearchQuery, LibrarySort,
-    Page, PageRequest,
+    MergedTombstoneView, Page, PageRequest,
 };
-use assetmesh_core::domain::asset::{Asset, AssetKind};
+use assetmesh_core::domain::asset::AssetKind;
 use assetmesh_core::ports::repos::LifecycleFilter;
 use serde::{Deserialize, Serialize};
 
@@ -68,32 +68,43 @@ impl From<AssetDetailView> for AssetDetailDto {
     }
 }
 
-impl AssetDetailDto {
-    pub fn for_merged(
-        asset: &Asset,
-        tags: Vec<String>,
-        external_refs: Vec<ExternalRefDto>,
-    ) -> Self {
-        let surviving_asset_id = asset
+/// Renders a merged tombstone (ADR 0005): the identity of the asset that lost
+/// a merge plus the tags and references that moved to the survivor. The details
+/// payload is a redirect, not module data — the loser no longer owns any.
+impl From<MergedTombstoneView> for AssetDetailDto {
+    fn from(view: MergedTombstoneView) -> Self {
+        let surviving_asset_id = view
+            .asset
             .merged_into
             .map(|id| id.to_string())
             .unwrap_or_default();
+
+        let external_refs = view
+            .external_refs
+            .into_iter()
+            .map(|r| ExternalRefDto {
+                namespace: r.namespace,
+                external_id: r.external_id,
+                source_url: r.source_url,
+            })
+            .collect();
+
         Self {
-            id: asset.id.to_string(),
-            kind: asset.kind.as_str().to_string(),
-            name: asset.name.clone(),
-            summary: asset.summary.clone(),
-            lifecycle: asset.lifecycle_state.as_str().to_string(),
-            revision: asset.revision,
-            created_at: asset.created_at.to_rfc3339(),
-            updated_at: asset.updated_at.to_rfc3339(),
-            archived_at: asset.archived_at.map(|t| t.to_rfc3339()),
-            merged_into: asset.merged_into.map(|id| id.to_string()),
+            id: view.asset.id.to_string(),
+            kind: view.asset.kind.as_str().to_string(),
+            name: view.asset.name,
+            summary: view.asset.summary,
+            lifecycle: view.asset.lifecycle_state.as_str().to_string(),
+            revision: view.asset.revision,
+            created_at: view.asset.created_at.to_rfc3339(),
+            updated_at: view.asset.updated_at.to_rfc3339(),
+            archived_at: view.asset.archived_at.map(|t| t.to_rfc3339()),
+            merged_into: view.asset.merged_into.map(|id| id.to_string()),
             details: serde_json::json!({
                 "module": "merged_redirect",
                 "surviving_asset_id": surviving_asset_id,
             }),
-            tags,
+            tags: view.tags,
             external_refs,
         }
     }
@@ -785,6 +796,9 @@ pub struct ActivityQueryDto {
     pub event_types: Option<Vec<String>>,
     #[serde(default)]
     pub modules: Option<Vec<String>>,
+    /// Only events about assets of these kinds, e.g. `media.anime`.
+    #[serde(default)]
+    pub kinds: Option<Vec<String>>,
     #[serde(default)]
     pub actors: Option<Vec<String>>,
     #[serde(default)]
@@ -866,6 +880,40 @@ pub struct MergeApplyDto {
     pub loser_id: String,
 }
 
+/// The adapter shapes the domain preview for the wire; every field is a plain
+/// conversion, and the transfer/redundant split computed in the core is
+/// preserved as-is rather than being recomputed here.
+impl From<assetmesh_core::application::merge_preview_service::MergePreviewView>
+    for MergePreviewDto
+{
+    fn from(v: assetmesh_core::application::merge_preview_service::MergePreviewView) -> Self {
+        fn ref_dto(r: assetmesh_core::domain::external_ref::AssetExternalRef) -> ExternalRefDto {
+            ExternalRefDto {
+                namespace: r.namespace,
+                external_id: r.external_id,
+                source_url: r.source_url,
+            }
+        }
+
+        Self {
+            winner: AssetSummaryDto::from(v.winner),
+            loser: AssetSummaryDto::from(v.loser),
+            can_merge: v.can_merge,
+            conflicts: v.conflicts,
+            transferred_tags: v.transferred_tags,
+            transferred_external_refs: v
+                .transferred_external_refs
+                .into_iter()
+                .map(ref_dto)
+                .collect(),
+            redundant_external_refs: v.redundant_external_refs.into_iter().map(ref_dto).collect(),
+            transferred_relations_count: v.transferred_relations_count,
+            redundant_relations_count: v.redundant_relations_count,
+            notes: v.notes,
+        }
+    }
+}
+
 // =========================================================================
 // Import / Export & Settings DTOs (P5-09)
 // =========================================================================
@@ -931,6 +979,7 @@ pub struct ImportPreviewDto {
     pub record_counts: std::collections::BTreeMap<String, usize>,
     pub modules: Vec<String>,
     pub dispositions: ImportReportDto,
+    pub fingerprint: String,
     pub errors: Vec<String>,
 }
 

@@ -13,6 +13,58 @@ mod uow;
 pub use migrations::latest_db_version;
 pub use uow::{SharedSqlite, SqliteFactory};
 
+/// Statement accounting, used to prove a read is batched.
+///
+/// A repository method that loads tags per row costs one statement per row, so
+/// a page gets slower as the library grows. Nothing in the API can see that —
+/// the caller gets the same rows back either way — so the count has to be
+/// observed. `rusqlite::Connection::trace` is the seam: it reports every
+/// statement the connection prepares.
+///
+/// It lives in the library rather than in the tests because `trace` is a
+/// method on `Connection`, which the factory owns. `rusqlite`'s `trace` feature
+/// is additive (`trace = []` adds no dependency and changes no behavior), so
+/// enabling it costs nothing unless this module arms a counter.
+///
+/// Nothing in application code calls [`arm`]; a production path that counts its
+/// own statements would be measuring the wrong thing.
+pub mod statement_accounting {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static STATEMENTS: AtomicUsize = AtomicUsize::new(0);
+
+    fn observe(_sql: &str) {
+        STATEMENTS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Starts counting statements on the factory's write connection, which is
+    /// also the read connection for an in-memory database.
+    ///
+    /// Resets the counter to zero, so only statements executed after this call
+    /// are measured. Installing a trace callback cannot fail, but a fault here
+    /// would otherwise silently report "no statements" forever, so it panics
+    /// rather than lying.
+    pub fn arm(factory: &super::SqliteFactory) {
+        let installed = factory.set_tracer(Some(observe));
+        assert!(
+            installed.is_ok(),
+            "the trace callback could not be installed"
+        );
+        STATEMENTS.store(0, Ordering::SeqCst);
+    }
+
+    /// Statements executed since [`arm`].
+    pub fn take() -> usize {
+        STATEMENTS.swap(0, Ordering::SeqCst)
+    }
+
+    /// Statements executed since [`arm`], without resetting — for reporting a
+    /// measurement while leaving it inspectable.
+    pub fn peek() -> usize {
+        STATEMENTS.load(Ordering::SeqCst)
+    }
+}
+
 use assetmesh_core::application::portable::{
     MEDIA_SCHEMA_VERSION, SERVICES_SCHEMA_VERSION, SOFTWARE_SCHEMA_VERSION,
 };
@@ -97,22 +149,33 @@ fn check_module_version(
 
 /// Maps a rusqlite error into the typed application error model, keeping
 /// driver specifics inside this crate (ADR 0007 failure behavior).
+///
+/// The message becomes user-facing text, so rusqlite's own rendering is not
+/// forwarded: its `Display` for a failure is
+/// `SqliteFailure(Error { code: DatabaseCorruption, extended_code: 11 }, Some("…"))`,
+/// which leaks the FFI enum shape into the desktop UI. Only the SQLite error
+/// code and the driver's human detail sentence are kept.
 pub(crate) fn map_error(err: rusqlite::Error) -> AppError {
     use rusqlite::ffi::ErrorCode as FfiCode;
     match &err {
-        rusqlite::Error::SqliteFailure(ffi, details)
+        rusqlite::Error::SqliteFailure(ffi, _)
             if ffi.code == FfiCode::DatabaseLocked || ffi.code == FfiCode::DatabaseBusy =>
         {
             // SQLITE_LOCKED / SQLITE_BUSY are lock contention: retryable.
-            AppError::storage_busy(format!(
-                "sqlite is busy or locked: {}",
-                details.clone().unwrap_or_default()
-            ))
+            AppError::storage_busy("sqlite database is busy or locked")
+        }
+        rusqlite::Error::SqliteFailure(ffi, _)
+            if ffi.code == FfiCode::DatabaseCorrupt =>
+        {
+            AppError::corrupt_data("database disk image is malformed or corrupted")
         }
         rusqlite::Error::SqliteFailure(ffi, _) if ffi.code == FfiCode::ConstraintViolation => {
-            AppError::conflict(format!("constraint violated: {err}"))
+            AppError::conflict("database constraint violation")
         }
-        _ => AppError::storage(format!("sqlite failure: {err}")),
+        rusqlite::Error::SqliteFailure(ffi, _) => {
+            AppError::storage(format!("sqlite error code {}", ffi.extended_code))
+        }
+        _ => AppError::storage("internal sqlite database error"),
     }
 }
 
@@ -138,6 +201,13 @@ mod tests {
                 AppError::Conflict { .. }
             ),
             "constraint violations surface as conflicts"
+        );
+        assert!(
+            matches!(
+                map_error(failure(rusqlite::ffi::SQLITE_CORRUPT)),
+                AppError::CorruptData { .. }
+            ),
+            "corruption surfaces as CorruptData"
         );
     }
 }
