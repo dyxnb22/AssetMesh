@@ -1,11 +1,19 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AppCapabilities, AppStatus, AssetSummary, LibraryQuery, Page } from './types';
+import type {
+  AppCapabilities,
+  AppStatus,
+  AssetDetailDto,
+  AssetSummary,
+  LibraryQuery,
+  Page,
+} from './types';
 
 export interface DesktopTransport {
   getCapabilities(): Promise<AppCapabilities>;
   getStatus(): Promise<AppStatus>;
   init(dbPath: string): Promise<AppStatus>;
   listAssets(query?: LibraryQuery): Promise<Page<AssetSummary>>;
+  getAsset(id: string): Promise<AssetDetailDto>;
 }
 
 export class TauriTransport implements DesktopTransport {
@@ -23,6 +31,10 @@ export class TauriTransport implements DesktopTransport {
 
   async listAssets(query?: LibraryQuery): Promise<Page<AssetSummary>> {
     return await invoke<Page<AssetSummary>>('library_list', { query });
+  }
+
+  async getAsset(id: string): Promise<AssetDetailDto> {
+    return await invoke<AssetDetailDto>('library_get', { id });
   }
 }
 

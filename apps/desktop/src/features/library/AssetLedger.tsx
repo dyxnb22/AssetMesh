@@ -24,6 +24,7 @@ interface AssetLedgerProps {
   selectedAssetId: string | null;
   capabilities: AppCapabilities | null;
   onSelectAsset: (id: string) => void;
+  onOpenDetail?: (id: string) => void;
   onSelectLifecycle: (lifecycle: LifecycleOption) => void;
   onSelectSort: (sort: SortOption) => void;
   onSelectKind: (kind: string | null) => void;
@@ -47,6 +48,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   selectedAssetId,
   capabilities,
   onSelectAsset,
+  onOpenDetail,
   onSelectLifecycle,
   onSelectSort,
   onSelectKind,
@@ -397,8 +399,16 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   role="row"
                   tabIndex={0}
                   onClick={() => onSelectAsset(asset.id)}
+                  onDoubleClick={() => onOpenDetail?.(asset.id)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (onOpenDetail) {
+                        onOpenDetail(asset.id);
+                      } else {
+                        onSelectAsset(asset.id);
+                      }
+                    } else if (e.key === ' ') {
                       e.preventDefault();
                       onSelectAsset(asset.id);
                     }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { AssetDetailView } from '../features/library/AssetDetailView';
 import { AssetInspector } from '../features/library/AssetInspector';
 import { AssetLedger } from '../features/library/AssetLedger';
 import { NavigationRail } from '../features/library/NavigationRail';
@@ -22,6 +23,7 @@ export const App: React.FC = () => {
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [error, setError] = useState<DesktopError | null>(null);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+  const [activeDetailId, setActiveDetailId] = useState<string | null>(null);
 
   const {
     nav,
@@ -301,6 +303,7 @@ export const App: React.FC = () => {
           setSelectedAssetId(id);
           setMobileInspectorOpen(true);
         }}
+        onOpenDetail={(id) => setActiveDetailId(id)}
         onSelectLifecycle={setLifecycle}
         onSelectSort={setSort}
         onSelectKind={setKind}
@@ -316,7 +319,61 @@ export const App: React.FC = () => {
           asset={selectedAsset}
           onClose={() => setMobileInspectorOpen(false)}
           onSelectTag={(tag) => setTag(tag)}
+          onOpenDetail={(id) => setActiveDetailId(id)}
         />
+      )}
+
+      {/* 4. Full Unified Asset Detail View */}
+      {activeDetailId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Asset Detail View"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(2px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: '24px',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setActiveDetailId(null);
+            }
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '680px',
+              maxHeight: '88vh',
+              backgroundColor: 'var(--color-surface)',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid var(--color-border)',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <AssetDetailView
+              assetId={activeDetailId}
+              onClose={() => setActiveDetailId(null)}
+              onFollowRedirect={(survivorId) => {
+                setSelectedAssetId(survivorId);
+                setActiveDetailId(survivorId);
+              }}
+              onSelectTag={(tag) => {
+                setTag(tag);
+                setActiveDetailId(null);
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

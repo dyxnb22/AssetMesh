@@ -1,5 +1,13 @@
 import type { DesktopTransport } from '../features/library/transport';
-import type { AppCapabilities, AppStatus, AssetSummary, LibraryQuery, Page } from '../features/library/types';
+import type {
+  AppCapabilities,
+  AppStatus,
+  AssetDetailDto,
+  AssetDetailsDto,
+  AssetSummary,
+  LibraryQuery,
+  Page,
+} from '../features/library/types';
 
 export class FakeDesktopTransport implements DesktopTransport {
   status: AppStatus = { status: 'ready', db_path: ':memory:' };
@@ -89,6 +97,85 @@ export class FakeDesktopTransport implements DesktopTransport {
       offset,
       limit,
       total,
+    };
+  }
+
+  details: Map<string, AssetDetailDto> = new Map();
+
+  async getAsset(id: string): Promise<AssetDetailDto> {
+    const existing = this.details.get(id);
+    if (existing) return existing;
+
+    const summary = this.assets.find((a) => a.id === id);
+    if (!summary) {
+      throw new Error(`Asset not found: ${id}`);
+    }
+
+    let details: AssetDetailsDto;
+    if (summary.kind.startsWith('media')) {
+      details = {
+        module: 'media',
+        asset_id: summary.id,
+        media_type: summary.kind.split('.')[1] || 'anime',
+        status: 'completed',
+        rating: 9.5,
+        year: 2024,
+        platform: 'Streaming',
+        progress: { unit: 'episodes', current: 28, total: 28 },
+        notes: 'Sample media record notes',
+        started_at: '2024-01-01T00:00:00Z',
+        completed_at: '2024-03-01T00:00:00Z',
+      };
+    } else if (summary.kind.startsWith('software')) {
+      details = {
+        module: 'software',
+        asset_id: summary.id,
+        category: 'tool',
+        version: '1.0.0',
+        install_location: '/usr/local/bin',
+        executable_path: '/usr/local/bin/' + summary.name.toLowerCase(),
+        purpose: 'Productivity tool',
+        notes: 'Installed via package manager',
+        architecture: 'arm64',
+      };
+    } else if (summary.kind.startsWith('service')) {
+      details = {
+        module: 'services',
+        asset_id: summary.id,
+        service_type: 'saas',
+        provider: 'Cloud Provider',
+        plan: 'Standard',
+        cost_minor: 1200,
+        currency: 'USD',
+        dashboard_url: 'https://example.com/dashboard',
+        auto_renew: true,
+      };
+    } else {
+      details = {
+        module: 'unknown',
+      };
+    }
+
+    return {
+      id: summary.id,
+      kind: summary.kind,
+      name: summary.name,
+      summary: summary.subtitle,
+      lifecycle: summary.lifecycle,
+      revision: 1,
+      created_at: summary.updated_at,
+      updated_at: summary.updated_at,
+      archived_at: summary.lifecycle === 'archived' ? summary.updated_at : null,
+      merged_into: null,
+      details,
+      tags: summary.tags,
+      external_refs: [
+        {
+          namespace: 'system',
+          external_id: summary.name.toLowerCase().replace(/\s+/g, '-'),
+          source_url: 'https://example.com/ref',
+        },
+      ],
     };
   }
 }

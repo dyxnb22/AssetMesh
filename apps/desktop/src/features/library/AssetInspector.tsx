@@ -6,12 +6,14 @@ interface AssetInspectorProps {
   asset: AssetSummary | null;
   onClose?: () => void;
   onSelectTag?: (tag: string) => void;
+  onOpenDetail?: (assetId: string) => void;
 }
 
 export const AssetInspector: React.FC<AssetInspectorProps> = ({
   asset,
   onClose,
   onSelectTag,
+  onOpenDetail,
 }) => {
   return (
     <aside
@@ -160,6 +162,31 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
                 ))}
               </div>
             </div>
+          )}
+
+          {onOpenDetail && (
+            <button
+              onClick={() => onOpenDetail(asset.id)}
+              aria-label="View Full Details"
+              style={{
+                marginTop: '4px',
+                padding: '8px 12px',
+                backgroundColor: 'var(--color-surface)',
+                color: 'var(--color-ink)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                fontWeight: 500,
+                fontSize: '12px',
+                textAlign: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+              }}
+            >
+              View Full Details →
+            </button>
           )}
         </div>
       ) : (

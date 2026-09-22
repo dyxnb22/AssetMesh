@@ -1,13 +1,102 @@
 //! Transport Data Transfer Objects for Tauri commands.
 
 use assetmesh_core::application::library_service::{
-    AssetSummary, LibraryModule, LibraryQuery, LibrarySort, Page, PageRequest,
+    AssetDetailView, AssetSummary, LibraryModule, LibraryQuery, LibrarySort, Page, PageRequest,
 };
-use assetmesh_core::domain::asset::AssetKind;
+use assetmesh_core::domain::asset::{Asset, AssetKind};
 use assetmesh_core::ports::repos::LifecycleFilter;
 use serde::{Deserialize, Serialize};
 
 use crate::error::DesktopError;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalRefDto {
+    pub namespace: String,
+    pub external_id: String,
+    pub source_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AssetDetailDto {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub summary: Option<String>,
+    pub lifecycle: String,
+    pub revision: i64,
+    pub created_at: String,
+    pub updated_at: String,
+    pub archived_at: Option<String>,
+    pub merged_into: Option<String>,
+    pub details: serde_json::Value,
+    pub tags: Vec<String>,
+    pub external_refs: Vec<ExternalRefDto>,
+}
+
+impl From<AssetDetailView> for AssetDetailDto {
+    fn from(view: AssetDetailView) -> Self {
+        let details = serde_json::to_value(&view.details).unwrap_or(serde_json::json!({
+            "module": "unknown"
+        }));
+
+        let external_refs = view
+            .external_refs
+            .into_iter()
+            .map(|r| ExternalRefDto {
+                namespace: r.namespace,
+                external_id: r.external_id,
+                source_url: r.source_url,
+            })
+            .collect();
+
+        Self {
+            id: view.asset.id.to_string(),
+            kind: view.asset.kind.as_str().to_string(),
+            name: view.asset.name,
+            summary: view.asset.summary,
+            lifecycle: view.asset.lifecycle_state.as_str().to_string(),
+            revision: view.asset.revision,
+            created_at: view.asset.created_at.to_rfc3339(),
+            updated_at: view.asset.updated_at.to_rfc3339(),
+            archived_at: view.asset.archived_at.map(|t| t.to_rfc3339()),
+            merged_into: view.asset.merged_into.map(|id| id.to_string()),
+            details,
+            tags: view.tags,
+            external_refs,
+        }
+    }
+}
+
+impl AssetDetailDto {
+    pub fn for_merged(
+        asset: &Asset,
+        tags: Vec<String>,
+        external_refs: Vec<ExternalRefDto>,
+    ) -> Self {
+        let surviving_asset_id = asset
+            .merged_into
+            .map(|id| id.to_string())
+            .unwrap_or_default();
+        Self {
+            id: asset.id.to_string(),
+            kind: asset.kind.as_str().to_string(),
+            name: asset.name.clone(),
+            summary: asset.summary.clone(),
+            lifecycle: asset.lifecycle_state.as_str().to_string(),
+            revision: asset.revision,
+            created_at: asset.created_at.to_rfc3339(),
+            updated_at: asset.updated_at.to_rfc3339(),
+            archived_at: asset.archived_at.map(|t| t.to_rfc3339()),
+            merged_into: asset.merged_into.map(|id| id.to_string()),
+            details: serde_json::json!({
+                "module": "merged_redirect",
+                "surviving_asset_id": surviving_asset_id,
+            }),
+            tags,
+            external_refs,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssetSummaryDto {
