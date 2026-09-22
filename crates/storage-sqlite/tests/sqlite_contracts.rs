@@ -219,8 +219,17 @@ fn modified_applied_migration_fails_loudly() {
         conn.execute("UPDATE assetmesh_migrations SET checksum = 'tampered'", [])
             .unwrap();
     }
-    let result = assetmesh_storage_sqlite::open(&path);
-    assert!(result.is_err(), "tampered migration must fail loudly");
+    let err = match assetmesh_storage_sqlite::open(&path) {
+        Ok(_) => panic!("tampered migration must fail loudly"),
+        Err(err) => err,
+    };
+    // Carried by the variant, not by message text: adapters classify on this.
+    assert!(
+        matches!(err, assetmesh_core::AppError::CorruptData { .. }),
+        "a diverged migration is corruption, got [{}] {}",
+        err.category(),
+        err.message()
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -2679,4 +2688,101 @@ fn the_stored_relation_type_check_matches_the_rust_registry() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Batched tag loading
+// ---------------------------------------------------------------------------
+
+/// A module list must not cost one query per row for tags.
+///
+/// Every module's `list` renders a page of rows with their tag names. Loading
+/// them per row is an N+1: the query count grows with the page, so a listing
+/// gets slower exactly as the library gets bigger — and nothing in the API
+/// would ever show it, because the rows come back identical either way.
+///
+/// The assertion is deliberately against a second page size rather than an
+/// absolute number: the query count must not depend on the row count. That
+/// fails only if the tags for the whole page are fetched together, and it does
+/// not need to be re-tuned when an unrelated query is added.
+#[test]
+fn module_lists_load_tags_for_the_whole_page_in_one_query() {
+    use assetmesh_core::application::software_service::CreateSoftware;
+    use assetmesh_core::ports::repos::SoftwareFilter;
+
+    fn software_cmd(name: &str, tag: &str) -> CreateSoftware {
+        CreateSoftware {
+            name: name.into(),
+            category: SoftwareCategory::Application,
+            summary: None,
+            install_source: None,
+            version: None,
+            install_location: None,
+            executable_path: None,
+            purpose: None,
+            notes: None,
+            architecture: None,
+            installed_at: None,
+            tags: vec![tag.to_string()],
+            external_refs: Vec::new(),
+        }
+    }
+
+    let small = env();
+    for i in 0..6 {
+        small
+            .software_service()
+            .create_software(software_cmd(&format!("Small {i}"), &format!("tag-{i}")))
+            .unwrap();
+    }
+
+    // Arming after the seeding means only the list's own statements count. It
+    // must be installed on the connection the read scope will use, which for an
+    // in-memory database is the write connection.
+    assetmesh_storage_sqlite::statement_accounting::arm(&small.factory.0);
+    let small_rows = small
+        .software_service()
+        .list_software(&SoftwareFilter::default())
+        .unwrap();
+    let small_count = assetmesh_storage_sqlite::statement_accounting::take();
+    assert_eq!(small_rows.len(), 6);
+
+    let large = env();
+    for i in 0..24 {
+        large
+            .software_service()
+            .create_software(software_cmd(&format!("Large {i}"), &format!("tag-{i}")))
+            .unwrap();
+    }
+
+    assetmesh_storage_sqlite::statement_accounting::arm(&large.factory.0);
+    let large_rows = large
+        .software_service()
+        .list_software(&SoftwareFilter::default())
+        .unwrap();
+    let large_count = assetmesh_storage_sqlite::statement_accounting::take();
+    assert_eq!(large_rows.len(), 24);
+
+    assert_eq!(
+        small_count, large_count,
+        "listing 6 rows and 24 rows must cost the same number of statements; \
+         loading tags once per row is the usual cause of a difference \
+         ({small_count} vs {large_count})"
+    );
+
+    // And the rows really did come back with their tags, so the batching was
+    // not achieved by dropping them. Compared as sets: the list's sort order is
+    // the filter's business, not this test's.
+    let mut expected: Vec<String> = (0..24).map(|i| format!("tag-{i}")).collect();
+    expected.sort();
+    let mut actual: Vec<String> = large_rows
+        .iter()
+        .flat_map(|row| row.tags.iter().cloned())
+        .collect();
+    actual.sort();
+    assert_eq!(actual, expected);
+    assert!(
+        large_rows.iter().all(|row| !row.tags.is_empty()),
+        "every listed row must still carry its own tag"
+    );
 }

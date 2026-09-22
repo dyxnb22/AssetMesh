@@ -164,9 +164,7 @@ pub(crate) fn map_error(err: rusqlite::Error) -> AppError {
             // SQLITE_LOCKED / SQLITE_BUSY are lock contention: retryable.
             AppError::storage_busy("sqlite database is busy or locked")
         }
-        rusqlite::Error::SqliteFailure(ffi, _)
-            if ffi.code == FfiCode::DatabaseCorrupt =>
-        {
+        rusqlite::Error::SqliteFailure(ffi, _) if ffi.code == FfiCode::DatabaseCorrupt => {
             AppError::corrupt_data("database disk image is malformed or corrupted")
         }
         rusqlite::Error::SqliteFailure(ffi, _) if ffi.code == FfiCode::ConstraintViolation => {

@@ -10,6 +10,7 @@ pub mod import_media;
 pub mod import_parse;
 pub mod library_service;
 pub mod media_service;
+pub mod merge_preview_service;
 pub mod portable;
 pub mod projection;
 pub mod relation_query_service;

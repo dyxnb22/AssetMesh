@@ -13,7 +13,7 @@
 
 use crate::domain::asset::AssetKind;
 use crate::domain::ids::AssetId;
-use crate::domain::validation::{bounded, optional_text};
+use crate::domain::validation::{self, bounded, optional_text};
 use crate::domain::Timestamp;
 use crate::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
@@ -245,10 +245,10 @@ impl ServiceRecord {
             }
         }
         if let Some(url) = self.endpoint_url.as_deref() {
-            validate_url_shape(url)?;
+            validation::url_shape(url)?;
         }
         if let Some(url) = self.dashboard_url.as_deref() {
-            validate_url_shape(url)?;
+            validation::url_shape(url)?;
         }
 
         // `domain_name` is canonical domain metadata: it belongs to a domain
@@ -303,105 +303,6 @@ pub struct ServiceEntry {
     pub record: ServiceRecord,
 }
 
-/// Requires a syntactically reasonable absolute http/https URL. This is not
-/// an RFC parser and performs no network I/O (docs/10); it exists to keep
-/// obvious garbage and credential-bearing URLs out of canonical state.
-fn validate_url_shape(url: &str) -> AppResult<()> {
-    // Whitespace or control characters ANYWHERE make the URL malformed — not
-    // just in the host (`https://example.com/a b` is no more resolvable than
-    // `https://exa mple.com`, and an embedded newline would survive into
-    // exported JSON).
-    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(AppError::validation(
-            "URL must not contain whitespace or control characters",
-        ));
-    }
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .ok_or_else(|| AppError::validation("URL must be an absolute http:// or https:// URL"))?;
-    // Authority ends at the first path/query/fragment separator.
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
-    if authority.is_empty() {
-        return Err(AppError::validation("URL must have a host"));
-    }
-    // Credentials must not enter canonical data. A userinfo segment is
-    // rejected outright rather than parsed out and stored somewhere: the
-    // Services module has no field that may hold it (ADR 0010). Checked BEFORE
-    // the host/port split, because a userinfo segment contains a ':' that
-    // would otherwise be misread as a port separator.
-    if authority.contains('@') {
-        return Err(AppError::validation(
-            "URL must not contain credentials; remove the user info segment",
-        ));
-    }
-    // Split the host from the port. A bracketed authority is an IPv6 literal
-    // and must be closed before any port; anything else after the host is a
-    // malformed port.
-    let (host, port) = if let Some(after_bracket) = authority.strip_prefix('[') {
-        let close = after_bracket
-            .find(']')
-            .ok_or_else(|| AppError::validation("URL has an unterminated IPv6 host literal"))?;
-        let host = &after_bracket[..close];
-        let after = &after_bracket[close + ']'.len_utf8()..];
-        let port = after.strip_prefix(':');
-        if port.is_none() && !after.is_empty() {
-            return Err(AppError::validation(
-                "URL has unexpected characters after the IPv6 host literal",
-            ));
-        }
-        (host, port)
-    } else {
-        match authority.split_once(':') {
-            Some((host, port)) => (host, Some(port)),
-            None => (authority, None),
-        }
-    };
-    if host.is_empty() {
-        return Err(AppError::validation("URL must have a host"));
-    }
-    // A bracketed host is a real IPv6 literal — parse it rather than eyeballing
-    // the character set, so `[1:::2]` and `[::::]` are rejected the same way
-    // `[x]` is. `Ipv6Addr::from_str` accepts a zone id (`%eth0`) which URLs do
-    // not, so reject one explicitly.
-    if authority.starts_with('[') {
-        if host.contains('%') || host.parse::<std::net::Ipv6Addr>().is_err() {
-            return Err(AppError::validation(
-                "URL has a malformed IPv6 host literal",
-            ));
-        }
-    } else {
-        // A hostname is dot-separated labels: non-empty, ASCII
-        // letters/digits/hyphens, and no label may start or end with a
-        // hyphen (`https://-bad.com`) or be empty (`https://example..com`).
-        for label in host.split('.') {
-            if label.is_empty()
-                || !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-                || label.starts_with('-')
-                || label.ends_with('-')
-            {
-                return Err(AppError::validation(format!(
-                    "URL host {host:?} is not a valid host name"
-                )));
-            }
-        }
-    }
-    // A port must be a decimal number in range.
-    if let Some(port) = port {
-        let valid = !port.is_empty()
-            && port.len() <= 5
-            && port.chars().all(|c| c.is_ascii_digit())
-            && port.parse::<u16>().is_ok();
-        if !valid {
-            return Err(AppError::validation(
-                "URL port must be a decimal number between 0 and 65535",
-            ));
-        }
-    }
-    Ok(())
-}
-
 /// Conservative host shape for the canonical domain text: ASCII letters,
 /// digits, hyphens, and dots, with non-empty labels. No DNS resolution or
 /// ownership facts are claimed (docs/10).
@@ -440,6 +341,94 @@ pub fn normalize_currency(value: &str) -> AppResult<String> {
 /// floating-point drift (ADR 0010).
 pub fn format_money(cost_minor: i64, currency: &str) -> String {
     format!("{} {}.{:02}", currency, cost_minor / 100, cost_minor % 100)
+}
+
+/// Parses a human decimal amount into integer minor units — the inverse of
+/// [`format_money`].
+///
+/// This is a money rule, not a transport concern. It used to be re-derived per
+/// adapter, and the copies disagreed on inputs like `.5` and `19.`, so the same
+/// typed value became a different integer depending on which entry point
+/// accepted it. The rule lives here instead, where it can be tested once.
+///
+/// The rules, stated so an adapter does not need to re-derive them:
+///
+/// - surrounding whitespace is ignored, the amount itself may not be empty;
+/// - an optional whole part and an optional fraction, both decimal digits;
+/// - at most two fractional digits, because a third would need rounding and a
+///   silently rounded charge is a real money error;
+/// - a dot with nothing after it (`19.`) is a typo, not `19.00`;
+/// - an absent whole part (`.5`) means zero whole units, matching what
+///   [`format_money`] would have emitted for `5` minor units;
+/// - a leading `-` is refused: a cost is an amount paid, never a credit;
+/// - arithmetic is checked, so an amount near `i64::MAX` reports overflow
+///   instead of wrapping into a plausible-looking wrong number.
+pub fn parse_money_to_minor(value: &str) -> AppResult<i64> {
+    let trimmed = value.trim();
+    let invalid = |detail: &str| {
+        AppError::validation(format!(
+            "cost must be a decimal amount like 19.99{detail}, got {value:?}"
+        ))
+    };
+    if trimmed.is_empty() {
+        return Err(invalid(" (it is empty)"));
+    }
+
+    let (whole_part, fractional_part) = match trimmed.split_once('.') {
+        Some((whole, fractional)) => (whole, Some(fractional)),
+        None => (trimmed, None),
+    };
+
+    let reject_digits = |part: &str, what: &str| -> AppResult<()> {
+        if !part.chars().all(|c| c.is_ascii_digit()) {
+            return Err(invalid(&format!(", {what} must be decimal digits")));
+        }
+        Ok(())
+    };
+
+    // An absent whole part means zero, so `.5` is half a unit. `19.` is not.
+    let whole = if whole_part.is_empty() {
+        0
+    } else {
+        reject_digits(whole_part, "the whole part")?;
+        whole_part
+            .parse::<i64>()
+            .map_err(|_| invalid(", the whole part is out of range"))?
+    };
+    if whole < 0 {
+        return Err(invalid(", and it cannot be negative"));
+    }
+
+    let fractional = match fractional_part {
+        None => 0,
+        // A dot with nothing after it is a typo, not `19.00`.
+        Some("") => return Err(invalid(" (a trailing decimal point is not a value)")),
+        Some(fraction) => {
+            reject_digits(fraction, "the fractional part")?;
+            match fraction.len() {
+                // A single digit is tenths, so "0.5" is 50 minor units.
+                1 => fraction
+                    .parse::<i64>()
+                    .map_err(|_| invalid(", the fractional part is out of range"))?
+                    .checked_mul(10)
+                    .ok_or_else(|| invalid(", which is too large"))?,
+                2 => fraction
+                    .parse::<i64>()
+                    .map_err(|_| invalid(", the fractional part is out of range"))?,
+                _ => {
+                    return Err(AppError::validation(format!(
+                        "cost has more than two decimal places and cannot be represented in \
+                         minor units without rounding: {value:?}"
+                    )))
+                }
+            }
+        }
+    };
+
+    whole
+        .checked_mul(100)
+        .and_then(|scaled| scaled.checked_add(fractional))
+        .ok_or_else(|| invalid(", which is too large"))
 }
 
 #[cfg(test)]
@@ -581,6 +570,17 @@ mod tests {
         let mut r = record(ServiceType::Saas);
         r.endpoint_url = Some("https://example.com/team@org".into());
         assert!(r.validate().is_ok());
+
+        // A credential in the query string is rejected too: the query is
+        // exported verbatim and would leak the secret into a bundle.
+        let mut r = record(ServiceType::Saas);
+        r.endpoint_url = Some("https://example.com/v1?key=SECRET".into());
+        assert!(r.validate().is_err());
+
+        // A query string without credentials is fine.
+        let mut r = record(ServiceType::Saas);
+        r.endpoint_url = Some("https://example.com/v1?since=2026-01-01".into());
+        assert!(r.validate().is_ok());
     }
 
     #[test]
@@ -611,6 +611,71 @@ mod tests {
         assert_eq!(format_money(500, "USD"), "USD 5.00");
         assert_eq!(format_money(5, "USD"), "USD 0.05");
         assert_eq!(format_money(0, "HKD"), "HKD 0.00");
+    }
+
+    #[test]
+    fn parse_money_is_the_exact_inverse_of_format() {
+        // The pair is the unit: anything a user could be shown, they can type
+        // back, and it must round-trip to the same integer.
+        for (minor, currency) in [
+            (0, "USD"),
+            (5, "HKD"),
+            (500, "USD"),
+            (1999, "USD"),
+            (100, "EUR"),
+        ] {
+            let shown = format_money(minor, currency);
+            let typed = shown
+                .split_once(' ')
+                .expect("format is '<CODE> <amount>'")
+                .1;
+            assert_eq!(
+                parse_money_to_minor(typed).unwrap(),
+                minor,
+                "{typed} must parse back to {minor}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_money_accepts_reasonable_amounts() {
+        assert_eq!(parse_money_to_minor("19").unwrap(), 1900);
+        assert_eq!(parse_money_to_minor("19.99").unwrap(), 1999);
+        // A single decimal is tenths, not hundredths: "0.5" is half a unit.
+        assert_eq!(parse_money_to_minor("0.5").unwrap(), 50);
+        assert_eq!(parse_money_to_minor(" 2.05 ").unwrap(), 205);
+        assert_eq!(parse_money_to_minor("0.0").unwrap(), 0);
+    }
+
+    #[test]
+    fn parse_money_refuses_what_it_cannot_represent_exactly() {
+        // A third decimal would be silently rounded — refused instead, because
+        // a charge that got rounded is a real money error.
+        assert!(parse_money_to_minor("19.999").is_err());
+        // A trailing dot is a typo, not "19.00".
+        assert!(parse_money_to_minor("19.").is_err());
+        // Not a number, and not a number in the fractional part.
+        assert!(parse_money_to_minor("nineteen").is_err());
+        assert!(parse_money_to_minor("19.9x").is_err());
+        assert!(parse_money_to_minor("1e3").is_err());
+        // A cost is an amount paid; a sign would make it a credit.
+        assert!(parse_money_to_minor("-1").is_err());
+        // Empty after trimming, and a dot with nothing whole or fractional.
+        assert!(parse_money_to_minor("   ").is_err());
+        assert!(parse_money_to_minor(".").is_err());
+        // Near i64::MAX must be reported, not wrapped into a plausible value.
+        // i64::MAX / 100 is 92233720368547758, so the whole part above that
+        // overflows the scaling even with a zero fraction.
+        assert!(parse_money_to_minor("99999999999999999999").is_err());
+        assert!(parse_money_to_minor("92233720368547759.00").is_err());
+    }
+
+    #[test]
+    fn parse_money_reports_a_validation_error_not_a_storage_one() {
+        // Adapters classify by variant; a bad cost is the user's input, so it
+        // must arrive as Validation rather than Internal.
+        let err = parse_money_to_minor("abc").unwrap_err();
+        assert!(matches!(err, AppError::Validation { .. }), "{err:?}");
     }
 
     #[test]

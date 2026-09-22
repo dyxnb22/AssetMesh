@@ -24,7 +24,11 @@ fn col<T: rusqlite::types::FromSql>(row: &rusqlite::Row, idx: usize) -> AppResul
     row.get(idx).map_err(crate::map_error)
 }
 
-pub(crate) fn parse_record(asset_id: AssetId, row: &rusqlite::Row, offset: usize) -> AppResult<MediaRecord> {
+pub(crate) fn parse_record(
+    asset_id: AssetId,
+    row: &rusqlite::Row,
+    offset: usize,
+) -> AppResult<MediaRecord> {
     let media_type: String = col(row, offset)?;
     let status: String = col(row, offset + 1)?;
     let rating: Option<f64> = col(row, offset + 2)?;

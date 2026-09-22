@@ -180,7 +180,9 @@ pub fn relation_remove_impl(
         Some(s) => Some(
             uuid::Uuid::parse_str(s)
                 .map(AssetId::from_uuid)
-                .map_err(|e| DesktopError::invalid_input(format!("invalid context_asset_id: {e}")))?,
+                .map_err(|e| {
+                    DesktopError::invalid_input(format!("invalid context_asset_id: {e}"))
+                })?,
         ),
         None => None,
     };

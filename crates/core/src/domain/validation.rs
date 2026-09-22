@@ -50,9 +50,8 @@ pub fn url_shape(raw_url: &str) -> AppResult<()> {
         ));
     }
 
-    let parsed = url::Url::parse(raw_url).map_err(|e| {
-        AppError::validation(format!("URL is not a valid absolute URL: {e}"))
-    })?;
+    let parsed = url::Url::parse(raw_url)
+        .map_err(|e| AppError::validation(format!("URL is not a valid absolute URL: {e}")))?;
 
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err(AppError::validation(

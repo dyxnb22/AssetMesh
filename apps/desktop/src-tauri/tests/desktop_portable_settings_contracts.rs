@@ -171,8 +171,12 @@ fn test_import_preview_and_apply_are_symmetric() {
     assert_eq!(list_before.total, Some(0));
 
     // Run apply
-    let receipt =
-        portable_import_apply_impl(&bundle_dir.to_string_lossy(), &preview.fingerprint, &dest_state).expect("apply");
+    let receipt = portable_import_apply_impl(
+        &bundle_dir.to_string_lossy(),
+        &preview.fingerprint,
+        &dest_state,
+    )
+    .expect("apply");
     assert!(receipt.success);
 
     // EXACT FIELD-FOR-FIELD SYMMETRY:
@@ -213,7 +217,8 @@ fn test_import_rejects_malformed_bundle_and_preserves_destination() {
     assert!(!preview.errors.is_empty());
 
     // Apply fails loudly
-    let apply_res = portable_import_apply_impl(&bad_dir.to_string_lossy(), &preview.fingerprint, &state);
+    let apply_res =
+        portable_import_apply_impl(&bad_dir.to_string_lossy(), &preview.fingerprint, &state);
     assert!(apply_res.is_err());
 
     // Destination is completely preserved!
@@ -246,7 +251,8 @@ fn test_import_rejects_unsupported_version() {
         .iter()
         .any(|e| e.contains("Unsupported export version 999")));
 
-    let apply_res = portable_import_apply_impl(&bad_dir.to_string_lossy(), &preview.fingerprint, &state);
+    let apply_res =
+        portable_import_apply_impl(&bad_dir.to_string_lossy(), &preview.fingerprint, &state);
     assert!(apply_res.is_err());
 }
 
@@ -304,7 +310,8 @@ fn test_import_rejects_collision_and_preserves_state() {
             || e.to_lowercase().contains("conflict")));
 
     // Apply fails without mutating state
-    let apply_res = portable_import_apply_impl(&bundle_dir.to_string_lossy(), &preview.fingerprint, &state);
+    let apply_res =
+        portable_import_apply_impl(&bundle_dir.to_string_lossy(), &preview.fingerprint, &state);
     assert!(apply_res.is_err());
 
     // Destination still has only the original software asset
@@ -345,8 +352,13 @@ fn test_import_rejects_fingerprint_mismatch_on_tampered_bundle() {
     )
     .expect_err("apply must fail on tampered content");
 
-    assert_eq!(apply_err.category, assetmesh_desktop_lib::error::DesktopErrorCategory::Conflict);
-    assert!(apply_err.message.contains("Bundle content changed since preview"));
+    assert_eq!(
+        apply_err.category,
+        assetmesh_desktop_lib::error::DesktopErrorCategory::Conflict
+    );
+    assert!(apply_err
+        .message
+        .contains("Bundle content changed since preview"));
 
     // Destination library remains completely empty
     let list = library_list_impl(Some(LibraryQueryDto::default()), &dest_state).expect("list");

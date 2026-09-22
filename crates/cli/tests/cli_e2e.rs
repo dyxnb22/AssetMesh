@@ -784,6 +784,13 @@ fn service_lifecycle_works_end_to_end() {
     assert!(ok);
     assert!(out.contains("OpenAI"), "{out}: a tag must be searchable");
 
+    // Money is rounded nowhere. The rendered cost is the formatter's, so
+    // "EUR 100.50" can only have come from 10050 minor units — 1005 would
+    // render as "EUR 10.05", and a rounded third decimal is refused outright.
+    let (out, _, ok) = run(&dir, db, &["service", "get", &openai_id]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Cost:          EUR 100.50"), "{out}");
+
     // 6. domain_name is rejected on a non-domain service.
     let (_, err, ok) = run(
         &dir,
@@ -912,6 +919,47 @@ fn service_cli_rejects_bad_money_and_credentials() {
     let (out, _, ok) = run(&dir, db, &["service", "list"]);
     assert!(ok);
     assert!(out.contains("(no service records)"), "{out}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn activity_kind_filter_narrows_below_the_module() {
+    // docs/12 specifies filtering activity by kind. Both assets here are the
+    // same module, so only the kind separates them — which is what the flag is
+    // for, and what this pins end to end through the CLI.
+    let dir = unique_dir("activity-kind");
+    let db = "e2e.db";
+
+    let cli = run_software(&dir, db, &["--name", "ripgrep", "--category", "cli"]);
+    let app = run_software(&dir, db, &["--name", "VLC", "--category", "application"]);
+
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &["activity", "list", "--kind", "software.cli", "--json"],
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains(&cli), "{out}");
+    assert!(
+        !out.contains(&app),
+        "an application event has no software.cli kind"
+    );
+
+    // The other kind returns the other asset rather than nothing.
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &["activity", "list", "--kind", "software.app", "--json"],
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains(&app), "{out}");
+    assert!(!out.contains(&cli), "{out}");
+
+    // An unknown kind is a rejected input, not a silently broader result.
+    let (_, err, ok) = run(&dir, db, &["activity", "list", "--kind", "nonsense.kind"]);
+    assert!(!ok, "an unknown kind must not be accepted");
+    assert!(err.contains("kind"), "{err}");
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -1256,6 +1304,21 @@ fn services_round_trip_through_the_portable_bundle_end_to_end() {
 }
 
 /// Creates a service through the real CLI and returns its id.
+/// Adds a software asset and returns its id, like [`create_service`].
+fn run_software(dir: &std::path::Path, db: &str, args: &[&str]) -> String {
+    let mut argv = vec!["software", "add"];
+    argv.extend_from_slice(args);
+    let (out, err, ok) = run(dir, db, &argv);
+    assert!(ok, "software add should succeed: {err}");
+    assert!(out.starts_with("created "), "{out}");
+    out.lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("created ")
+        .trim()
+        .to_string()
+}
+
 fn create_service(dir: &std::path::Path, db: &str, args: &[&str]) -> String {
     let mut argv = vec!["service", "add"];
     argv.extend_from_slice(args);

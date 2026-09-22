@@ -1416,7 +1416,13 @@ fn record_renewal_enforces_optimistic_concurrency_with_expected_revision() {
         .unwrap_err();
 
     assert!(
-        matches!(err, AppError::StaleRevision { expected: 999, found: 1 }),
+        matches!(
+            err,
+            AppError::StaleRevision {
+                expected: 999,
+                found: 1
+            }
+        ),
         "expected StaleRevision, got: {err:?}"
     );
 
@@ -1449,7 +1455,13 @@ fn record_renewal_enforces_optimistic_concurrency_with_expected_revision() {
         .unwrap_err();
 
     assert!(
-        matches!(stale_err, AppError::StaleRevision { expected: 1, found: 2 }),
+        matches!(
+            stale_err,
+            AppError::StaleRevision {
+                expected: 1,
+                found: 2
+            }
+        ),
         "expected StaleRevision, got: {stale_err:?}"
     );
 }
@@ -1517,4 +1529,3 @@ fn service_money_parsing_and_pairing_boundary_cases() {
     let patch_err = parse_money_patch(Some("99.99"), None).unwrap_err();
     assert!(matches!(patch_err, AppError::Validation { .. }));
 }
-

@@ -21,7 +21,8 @@ struct ScratchDir {
 
 impl ScratchDir {
     fn new(label: &str) -> Self {
-        let path = std::env::temp_dir().join(format!("assetmesh-e2e-{label}-{}", uuid::Uuid::now_v7()));
+        let path =
+            std::env::temp_dir().join(format!("assetmesh-e2e-{label}-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&path).expect("create scratch dir");
         Self { path }
     }
@@ -37,7 +38,11 @@ impl E2eApp {
     fn init() -> Self {
         let scratch = ScratchDir::new("release-flow");
         let db_path = scratch.path.join("e2e.db").to_string_lossy().to_string();
-        let export_path = scratch.path.join("export_bundle").to_string_lossy().to_string();
+        let export_path = scratch
+            .path
+            .join("export_bundle")
+            .to_string_lossy()
+            .to_string();
 
         let app = assetmesh_desktop_lib::configure_builder(tauri::test::mock_builder())
             .manage(DesktopState::new())

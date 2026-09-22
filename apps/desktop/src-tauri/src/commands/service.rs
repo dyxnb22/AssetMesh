@@ -71,8 +71,7 @@ pub fn service_command_impl(
                 None
             };
 
-            let (cost_minor, currency) =
-                parse_money_pair(cost.as_deref(), currency.as_deref())?;
+            let (cost_minor, currency) = parse_money_pair(cost.as_deref(), currency.as_deref())?;
 
             let r_at = if let Some(r) = renews_at.as_deref() {
                 Some(parse_timestamp(r)?)

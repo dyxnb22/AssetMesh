@@ -428,7 +428,10 @@ export const App: React.FC = () => {
             backgroundColor: 'var(--color-canvas)',
           }}
         >
-          <ActivityFeed onOpenAssetDetail={(id) => setActiveDetailId(id)} />
+          <ActivityFeed
+            capabilities={capabilities}
+            onOpenAssetDetail={(id) => setActiveDetailId(id)}
+          />
         </main>
       ) : nav.section === 'duplicates' ? (
         <main

@@ -352,3 +352,7 @@ No interface adapter may compensate for a missing unified-library application co
 8. **Unified reads are application behavior.** Adapters do not own cross-module joins or graph semantics.
 9. **Graph queries are bounded and explainable.** No hidden risk/confidence score is required to answer impact questions.
 10. **Presentation stays outside the core.** Desktop navigation, graph coordinates, and React state are not domain/application concepts.
+11. **Mutations enforce optimistic concurrency.** All mutation commands accept `expected_revision`; stale revisions abort immediately with `AppError::StaleRevision` without silent overwrites.
+12. **Adapters enforce closed error models.** IPC and transport boundaries serialize into a closed, typed error taxonomy (`DesktopErrorCategory`) preventing secret, credential, or SQL leakage.
+13. **Unified library queries push pagination to storage.** Large-library reading uses storage-backed SQL `LIMIT/OFFSET` and two-stage counts for constant memory usage, while batch queries chunk parameters (`<= 500`).
+14. **Command registration is single-sourced.** Tauri builder configuration uses `configure_builder` with automated contract verification preventing frontend-backend IPC drift.

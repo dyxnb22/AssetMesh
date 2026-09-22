@@ -105,6 +105,7 @@ pub struct MergedTombstoneView {
 /// module details) or a tombstone redirect (merged into a survivor, with no
 /// module details of its own).
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum AssetDetailOutcome {
     Live(AssetDetailView),
     MergedRedirect(MergedTombstoneView),
@@ -126,7 +127,6 @@ impl AssetDetailOutcome {
         }
     }
 }
-
 
 /// A unified library search query.
 ///

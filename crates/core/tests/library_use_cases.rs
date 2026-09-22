@@ -25,7 +25,7 @@ use assetmesh_core::domain::media::MediaType;
 use assetmesh_core::domain::service::ServiceType;
 use assetmesh_core::domain::software::{SoftwareCategory, SoftwareRecord};
 use assetmesh_core::ports::repos::{
-    ActivityReader, AssetReader, ExternalRefReader, LifecycleFilter, LibraryReadPort, MediaReader,
+    ActivityReader, AssetReader, ExternalRefReader, LibraryReadPort, LifecycleFilter, MediaReader,
     RelationReader, ServiceReader, SoftwareReader, TagReader,
 };
 use assetmesh_core::ports::search::SearchReader;
@@ -1517,4 +1517,3 @@ fn asset_detail_outcome_covers_live_merged_redirect_and_not_found() {
     let not_found_err = library.get_detail(non_existent_id).unwrap_err();
     assert_eq!(not_found_err.category(), "not_found");
 }
-

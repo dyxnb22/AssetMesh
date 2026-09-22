@@ -27,24 +27,22 @@ fn child_lock_worker() {
             let mut line = String::new();
             let _ = std::io::stdin().read_line(&mut line);
         }
-        "try" => {
-            match BundleLock::acquire(&target) {
-                Ok(_lock) => {
-                    println!("ACQUIRED");
-                    std::io::stdout().flush().unwrap();
-                    std::process::exit(0);
-                }
-                Err(AppError::StorageBusy { .. }) => {
-                    println!("BUSY");
-                    std::io::stdout().flush().unwrap();
-                    std::process::exit(42);
-                }
-                Err(err) => {
-                    eprintln!("UNEXPECTED ERROR: {err}");
-                    std::process::exit(1);
-                }
+        "try" => match BundleLock::acquire(&target) {
+            Ok(_lock) => {
+                println!("ACQUIRED");
+                std::io::stdout().flush().unwrap();
+                std::process::exit(0);
             }
-        }
+            Err(AppError::StorageBusy { .. }) => {
+                println!("BUSY");
+                std::io::stdout().flush().unwrap();
+                std::process::exit(42);
+            }
+            Err(err) => {
+                eprintln!("UNEXPECTED ERROR: {err}");
+                std::process::exit(1);
+            }
+        },
         other => panic!("Unknown child mode: {other}"),
     }
 }

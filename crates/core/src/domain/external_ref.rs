@@ -52,6 +52,12 @@ impl AssetExternalRef {
     pub fn validate(&self) -> AppResult<()> {
         validate_namespace(&self.namespace)?;
         validate_external_id(&self.external_id)?;
+        // A source URL is optional, but when present it lands in canonical
+        // state and is exported verbatim, so it gets the same shape check as
+        // a Services URL: no userinfo and no credential query parameter.
+        if let Some(url) = &self.source_url {
+            crate::domain::validation::url_shape(url)?;
+        }
         Ok(())
     }
 }
@@ -121,5 +127,29 @@ mod tests {
         assert!(r.validate().is_ok());
         r.namespace = "Steam".into();
         assert!(r.validate().is_err());
+    }
+
+    #[test]
+    fn source_url_validation() {
+        let mk = |url: Option<&str>| {
+            AssetExternalRef::new(
+                AssetId::generate(),
+                "steam",
+                "1091500",
+                url.map(|s| s.to_string()),
+                chrono::Utc::now(),
+            )
+        };
+        assert!(mk(None).validate().is_ok());
+        assert!(mk(Some("https://store.steampowered.com/app/1091500"))
+            .validate()
+            .is_ok());
+        assert!(mk(Some("not a url")).validate().is_err());
+        assert!(mk(Some("https://store.example.com/app?api_key=SECRET"))
+            .validate()
+            .is_err());
+        assert!(mk(Some("https://user:pass@store.example.com/app"))
+            .validate()
+            .is_err());
     }
 }

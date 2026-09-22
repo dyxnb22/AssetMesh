@@ -1015,12 +1015,10 @@ impl BundleLock {
 
         match file.try_lock_exclusive() {
             Ok(()) => Ok(BundleLock { _file: file, path }),
-            Err(e) if is_lock_contention(&e) => {
-                Err(AppError::storage_busy(format!(
-                    "another process is using the bundle at {}; retry later",
-                    target.display()
-                )))
-            }
+            Err(e) if is_lock_contention(&e) => Err(AppError::storage_busy(format!(
+                "another process is using the bundle at {}; retry later",
+                target.display()
+            ))),
             Err(e) => Err(fs_error(e)),
         }
     }

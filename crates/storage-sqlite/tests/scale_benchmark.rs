@@ -148,11 +148,17 @@ fn scale_50k_paging_and_memory_gate() {
     };
 
     let t0 = Instant::now();
-    let page1 = library.list_assets(&q1).expect("page 1 query should succeed");
+    let page1 = library
+        .list_assets(&q1)
+        .expect("page 1 query should succeed");
     let d1 = t0.elapsed();
     println!(">>> Page 1 query elapsed: {d1:?}");
 
-    assert_eq!(page1.items.len(), 20, "page 1 must contain exactly 20 items");
+    assert_eq!(
+        page1.items.len(),
+        20,
+        "page 1 must contain exactly 20 items"
+    );
     assert_eq!(page1.total, Some(TOTAL_SCALE), "total must report 50,000");
     assert_eq!(page1.offset, 0);
     assert_eq!(page1.limit, 20);
@@ -175,12 +181,22 @@ fn scale_50k_paging_and_memory_gate() {
     };
 
     let t0 = Instant::now();
-    let page_deep = library.list_assets(&q_deep).expect("deep page query should succeed");
+    let page_deep = library
+        .list_assets(&q_deep)
+        .expect("deep page query should succeed");
     let d_deep = t0.elapsed();
     println!(">>> Deep page (offset 40,000) query elapsed: {d_deep:?}");
 
-    assert_eq!(page_deep.items.len(), 20, "deep page must contain exactly 20 items");
-    assert_eq!(page_deep.total, Some(TOTAL_SCALE), "total must report 50,000");
+    assert_eq!(
+        page_deep.items.len(),
+        20,
+        "deep page must contain exactly 20 items"
+    );
+    assert_eq!(
+        page_deep.total,
+        Some(TOTAL_SCALE),
+        "total must report 50,000"
+    );
     assert_eq!(page_deep.offset, 40_000);
     assert!(
         d_deep < Duration::from_millis(500),
@@ -201,13 +217,18 @@ fn scale_50k_paging_and_memory_gate() {
     };
 
     let t0 = Instant::now();
-    let page_sw = library.list_assets(&q_software).expect("software query should succeed");
+    let page_sw = library
+        .list_assets(&q_software)
+        .expect("software query should succeed");
     let d_sw = t0.elapsed();
     println!(">>> Software module query elapsed: {d_sw:?}");
 
     assert_eq!(page_sw.items.len(), 20);
     assert_eq!(page_sw.total, Some(SOFTWARE_COUNT));
-    assert!(page_sw.items.iter().all(|item| item.kind == AssetKind::SoftwareTool));
+    assert!(page_sw
+        .items
+        .iter()
+        .all(|item| item.kind == AssetKind::SoftwareTool));
     assert!(
         d_sw < Duration::from_millis(500),
         "Module query must be bounded under 500ms, took {d_sw:?}"
@@ -227,7 +248,9 @@ fn scale_50k_paging_and_memory_gate() {
     };
 
     let t0 = Instant::now();
-    let page_tag = library.list_assets(&q_tag).expect("tag query should succeed");
+    let page_tag = library
+        .list_assets(&q_tag)
+        .expect("tag query should succeed");
     let d_tag = t0.elapsed();
     println!(">>> Tag query elapsed: {d_tag:?}");
 
@@ -252,13 +275,18 @@ fn scale_50k_paging_and_memory_gate() {
     };
 
     let t0 = Instant::now();
-    let page_svc = library.list_assets(&q_service).expect("service query should succeed");
+    let page_svc = library
+        .list_assets(&q_service)
+        .expect("service query should succeed");
     let d_svc = t0.elapsed();
     println!(">>> Service module query elapsed: {d_svc:?}");
 
     assert_eq!(page_svc.items.len(), 20);
     assert_eq!(page_svc.total, Some(SERVICE_COUNT));
-    assert!(page_svc.items.iter().all(|item| item.kind == AssetKind::ServiceSaas));
+    assert!(page_svc
+        .items
+        .iter()
+        .all(|item| item.kind == AssetKind::ServiceSaas));
     assert!(
         d_svc < Duration::from_millis(500),
         "Service query must be bounded under 500ms, took {d_svc:?}"
@@ -280,7 +308,10 @@ fn scale_batch_safe_chunking_limits() {
         .read(&mut |q| q.tags().list_for_assets(sample_ids))
         .expect("tag chunking query must succeed without sqlite variable overflow");
     let d_tags = t0.elapsed();
-    println!(">>> 1,200 asset tag batch query elapsed: {d_tags:?}, returned {} pairs", tag_pairs.len());
+    println!(
+        ">>> 1,200 asset tag batch query elapsed: {d_tags:?}, returned {} pairs",
+        tag_pairs.len()
+    );
     // Since the first 5,000 were tagged with 'benchmark', all 1,200 sample assets have this tag
     assert_eq!(tag_pairs.len(), 1_200);
 
@@ -290,6 +321,12 @@ fn scale_batch_safe_chunking_limits() {
         .read(&mut |q| q.relations().list_for_assets(sample_ids))
         .expect("relation chunking query must succeed without sqlite variable overflow");
     let d_rels = t0.elapsed();
-    println!(">>> 1,200 asset relation batch query elapsed: {d_rels:?}, returned {} relations", rels.len());
-    assert!(!rels.is_empty(), "must find the seeded relations between sample assets");
+    println!(
+        ">>> 1,200 asset relation batch query elapsed: {d_rels:?}, returned {} relations",
+        rels.len()
+    );
+    assert!(
+        !rels.is_empty(),
+        "must find the seeded relations between sample assets"
+    );
 }

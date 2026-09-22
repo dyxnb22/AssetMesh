@@ -95,7 +95,11 @@ pub(crate) fn migrate(conn: &mut Connection) -> Result<(), AppError> {
         if let Some((_, recorded)) = applied.iter().find(|(v, _)| v == version) {
             let expected = checksum(sql);
             if *recorded != expected {
-                return Err(AppError::storage(format!(
+                // This is corruption, not a storage fault: an applied
+                // migration's canonical SQL no longer matches the recorded
+                // checksum. Reported as a typed CorruptData error so adapters
+                // classify it by variant instead of sniffing the message text.
+                return Err(AppError::corrupt_data(format!(
                     "migration {version} was modified after being applied (checksum mismatch); \
                      refusing to start on a diverged database"
                 )));

@@ -25,7 +25,11 @@ fn col<T: rusqlite::types::FromSql>(row: &rusqlite::Row, idx: usize) -> AppResul
     row.get(idx).map_err(crate::map_error)
 }
 
-pub(crate) fn parse_record(asset_id: AssetId, row: &rusqlite::Row, offset: usize) -> AppResult<ServiceRecord> {
+pub(crate) fn parse_record(
+    asset_id: AssetId,
+    row: &rusqlite::Row,
+    offset: usize,
+) -> AppResult<ServiceRecord> {
     let service_type: String = col(row, offset)?;
     let provider: Option<String> = col(row, offset + 1)?;
     let account_label: Option<String> = col(row, offset + 2)?;

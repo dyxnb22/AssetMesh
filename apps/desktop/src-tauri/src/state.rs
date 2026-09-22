@@ -41,7 +41,11 @@ pub struct DesktopModules {
 
 impl DesktopModules {
     pub fn new(factory: SharedSqlite, clock: SharedClock, ids: SharedIdGenerator) -> Self {
-        Self { factory, clock, ids }
+        Self {
+            factory,
+            clock,
+            ids,
+        }
     }
 
     pub fn factory(&self) -> &SharedSqlite {

@@ -42,9 +42,12 @@ impl DesktopErrorCategory {
 impl PartialEq<&str> for DesktopErrorCategory {
     fn eq(&self, other: &&str) -> bool {
         self.as_str() == *other
-            || (matches!(self, Self::InvalidInput) && (*other == "validation" || *other == "invalid_input"))
-            || (matches!(self, Self::StorageBusy) && (*other == "storageBusy" || *other == "storage_busy"))
-            || (matches!(self, Self::CorruptData) && (*other == "corruptData" || *other == "corrupt_data"))
+            || (matches!(self, Self::InvalidInput)
+                && (*other == "validation" || *other == "invalid_input"))
+            || (matches!(self, Self::StorageBusy)
+                && (*other == "storageBusy" || *other == "storage_busy"))
+            || (matches!(self, Self::CorruptData)
+                && (*other == "corruptData" || *other == "corrupt_data"))
             || (matches!(self, Self::NotFound) && (*other == "notFound" || *other == "not_found"))
     }
 }
@@ -58,9 +61,12 @@ impl PartialEq<DesktopErrorCategory> for &str {
 impl PartialEq<str> for DesktopErrorCategory {
     fn eq(&self, other: &str) -> bool {
         self.as_str() == other
-            || (matches!(self, Self::InvalidInput) && (other == "validation" || other == "invalid_input"))
-            || (matches!(self, Self::StorageBusy) && (other == "storageBusy" || other == "storage_busy"))
-            || (matches!(self, Self::CorruptData) && (other == "corruptData" || other == "corrupt_data"))
+            || (matches!(self, Self::InvalidInput)
+                && (other == "validation" || other == "invalid_input"))
+            || (matches!(self, Self::StorageBusy)
+                && (other == "storageBusy" || other == "storage_busy"))
+            || (matches!(self, Self::CorruptData)
+                && (other == "corruptData" || other == "corrupt_data"))
             || (matches!(self, Self::NotFound) && (other == "notFound" || other == "not_found"))
     }
 }
@@ -206,7 +212,10 @@ mod tests {
 
     #[test]
     fn sentinel_errors_do_not_leak_internals_or_sql_or_secrets() {
-        let sql_statement = format!("{} * FROM passwords WHERE secret = 'TOP_SECRET_123' at /var/db/assetmesh.db", "SELECT");
+        let sql_statement = format!(
+            "{} * FROM passwords WHERE secret = 'TOP_SECRET_123' at /var/db/assetmesh.db",
+            "SELECT"
+        );
         let sentinels = [
             AppError::storage(&sql_statement),
             AppError::storage_busy(

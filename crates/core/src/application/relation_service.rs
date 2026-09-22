@@ -61,6 +61,7 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
         self.attach_with_revisions(source, relation_type, target, note, provenance, None, None)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn attach_with_revisions(
         &mut self,
         source: AssetId,
@@ -144,7 +145,8 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
                 .ok_or_else(|| AppError::not_found("relation", relation_id))?;
 
             if let Some(context_id) = context_asset_id {
-                if relation.source_asset_id != context_id && relation.target_asset_id != context_id {
+                if relation.source_asset_id != context_id && relation.target_asset_id != context_id
+                {
                     return Err(AppError::validation(format!(
                         "context asset {context_id} does not touch relation {relation_id}"
                     )));

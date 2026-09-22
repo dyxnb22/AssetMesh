@@ -267,6 +267,8 @@ repository/SQLite access anywhere in the adapters.
 
 ## Phase 5 — Application Shell / Desktop UI
 
+Status: **complete through P5-10 (Hardening & Release Gate), with remediation cards R1–R6 closed**.
+
 Purpose: add the primary graphical client only after multiple asset domains and the unified library contract have proven which presentation patterns are genuinely shared.
 
 Deliverables:

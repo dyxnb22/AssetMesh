@@ -982,14 +982,19 @@ fn export_refuses_to_overwrite_regular_file_and_preserves_content() {
         .expect_err("must refuse to overwrite regular file");
 
     assert!(err.to_string().contains("not an AssetMesh export bundle"));
-    assert_eq!(std::fs::read_to_string(&target).unwrap(), "do not delete me");
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "do not delete me"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
 fn export_cleanly_overwrites_existing_valid_bundle() {
-    use assetmesh_core::application::portable::{read_bundle_from_directory, write_bundle_to_directory};
+    use assetmesh_core::application::portable::{
+        read_bundle_from_directory, write_bundle_to_directory,
+    };
 
     let dir = std::env::temp_dir().join(format!("assetmesh-overwrite-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -1014,4 +1019,3 @@ fn export_cleanly_overwrites_existing_valid_bundle() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
-

@@ -23,7 +23,7 @@ use std::collections::HashMap;
 
 use crate::application::library_service::{Page, PageRequest};
 use crate::domain::activity::{ActivityEvent, ActivityModule};
-use crate::domain::asset::Asset;
+use crate::domain::asset::{Asset, AssetKind};
 use crate::domain::ids::{ActivityId, AssetId};
 use crate::domain::Timestamp;
 use crate::ports::repos::{AssetFilter, LifecycleFilter};
@@ -63,6 +63,12 @@ pub struct ActivityQuery {
     pub event_types: Vec<String>,
     /// Only these subsystems.
     pub modules: Vec<ActivityModule>,
+    /// Only events about assets of these kinds (docs/12: filter by kind).
+    ///
+    /// Distinct from `modules`: a module owns several kinds (Media owns
+    /// `media.anime`, `media.movie`, ...), so "only movie events" is a question
+    /// `modules` cannot answer.
+    pub kinds: Vec<AssetKind>,
     /// Only these actors (exact match).
     pub actors: Vec<String>,
     /// Inclusive lower bound on `occurred_at`.
@@ -121,7 +127,10 @@ impl<F: UnitOfWorkFactory> ActivityService<F> {
 
             let mut matched: Vec<&ActivityEvent> = events
                 .iter()
-                .filter(|event| matches(query, event))
+                .filter(|event| {
+                    let asset = event.asset_id.and_then(|id| assets.get(&id));
+                    matches(query, event, asset)
+                })
                 .collect();
             // Newest first, with the event id as the deterministic tie-breaker
             // (UUIDv7 is time-ordered, but the timestamp alone is not unique).
@@ -175,7 +184,13 @@ impl<F: UnitOfWorkFactory> ActivityService<F> {
     }
 }
 
-fn matches(query: &ActivityQuery, event: &ActivityEvent) -> bool {
+/// Whether one event satisfies every filter of `query`.
+///
+/// `asset` is the event's asset as currently stored, when it still exists. It
+/// is passed in rather than looked up here because the caller already has the
+/// full asset table for its name projection, and a per-event lookup would be a
+/// per-row round-trip.
+fn matches(query: &ActivityQuery, event: &ActivityEvent, asset: Option<&Asset>) -> bool {
     if let Some(asset_id) = query.asset_id {
         if event.asset_id != Some(asset_id) {
             return false;
@@ -187,6 +202,14 @@ fn matches(query: &ActivityQuery, event: &ActivityEvent) -> bool {
     if !query.modules.is_empty() {
         match ActivityModule::of_event_type(&event.event_type) {
             Some(module) if query.modules.contains(&module) => {}
+            _ => return false,
+        }
+    }
+    if !query.kinds.is_empty() {
+        // An event with no surviving asset has no kind, so it cannot satisfy a
+        // kind filter — it is excluded rather than treated as matching.
+        match asset.map(|a| a.kind) {
+            Some(kind) if query.kinds.contains(&kind) => {}
             _ => return false,
         }
     }

@@ -1552,8 +1552,7 @@ fn run_service(
                 .iter()
                 .map(|raw| parse_ref_input(raw))
                 .collect::<Result<Vec<_>, AppError>>()?;
-            let (cost_minor, currency) =
-                parse_money_pair(cost.as_deref(), currency.as_deref())?;
+            let (cost_minor, currency) = parse_money_pair(cost.as_deref(), currency.as_deref())?;
             let view = services.create_service(CreateService {
                 name,
                 service_type: service_type.into(),
@@ -1684,8 +1683,7 @@ fn run_service(
         } => {
             let asset_id = resolve_asset_id(&factory, &id)?;
             let current = services.get_service(asset_id)?;
-            let (cost_minor, currency) =
-                parse_money_pair(cost.as_deref(), currency.as_deref())?;
+            let (cost_minor, currency) = parse_money_pair(cost.as_deref(), currency.as_deref())?;
             // The renewal moment is required by the argument parser, never
             // invented here: a renewal the caller cannot date is not a fact
             // AssetMesh may timestamp on their behalf (docs/10).

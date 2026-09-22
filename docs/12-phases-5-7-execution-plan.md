@@ -1,7 +1,7 @@
 # Phase 5–7 产品、架构与执行手册
 
-状态：**规划冻结候选稿**
-适用范围：Phase 4 完成后的 Phase 5 Desktop、Phase 6 Runtime Enrichment、Phase 7 Personal Modules
+状态：**Phase 5 完成（含 R1–R6 remediation 闭环），Phase 6 待启动**
+适用范围：Phase 5 Desktop（已完成）、Phase 6 Runtime Enrichment（待启动）、Phase 7 Personal Modules
 目标读者：开发者，以及上下文较短、推理能力有限但能可靠执行明确任务的编码模型
 
 > 本文不是当前实现状态声明。Phase 状态仍以 `docs/07-roadmap.md` 为准；Phase 4 的完成条件仍以

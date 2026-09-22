@@ -230,8 +230,7 @@ pub fn portable_import_apply_impl(
     }
 
     let source_path = Path::new(source_dir);
-    let bundle = read_bundle_from_directory(source_path)
-        .map_err(DesktopError::from)?;
+    let bundle = read_bundle_from_directory(source_path).map_err(DesktopError::from)?;
 
     let actual_fingerprint = bundle.fingerprint().map_err(DesktopError::from)?;
     if actual_fingerprint != expected_fingerprint {

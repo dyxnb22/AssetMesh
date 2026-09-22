@@ -3,12 +3,14 @@
 //! Provides SQL-level `LIMIT :limit OFFSET :offset` pagination, two-stage counting,
 //! and batch hydration (tags & subtitles) restricted strictly to the current page.
 
-use assetmesh_core::application::projection::{media_subtitle, service_subtitle, software_subtitle};
+use assetmesh_core::application::projection::{
+    media_subtitle, service_subtitle, software_subtitle,
+};
 use assetmesh_core::domain::asset::{AssetKind, LifecycleState};
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::Timestamp;
 use assetmesh_core::ports::repos::{
-    AssetSummary, LifecycleFilter, LibraryModule, LibraryQuery, LibraryReadPort, LibrarySort, Page,
+    AssetSummary, LibraryModule, LibraryQuery, LibraryReadPort, LibrarySort, LifecycleFilter, Page,
 };
 use assetmesh_core::{AppError, AppResult};
 use rusqlite::Connection;
@@ -99,7 +101,8 @@ impl LibraryReadPort for SqliteLibraryRepo<'_> {
                         SELECT 1 FROM asset_tags at
                         JOIN tags t ON t.id = at.tag_id
                         WHERE at.asset_id = a.id AND LOWER(t.name) = LOWER(?)
-                    )".to_string(),
+                    )"
+                    .to_string(),
                 );
                 count_params.push(Box::new(trimmed.to_string()));
             }
@@ -147,8 +150,7 @@ impl LibraryReadPort for SqliteLibraryRepo<'_> {
         page_params.push(Box::new(limit as i64));
         page_params.push(Box::new(offset as i64));
 
-        let page_refs: Vec<&dyn rusqlite::ToSql> =
-            page_params.iter().map(|p| p.as_ref()).collect();
+        let page_refs: Vec<&dyn rusqlite::ToSql> = page_params.iter().map(|p| p.as_ref()).collect();
         let mut stmt = self.conn.prepare(&page_sql).map_err(crate::map_error)?;
         let rows = stmt
             .query_map(page_refs.as_slice(), |row| {
@@ -232,15 +234,23 @@ impl LibraryReadPort for SqliteLibraryRepo<'_> {
             let sql = format!(
                 "SELECT m.asset_id, {MEDIA_COLS} FROM media_records m WHERE m.asset_id IN ({placeholders})"
             );
-            let params: Vec<String> = media_ids.iter().map(|id| uuid_to_string(id.as_uuid())).collect();
-            let refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+            let params: Vec<String> = media_ids
+                .iter()
+                .map(|id| uuid_to_string(id.as_uuid()))
+                .collect();
+            let refs: Vec<&dyn rusqlite::ToSql> =
+                params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
             let mut stmt = self.conn.prepare(&sql).map_err(crate::map_error)?;
-            let rows = stmt.query_map(refs.as_slice(), |row| {
-                let id_str: String = row.get(0)?;
-                let asset_id = AssetId::from_uuid(crate::repos::app_row(uuid_from_string(&id_str))?);
-                let record = crate::repos::app_row(crate::repos::media::parse_record(asset_id, row, 1))?;
-                Ok((asset_id, media_subtitle(&record)))
-            }).map_err(crate::map_error)?;
+            let rows = stmt
+                .query_map(refs.as_slice(), |row| {
+                    let id_str: String = row.get(0)?;
+                    let asset_id =
+                        AssetId::from_uuid(crate::repos::app_row(uuid_from_string(&id_str))?);
+                    let record =
+                        crate::repos::app_row(crate::repos::media::parse_record(asset_id, row, 1))?;
+                    Ok((asset_id, media_subtitle(&record)))
+                })
+                .map_err(crate::map_error)?;
             for r in rows {
                 let (id, sub) = row_result(r)?;
                 subtitles.insert(id, sub);
@@ -252,15 +262,24 @@ impl LibraryReadPort for SqliteLibraryRepo<'_> {
             let sql = format!(
                 "SELECT s.asset_id, {SOFTWARE_COLS} FROM software_records s WHERE s.asset_id IN ({placeholders})"
             );
-            let params: Vec<String> = software_ids.iter().map(|id| uuid_to_string(id.as_uuid())).collect();
-            let refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+            let params: Vec<String> = software_ids
+                .iter()
+                .map(|id| uuid_to_string(id.as_uuid()))
+                .collect();
+            let refs: Vec<&dyn rusqlite::ToSql> =
+                params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
             let mut stmt = self.conn.prepare(&sql).map_err(crate::map_error)?;
-            let rows = stmt.query_map(refs.as_slice(), |row| {
-                let id_str: String = row.get(0)?;
-                let asset_id = AssetId::from_uuid(crate::repos::app_row(uuid_from_string(&id_str))?);
-                let record = crate::repos::app_row(crate::repos::software::parse_record(asset_id, row, 1))?;
-                Ok((asset_id, software_subtitle(&record)))
-            }).map_err(crate::map_error)?;
+            let rows = stmt
+                .query_map(refs.as_slice(), |row| {
+                    let id_str: String = row.get(0)?;
+                    let asset_id =
+                        AssetId::from_uuid(crate::repos::app_row(uuid_from_string(&id_str))?);
+                    let record = crate::repos::app_row(crate::repos::software::parse_record(
+                        asset_id, row, 1,
+                    ))?;
+                    Ok((asset_id, software_subtitle(&record)))
+                })
+                .map_err(crate::map_error)?;
             for r in rows {
                 let (id, sub) = row_result(r)?;
                 subtitles.insert(id, sub);
@@ -272,15 +291,24 @@ impl LibraryReadPort for SqliteLibraryRepo<'_> {
             let sql = format!(
                 "SELECT s.asset_id, {SERVICE_COLS} FROM service_records s WHERE s.asset_id IN ({placeholders})"
             );
-            let params: Vec<String> = service_ids.iter().map(|id| uuid_to_string(id.as_uuid())).collect();
-            let refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+            let params: Vec<String> = service_ids
+                .iter()
+                .map(|id| uuid_to_string(id.as_uuid()))
+                .collect();
+            let refs: Vec<&dyn rusqlite::ToSql> =
+                params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
             let mut stmt = self.conn.prepare(&sql).map_err(crate::map_error)?;
-            let rows = stmt.query_map(refs.as_slice(), |row| {
-                let id_str: String = row.get(0)?;
-                let asset_id = AssetId::from_uuid(crate::repos::app_row(uuid_from_string(&id_str))?);
-                let record = crate::repos::app_row(crate::repos::service::parse_record(asset_id, row, 1))?;
-                Ok((asset_id, service_subtitle(&record)))
-            }).map_err(crate::map_error)?;
+            let rows = stmt
+                .query_map(refs.as_slice(), |row| {
+                    let id_str: String = row.get(0)?;
+                    let asset_id =
+                        AssetId::from_uuid(crate::repos::app_row(uuid_from_string(&id_str))?);
+                    let record = crate::repos::app_row(crate::repos::service::parse_record(
+                        asset_id, row, 1,
+                    ))?;
+                    Ok((asset_id, service_subtitle(&record)))
+                })
+                .map_err(crate::map_error)?;
             for r in rows {
                 let (id, sub) = row_result(r)?;
                 subtitles.insert(id, sub);

@@ -8,7 +8,8 @@ Phase 4B — Relation Traversal & Impact .................... complete
 Phase 4C — Global Search / Activity / Duplicate Review .... complete
 Phase 4D — Contract Hardening ............................. complete
 
-Phase 5 — Application Shell / Desktop UI ................. next
+Phase 5 — Application Shell / Desktop UI ................. complete (P5-01 through P5-10, R1-R6)
+Phase 6 — Runtime Enrichment ............................. next
 ```
 
 ## Purpose
@@ -201,17 +202,19 @@ Canonical Asset ID is the primary lookup key. Existing namespaced external-refer
 
 The unified list is composed in the application layer from the existing module
 readers — no new port method, no new SQL, no migration. For each selected
-module the library calls the module reader once; module list rows are already
-pre-joined with their tags by the repository, so tags never become a per-asset
-query. A `--module` filter also narrows which module tables are read at all.
+module the library calls the module reader once; module list rows already
+carry their tags, because the repository resolves a whole page's tags in one
+query rather than one per row, so tags never become a per-asset query. A
+`--module` filter also narrows which module tables are read at all.
 
-The documented trade-off: filtering, sorting, and paging happen in the
-application layer over the selected modules' rows, so a page costs one pass
-over those rows rather than a `LIMIT` in SQL. That is the right trade for a
-local personal library and keeps Phase 4A out of the storage layer; if a
-library ever grows large enough for it to matter, the follow-up is a
-repository-level paged cross-module query (port in core, SQLite + test double,
-contract tests) — not an adapter-side join.
+The unified list originally loaded rows in memory during Phase 4A.
+In Phase 5 remediation (P5-04 / R4), this was pushed down to the storage seam
+via [`LibraryReadPort`](crate::ports::repos::LibraryReadPort) on `QueryUnitOfWork`:
+- Storage implementations (such as `SqliteLibraryRepo`) perform SQL-level `LIMIT :limit OFFSET :offset`
+  and two-stage counting directly in the database engine;
+- Tag hydration and module subtitles are loaded only for the returned page slice;
+- Batch tag and relation queries enforce safe parameter chunking (`<= 500`);
+- A 50k-scale performance gate (`scale_benchmark.rs`) proves constant memory footprint and bounded sub-second query latency under deep pagination.
 
 ## Phase 4B — Relation Traversal and Impact
 

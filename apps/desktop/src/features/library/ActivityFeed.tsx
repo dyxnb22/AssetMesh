@@ -1,15 +1,25 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Badge } from '../../ui/Badge';
 import { getTransport, normalizeDesktopError } from './transport';
-import type { ActivityQuery, ActivityViewDto, DesktopError } from './types';
+import type {
+  ActivityQuery,
+  ActivityViewDto,
+  AppCapabilities,
+  DesktopError,
+} from './types';
 
 interface ActivityFeedProps {
   assetId?: string;
+  /// Supplies the asset-kind list for the kind filter. Optional so the feed
+  /// still renders before capabilities have loaded — the filter simply has no
+  /// options to offer until then.
+  capabilities?: AppCapabilities | null;
   onOpenAssetDetail?: (assetId: string) => void;
 }
 
 export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   assetId,
+  capabilities,
   onOpenAssetDetail,
 }) => {
   const [events, setEvents] = useState<ActivityViewDto[]>([]);
@@ -17,8 +27,10 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<DesktopError | null>(null);
 
-  // Filters
+  // Filters. `kind` is narrower than `module`: a module owns several kinds, so
+  // "movie events only" is a question the module filter cannot answer.
   const [moduleFilter, setModuleFilter] = useState<string>('all');
+  const [kindFilter, setKindFilter] = useState<string>('all');
   const [eventTypeFilter, setEventTypeFilter] = useState<string>('');
   const [actorFilter, setActorFilter] = useState<string>('');
   const [sinceFilter, setSinceFilter] = useState<string>('');
@@ -32,6 +44,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const transport = getTransport();
+  const assetKinds = capabilities?.asset_kinds ?? [];
 
   const loadActivity = useCallback(async () => {
     setLoading(true);
@@ -40,6 +53,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
     const query: ActivityQuery = {
       asset_id: assetId || undefined,
       modules: moduleFilter !== 'all' ? [moduleFilter] : undefined,
+      kinds: kindFilter !== 'all' ? [kindFilter] : undefined,
       event_types: eventTypeFilter.trim() ? [eventTypeFilter.trim()] : undefined,
       actors: actorFilter.trim() ? [actorFilter.trim()] : undefined,
       since: sinceFilter.trim() ? sinceFilter.trim() : undefined,
@@ -57,7 +71,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [assetId, moduleFilter, eventTypeFilter, actorFilter, sinceFilter, untilFilter, offset, limit, transport]);
+  }, [assetId, moduleFilter, kindFilter, eventTypeFilter, actorFilter, sinceFilter, untilFilter, offset, limit, transport]);
 
   useEffect(() => {
     loadActivity();
@@ -77,6 +91,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
 
   const handleResetFilters = () => {
     setModuleFilter('all');
+    setKindFilter('all');
     setEventTypeFilter('');
     setActorFilter('');
     setSinceFilter('');
@@ -183,6 +198,37 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
             </select>
           </div>
 
+          {/* Kind filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <label htmlFor="activity-kind-select" style={{ color: 'var(--color-muted)' }}>
+              Kind:
+            </label>
+            <select
+              id="activity-kind-select"
+              data-testid="activity-kind-filter"
+              value={kindFilter}
+              onChange={(e) => {
+                setKindFilter(e.target.value);
+                setOffset(0);
+              }}
+              style={{
+                padding: '3px 8px',
+                fontSize: '12px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: 'var(--color-ink)',
+              }}
+            >
+              <option value="all">All Kinds</option>
+              {assetKinds.map((kind) => (
+                <option key={kind} value={kind}>
+                  {kind}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Event type filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <label htmlFor="activity-type-input" style={{ color: 'var(--color-muted)' }}>
@@ -237,7 +283,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
             />
           </div>
 
-          {(moduleFilter !== 'all' || eventTypeFilter || actorFilter || sinceFilter || untilFilter) && (
+          {(moduleFilter !== 'all' || kindFilter !== 'all' || eventTypeFilter || actorFilter || sinceFilter || untilFilter) && (
             <button
               type="button"
               data-testid="reset-activity-filters"

@@ -16,8 +16,9 @@
 
 use assetmesh_core::ports::repos::{
     ActivityReader, ActivityRepository, AssetReader, AssetRepository, ExternalRefReader,
-    ExternalRefRepository, LibraryReadPort, MediaReader, MediaRepository, RelationReader, RelationRepository,
-    ServiceReader, ServiceRepository, SoftwareReader, SoftwareRepository, TagReader, TagRepository,
+    ExternalRefRepository, LibraryReadPort, MediaReader, MediaRepository, RelationReader,
+    RelationRepository, ServiceReader, ServiceRepository, SoftwareReader, SoftwareRepository,
+    TagReader, TagRepository,
 };
 use assetmesh_core::ports::search::{SearchIndex, SearchReader};
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
@@ -67,7 +68,10 @@ impl SqliteFactory {
     }
 
     /// Mutable raw connection access for tests and benchmarks.
-    pub fn with_raw_connection_mut<T>(&self, f: impl FnOnce(&mut Connection) -> T) -> Result<T, AppError> {
+    pub fn with_raw_connection_mut<T>(
+        &self,
+        f: impl FnOnce(&mut Connection) -> T,
+    ) -> Result<T, AppError> {
         let mut conn = self
             .writer
             .lock()
