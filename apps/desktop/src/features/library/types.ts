@@ -169,3 +169,26 @@ export interface AssetDetailDto {
   external_refs: ExternalRefDto[];
 }
 
+export interface MutationReceiptDto {
+  operation: string;
+  asset_ids: string[];
+  revision: number | null;
+  changed: boolean;
+  warnings: string[];
+}
+
+export type SoftwareCommand = {
+  action: 'update_metadata';
+  asset_id: string;
+  expected_revision?: number | null;
+  name?: string | null;
+  summary?: string | null;
+  version?: string | null;
+  install_location?: string | null;
+  executable_path?: string | null;
+  purpose?: string | null;
+  notes?: string | null;
+  architecture?: string | null;
+};
+
+

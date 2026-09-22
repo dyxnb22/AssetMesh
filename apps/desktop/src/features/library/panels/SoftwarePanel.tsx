@@ -4,9 +4,10 @@ import type { SoftwareRecordDto } from '../types';
 
 interface SoftwarePanelProps {
   record: SoftwareRecordDto;
+  onEdit?: () => void;
 }
 
-export const SoftwarePanel: React.FC<SoftwarePanelProps> = ({ record }) => {
+export const SoftwarePanel: React.FC<SoftwarePanelProps> = ({ record, onEdit }) => {
   return (
     <div
       style={{
@@ -21,10 +22,30 @@ export const SoftwarePanel: React.FC<SoftwarePanelProps> = ({ record }) => {
       data-testid="software-panel"
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-muted)', fontWeight: 600 }}>
-          Software Details
-        </span>
-        <Badge variant="muted">{record.category}</Badge>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-muted)', fontWeight: 600 }}>
+            Software Details
+          </span>
+          <Badge variant="muted">{record.category}</Badge>
+        </div>
+        {onEdit && (
+          <button
+            type="button"
+            data-testid="edit-software-button"
+            onClick={onEdit}
+            style={{
+              background: 'none',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '2px 8px',
+              fontSize: '11px',
+              cursor: 'pointer',
+              color: 'var(--color-ink)',
+            }}
+          >
+            ✎ Edit
+          </button>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', fontSize: '12px' }}>

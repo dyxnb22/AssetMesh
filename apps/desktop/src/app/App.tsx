@@ -419,6 +419,7 @@ export const App: React.FC = () => {
                 setTag(tag);
                 setActiveDetailId(null);
               }}
+              onAssetUpdated={() => loadAssets()}
             />
           </div>
         </div>

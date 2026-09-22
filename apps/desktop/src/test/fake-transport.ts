@@ -7,7 +7,10 @@ import type {
   AssetSummary,
   LibraryQuery,
   LibrarySearchQuery,
+  MutationReceiptDto,
   Page,
+  SoftwareCommand,
+  SoftwareRecordDto,
 } from '../features/library/types';
 
 export class FakeDesktopTransport implements DesktopTransport {
@@ -239,5 +242,99 @@ export class FakeDesktopTransport implements DesktopTransport {
         },
       ],
     };
+  }
+
+  async softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto> {
+    if (command.action === 'update_metadata') {
+      const summary = this.assets.find((a) => a.id === command.asset_id);
+      if (!summary) {
+        const error = new Error(`Asset not found: ${command.asset_id}`) as Error & { category?: string };
+        error.category = 'not_found';
+        throw error;
+      }
+
+      // Check no-op
+      if (
+        command.name === undefined &&
+        command.summary === undefined &&
+        command.version === undefined &&
+        command.install_location === undefined &&
+        command.executable_path === undefined &&
+        command.purpose === undefined &&
+        command.notes === undefined &&
+        command.architecture === undefined
+      ) {
+        return {
+          operation: 'software.update_metadata',
+          asset_ids: [command.asset_id],
+          revision: command.expected_revision ?? 1,
+          changed: false,
+          warnings: ['No-op: no fields were updated'],
+        };
+      }
+
+      // Check validation
+      if (command.name !== undefined && (!command.name || !command.name.trim())) {
+        const error = new Error('software name must not be empty') as Error & { category?: string };
+        error.category = 'invalid_input';
+        throw error;
+      }
+
+      // Get current detail
+      const currentDetail = await this.getAsset(command.asset_id);
+
+      // Check stale revision
+      if (command.expected_revision !== undefined && command.expected_revision !== null) {
+        if (command.expected_revision !== currentDetail.revision) {
+          const error = new Error(
+            `stale revision: expected ${command.expected_revision}, actual ${currentDetail.revision}`
+          ) as Error & { category?: string };
+          error.category = 'stale_revision';
+          throw error;
+        }
+      }
+
+      // Apply updates
+      const updatedRev = currentDetail.revision + 1;
+      const updatedSoftware = { ...(currentDetail.details as SoftwareRecordDto) };
+      if (command.purpose !== undefined) updatedSoftware.purpose = command.purpose;
+      if (command.notes !== undefined) updatedSoftware.notes = command.notes;
+      if (command.version !== undefined) updatedSoftware.version = command.version;
+      if (command.install_location !== undefined)
+        updatedSoftware.install_location = command.install_location;
+      if (command.executable_path !== undefined)
+        updatedSoftware.executable_path = command.executable_path;
+      if (command.architecture !== undefined)
+        updatedSoftware.architecture = command.architecture;
+
+      const updatedDetail: AssetDetailDto = {
+        ...currentDetail,
+        name:
+          command.name !== undefined && command.name !== null
+            ? command.name
+            : currentDetail.name,
+        summary: command.summary !== undefined ? command.summary : currentDetail.summary,
+        revision: updatedRev,
+        updated_at: new Date().toISOString(),
+        details: updatedSoftware,
+      };
+
+      this.details.set(command.asset_id, updatedDetail);
+
+      // Also update summary
+      summary.name = updatedDetail.name;
+      summary.subtitle = updatedDetail.summary;
+      summary.updated_at = updatedDetail.updated_at;
+
+      return {
+        operation: 'software.update_metadata',
+        asset_ids: [command.asset_id],
+        revision: updatedRev,
+        changed: true,
+        warnings: [],
+      };
+    }
+
+    throw new Error('Unsupported software command action');
   }
 }

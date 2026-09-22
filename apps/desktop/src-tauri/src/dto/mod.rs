@@ -269,3 +269,38 @@ impl TryFrom<LibrarySearchQueryDto> for LibrarySearchQuery {
         })
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MutationReceiptDto {
+    pub operation: String,
+    pub asset_ids: Vec<String>,
+    pub revision: Option<i64>,
+    pub changed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SoftwareCommandDto {
+    UpdateMetadata {
+        asset_id: String,
+        #[serde(default)]
+        expected_revision: Option<i64>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        summary: Option<String>,
+        #[serde(default)]
+        version: Option<String>,
+        #[serde(default)]
+        install_location: Option<String>,
+        #[serde(default)]
+        executable_path: Option<String>,
+        #[serde(default)]
+        purpose: Option<String>,
+        #[serde(default)]
+        notes: Option<String>,
+        #[serde(default)]
+        architecture: Option<String>,
+    },
+}

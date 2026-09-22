@@ -4,9 +4,12 @@ import type {
   AppStatus,
   AssetDetailDto,
   AssetSummary,
+  DesktopError,
   LibraryQuery,
   LibrarySearchQuery,
+  MutationReceiptDto,
   Page,
+  SoftwareCommand,
 } from './types';
 
 export interface DesktopTransport {
@@ -16,6 +19,7 @@ export interface DesktopTransport {
   listAssets(query?: LibraryQuery): Promise<Page<AssetSummary>>;
   searchAssets(query: LibrarySearchQuery): Promise<Page<AssetSummary>>;
   getAsset(id: string): Promise<AssetDetailDto>;
+  softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto>;
 }
 
 export class TauriTransport implements DesktopTransport {
@@ -42,6 +46,23 @@ export class TauriTransport implements DesktopTransport {
   async getAsset(id: string): Promise<AssetDetailDto> {
     return await invoke<AssetDetailDto>('library_get', { id });
   }
+
+  async softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto> {
+    return await invoke<MutationReceiptDto>('software_command', { command });
+  }
+}
+
+export function normalizeDesktopError(err: unknown): DesktopError {
+  if (typeof err === 'object' && err !== null) {
+    const obj = err as Record<string, unknown>;
+    const category = typeof obj.category === 'string' ? obj.category : 'internal_error';
+    const message = typeof obj.message === 'string' ? obj.message : String(err);
+    return { category, message };
+  }
+  return {
+    category: 'internal_error',
+    message: String(err),
+  };
 }
 
 let activeTransport: DesktopTransport = new TauriTransport();
