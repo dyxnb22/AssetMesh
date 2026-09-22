@@ -18,7 +18,7 @@ pub mod software;
 pub mod tag;
 pub mod validation;
 
-pub use activity::ActivityEvent;
+pub use activity::{ActivityEvent, ActivityModule};
 pub use asset::{Asset, AssetKind, LifecycleState};
 pub use external_ref::AssetExternalRef;
 pub use ids::{ActivityId, AssetId, ExternalRefId, RelationId, TagId};

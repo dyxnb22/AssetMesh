@@ -84,6 +84,39 @@ impl RelationReader for SqliteRelationRepo<'_> {
         Ok(relations)
     }
 
+    fn list_for_assets(&mut self, asset_ids: &[AssetId]) -> AppResult<Vec<Relation>> {
+        if asset_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // One query per BFS frontier instead of one per visited node: the
+        // traversal engine in the application layer relies on this to stay
+        // free of per-node round-trips.
+        let placeholders = vec!["?"; asset_ids.len()].join(", ");
+        let sql = format!(
+            "SELECT id, source_asset_id, target_asset_id, relation_type, note, provenance, \
+             created_at FROM relations \
+             WHERE source_asset_id IN ({placeholders}) OR target_asset_id IN ({placeholders}) \
+             ORDER BY id"
+        );
+        let params: Vec<String> = asset_ids
+            .iter()
+            .flat_map(|id| [uuid_to_string(id.as_uuid()), uuid_to_string(id.as_uuid())])
+            .collect();
+        let mut stmt = self.conn.prepare(&sql).map_err(crate::map_error)?;
+        let refs: Vec<&dyn rusqlite::ToSql> =
+            params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+        let rows = stmt
+            .query_map(refs.as_slice(), |row| {
+                crate::repos::app_row(parse_relation(row))
+            })
+            .map_err(crate::map_error)?;
+        let mut relations = Vec::new();
+        for row in rows {
+            relations.push(parse_row(row)?);
+        }
+        Ok(relations)
+    }
+
     fn list_all(&mut self) -> AppResult<Vec<Relation>> {
         let mut stmt = self
             .conn

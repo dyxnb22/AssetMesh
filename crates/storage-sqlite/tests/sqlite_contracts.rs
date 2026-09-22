@@ -1502,6 +1502,111 @@ fn relations_enforce_unique_and_self_constraints() {
 }
 
 #[test]
+fn sqlite_list_for_assets_returns_every_touching_relation_once() {
+    use assetmesh_core::domain::ids::RelationId;
+    use assetmesh_core::domain::relation::{RelationProvenance, RelationType};
+
+    let t = env();
+    let a = assets_media(&t, "A");
+    let b = assets_media(&t, "B");
+    let c = assets_media(&t, "C");
+    let unrelated = assets_media(&t, "Unrelated");
+
+    let mut relations = assetmesh_core::application::relation_service::RelationService::new(
+        t.factory.clone(),
+        t.clock.clone(),
+        t.ids.clone(),
+    );
+    relations
+        .attach(
+            a,
+            RelationType::DependsOn,
+            b,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap();
+    relations
+        .attach(c, RelationType::Uses, b, None, RelationProvenance::Manual)
+        .unwrap();
+    // Touches neither a nor b.
+    relations
+        .attach(
+            unrelated,
+            RelationType::RelatedTo,
+            c,
+            None,
+            RelationProvenance::Manual,
+        )
+        .unwrap();
+
+    let mut factory = t.factory.clone();
+    let both = factory
+        .read(&mut |q| q.relations().list_for_assets(&[a, b]))
+        .unwrap();
+    assert_eq!(both.len(), 2, "a→b and c→b both touch the requested set");
+
+    let one = factory
+        .read(&mut |q| q.relations().list_for_assets(&[b]))
+        .unwrap();
+    assert_eq!(one.len(), 2);
+
+    let none = factory
+        .read(&mut |q| q.relations().list_for_assets(&[unrelated]))
+        .unwrap();
+    // Only the unrelated→c row touches `unrelated`.
+    assert_eq!(none.len(), 1);
+
+    let empty = factory
+        .read(&mut |q| q.relations().list_for_assets(&[]))
+        .unwrap();
+    assert!(empty.is_empty(), "an empty slice is not an error");
+
+    // The batch result agrees with the per-asset reader, and the symmetric
+    // mirror row is not double-counted.
+    let per_asset = {
+        let mut seen: Vec<RelationId> = relations
+            .list_for_asset(b)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.relation_id)
+            .collect();
+        seen.extend(
+            relations
+                .list_for_asset(a)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.relation_id),
+        );
+        seen.sort();
+        seen.dedup();
+        seen
+    };
+    let mut batched: Vec<RelationId> = both.into_iter().map(|r| r.id).collect();
+    batched.sort();
+    assert_eq!(batched, per_asset);
+
+    // Deterministic ordering across repeated calls.
+    let again = factory
+        .read(&mut |q| q.relations().list_for_assets(&[a, b]))
+        .unwrap();
+    let ids: Vec<RelationId> = again.iter().map(|r| r.id).collect();
+    let mut sorted = ids.clone();
+    sorted.sort();
+    assert_eq!(ids, sorted);
+}
+
+/// Creates one media asset through the real service and returns its id.
+fn assets_media(t: &TestSqlite, title: &str) -> assetmesh_core::domain::ids::AssetId {
+    t.media_service()
+        .create_media(create_cmd(title, MediaType::Anime))
+        .unwrap()
+        .entry
+        .asset
+        .id
+}
+
+#[test]
 fn sqlite_portable_round_trip_includes_software() {
     let t = env();
     let mut software = t.software_service();

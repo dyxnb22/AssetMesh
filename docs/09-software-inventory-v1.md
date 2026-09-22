@@ -189,7 +189,8 @@ endpoint, via either type of the pair — is a conflict, not a second row.
 Self-relations are rejected. Storage is one shared `relations` table — no
 module-private coupling. Explicit merges re-point relations touching the loser
 at the winner, re-normalize them to canonical form, and drop duplicates and
-self-loops. The Phase 4 relation query/explorer layer is not implemented here.
+self-loops. The Phase 4 relation query/explorer layer now exists: see
+`docs/11-unified-library-core.md` (Phase 4B).
 
 ## Activity
 

@@ -130,7 +130,7 @@ Coordinates use cases, query composition, and transactions. Examples:
 
 Application services decide when provider/discovery output becomes canonical data.
 
-Phase 4 adds a stable unified-library query boundary over existing modules. That boundary is an application concern, not a new kernel or storage identity model. See `docs/11-unified-library-core.md`.
+Phase 4 added a stable unified-library query boundary over existing modules, and it is complete: one application surface for list/detail/search, relation traversal and impact, cross-module activity, and duplicate review. That boundary is an application concern, not a new kernel or storage identity model, and Phase 5 Desktop consumes it as-is. See `docs/11-unified-library-core.md`.
 
 ### Ports
 
@@ -208,7 +208,7 @@ If the desktop client uses React/TypeScript, transport DTOs should be generated 
 
 Domain types still must not depend on Tauri payload annotations. Adapter DTOs map at the boundary.
 
-The Phase 4 unified-library application DTOs are the semantic source for Phase 5 transport shapes; SQLite rows are not a UI contract.
+The Phase 4 unified-library application DTOs (`AssetSummary`, `AssetDetailView`, `AssetDetails`, `TraversalNode`, `ActivityView`, `DuplicateCandidate`, ...) are the semantic source for Phase 5 transport shapes; SQLite rows are not a UI contract.
 
 ## Why no mandatory backend server
 
@@ -239,7 +239,7 @@ This is a deployment/adapter evolution, not a replacement architecture. See ADR 
 
 The canonical relation table stores one row per fact. Inverse relation types are view-time semantics, and symmetric relations use canonical endpoint ordering.
 
-Phase 4 query services build bounded graph views over those canonical rows:
+The Phase 4 relation query service builds bounded graph views over those canonical rows:
 
 ```text
 Canonical Relation rows

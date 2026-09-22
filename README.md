@@ -111,9 +111,9 @@ Deliberately **not** implemented or frozen yet:
 
 ## Current status
 
-**Phase 3 — Services and Subscriptions is complete. Phase 4 — Unified Library Core is the current implementation target.** The desktop shell remains deferred until Phase 5.
+**Phase 3 — Services and Subscriptions is complete, and Phase 4 — Unified Library Core is complete (4A–4D). Phase 5 — Application Shell / Desktop UI is next.** The desktop shell is not started.
 
-Phase 4 does not add another asset domain. It turns the existing Media, Software, and Services vertical slices into one stable application-facing library contract: unified list/detail/search DTOs, cross-module relation traversal and impact queries, global activity, deterministic duplicate review, and adapter-neutral pagination/filtering. See [docs/11-unified-library-core.md](docs/11-unified-library-core.md).
+Phase 4 did not add another asset domain. It turned the existing Media, Software, and Services vertical slices into one stable, transport-neutral application-facing library: unified list/detail/search DTOs, cross-module relation traversal and impact queries with explainable paths, cross-module activity querying, and deterministic review-only duplicate detection. See [docs/11-unified-library-core.md](docs/11-unified-library-core.md).
 
 ```text
 AssetMesh/
@@ -139,13 +139,17 @@ What works today:
 - Service-specific merge semantics: equal values deduplicate, empty fields fill, and any still-disagreeing field is a reviewable conflict listing both values rather than a silent survivor pick;
 - atomic canonical-write + activity + projection commits (single short SQLite transaction);
 - rebuildable FTS5 search projection covering Media, Software, and Services (with CJK/substring fallback);
+- **a unified library application contract** — `LibraryService` lists, opens, and searches the whole library through one typed boundary, so an adapter never branches on `asset.kind` to reach a module repository; every unified read runs in a single `QueryUnitOfWork` snapshot with deterministic ordering (`AssetId` tie-breaker) and bounded pagination, and list rows and search hits share one `AssetSummary` vocabulary;
+- **bounded relation traversal and impact queries (Phase 4B)** — `RelationQueryService` answers neighbors / dependencies / dependents / traverse / impact over the existing canonical relation rows, with cycle safety, a depth bound, effective (inverse-resolved) relation types, and a shortest-path explanation for every reached node; no graph database and no risk score;
+- **cross-module activity querying (Phase 4C)** — `ActivityService` filters and pages the activity log across every module, ordered newest first with an event-id tie-breaker, and keeps the history of archived and merged assets explainable;
+- **deterministic duplicate review (Phase 4C)** — `DuplicateReviewService` reports candidate pairs with typed evidence from canonical fields only, bucketed rather than pairwise, review-only: it never merges, never scores, and adds no storage;
 - JSON/CSV legacy import with dry-run, matching precedence, and non-merging conflict reports;
 - portable export/import with independent DB / export / module-schema versions, round-trip tests, and backward-compatible handling for bundles that predate newer modules;
 - migration 0003 verified against a real database written by the Phase 2 binary, so historical Media/Software/Relation data is proven to survive the upgrade; migration 0004 widens the stored relation-type CHECK to the Phase 3 service types (`hosted_on`, `points_to`) while leaving already-applied migrations immutable;
-- CLI exercising the same application layer future desktop, HTTP, or agent adapters can call.
+- CLI exercising the same application layer future desktop, HTTP, or agent adapters can call: `assetmesh library list|get|search`, `assetmesh relation neighbors|dependencies|dependents|impact|traverse`, `assetmesh activity list`, and `assetmesh duplicates list` — all thin adapters that only parse input, build an application query, and format output.
 
 Services round-trip through the portable bundle via `modules/services.jsonl`: the manifest's `services` declaration is authoritative, so a bundle that predates Phase 3 leaves the destination's services untouched while a section file without its declaration is treated as corruption. Nothing in Phase 3 remains pending.
 
 Run `cargo test --workspace` and see [DEVELOPMENT.md](DEVELOPMENT.md) for setup, commands, and the contracts the implementation established.
 
-Still deliberately absent: Phase 4 unified-library query/traversal/review contracts, desktop/React UI, HTTP/MCP servers, runtime discovery/monitoring (Phase 6), attachments/blobs (boundary defined by ADR 0009 only), sync, plugins, durable background jobs, and persistent discovery snapshots.
+Still deliberately absent: desktop/React UI, HTTP/MCP servers, runtime discovery/monitoring (Phase 6), attachments/blobs (boundary defined by ADR 0009 only), sync, plugins, durable background jobs, and persistent discovery snapshots.

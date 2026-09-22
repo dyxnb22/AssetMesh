@@ -3,12 +3,16 @@
 //! All state changes go through these services. Adapters (CLI, future UI)
 //! call them instead of repositories directly, and never own business rules.
 
+pub mod activity_service;
 pub mod asset_service;
+pub mod duplicate_review_service;
 pub mod import_media;
 pub mod import_parse;
+pub mod library_service;
 pub mod media_service;
 pub mod portable;
 pub mod projection;
+pub mod relation_query_service;
 pub mod relation_service;
 pub mod search_service;
 pub mod service_service;

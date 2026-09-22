@@ -157,7 +157,7 @@ Exit criteria: SaaS, API, VPS, domain, and local-service assets can be created, 
 
 ## Phase 4 — Unified Library Core
 
-Status: **current implementation target**. Detailed implementation contract: `docs/11-unified-library-core.md`.
+Status: **complete** (4A–4D). Detailed implementation contract: `docs/11-unified-library-core.md`.
 
 Purpose: turn the completed Media, Software, and Services vertical slices into one stable, transport-neutral application-facing asset library before committing to desktop presentation patterns.
 
@@ -165,19 +165,47 @@ Phase 4 is deliberately not another asset-domain phase. It consolidates the cros
 
 ### Phase 4A — Unified Library Query
 
-Deliverables:
+Status: **complete**. Implemented in `crates/core/src/application/library_service.rs` and consumed by the CLI (`assetmesh library list|get|search`).
 
-- unified asset list/detail application service;
-- typed `AssetSummary` / `AssetDetailView` style DTO boundary;
-- typed module detail union rather than unstructured JSON;
-- cross-module lookup over canonical Asset identity;
-- shared filtering, sorting, lifecycle, tag, and pagination contracts;
-- stable deterministic ordering and page semantics;
-- search results mapped into the same summary vocabulary used by normal library listing.
+Delivered:
+
+- `LibraryService` application boundary: `get_asset`, `list_assets`,
+  `search_assets`, plus `resolve_merge_redirect` so adapters never hand-roll
+  `merged_into` chains;
+- typed `AssetSummary` / `AssetDetailView` / `AssetDetails` DTOs — module
+  details stay typed, nothing collapses into `serde_json::Value`;
+- cross-module lookup over canonical Asset identity, with one read per query
+  inside a single `QueryUnitOfWork` snapshot and no per-asset repository
+  round-trips;
+- shared filtering (lifecycle, modules, kinds, tags), sorting
+  (updated/name/kind, always with `AssetId` as the tie-breaker), and bounded
+  offset pagination;
+- lifecycle semantics: active by default, archived opt-in, merged tombstones
+  never listed and never searchable, and a tombstone detail request answered
+  with a conflict naming the surviving asset;
+- global search over the existing Search Projection, returning the same
+  `AssetSummary` the list returns, with CJK/substring fallback and
+  rebuildability unchanged;
+- no storage change: no migration, no new port method, no new SQL.
 
 ### Phase 4B — Relation Traversal and Impact
 
-Deliverables:
+Status: **complete**. Implemented in `crates/core/src/application/relation_query_service.rs`.
+
+Delivered:
+
+- `RelationQueryService` with `neighbors`, `outgoing`, `incoming`,
+  `dependencies`, `dependents`, `traverse`, and `impact`, all sharing one BFS
+  engine;
+- `TraversalOptions` (direction, relation types, bounded depth, archived
+  policy) and `TraversalNode` / `TraversalView` / `RelationPathHop` /
+  `NeighborView` DTOs carrying explainable shortest paths;
+- cycle-safe, depth-bounded traversal with deterministic ordering and a
+  `truncated` flag that re-applies the query's own filters;
+- effective relation semantics resolved in the application layer, so adapters
+  never derive an inverse;
+- `RelationReader::list_for_assets` — one batch edge query per BFS frontier
+  (core port + SQLite adapter + in-memory double + contract test).
 
 - relation query services over the existing canonical relation rows;
 - incoming/outgoing/neighbors queries;
@@ -189,9 +217,18 @@ Deliverables:
 
 ### Phase 4C — Global Search, Activity, and Duplicate Review
 
-Deliverables:
+Status: **complete**.
 
-- filtered/paginated global Search Projection query contract;
+Delivered:
+
+- `ActivityService` (`activity_service.rs`): cross-module, filterable
+  (asset / event type / module / actor / time range), pageable, ordered newest
+  first with an event-id tie-break, with `ActivityModule` as the single
+  event-type → subsystem mapping;
+- `DuplicateReviewService` (`duplicate_review_service.rs`): bucketed
+  deterministic candidate detection carrying typed `DuplicateEvidence`,
+  review-only, with no dismissal persistence and no merge prediction;
+- the unified search query contract, delivered with 4A.
 - cross-module activity query service with asset/type/time filters;
 - deterministic duplicate-candidate evidence;
 - explicit review flow that invokes existing merge semantics only after a caller chooses to merge;
@@ -199,7 +236,9 @@ Deliverables:
 
 ### Phase 4D — Contract Hardening
 
-Deliverables:
+Status: **complete**.
+
+Delivered:
 
 - stable adapter-neutral application contracts suitable for CLI, Phase 5 desktop, and future HTTP/MCP adapters;
 - CLI coverage over the same application services;
@@ -220,6 +259,11 @@ Explicitly deferred:
 - speculative background-job infrastructure.
 
 Exit criteria: an interface adapter can use only stable application contracts to list/page/search Media, Software, and Services as one library; open a complete typed asset detail; inspect incoming/outgoing relations; answer bounded dependency/dependent/impact queries with explainable paths; query cross-module activity; review duplicate evidence and invoke explicit merge; and do all of this without direct repository/SQLite access or duplicated module business logic.
+
+All eight exit criteria are met: list/page/search, complete typed detail,
+relation inspection, bounded impact with explainable paths, cross-module
+activity, duplicate review feeding the existing explicit merge, and no direct
+repository/SQLite access anywhere in the adapters.
 
 ## Phase 5 — Application Shell / Desktop UI
 

@@ -1,8 +1,13 @@
-//! Media and Software -> SearchDocument projections (ADR 0006).
+//! Module -> SearchDocument projections (ADR 0006), plus the concise
+//! module-aware summary each module contributes to the unified library.
 //!
 //! Modules own the transformation from their typed details into the shared
 //! search representation. These projectors are pure and used by both
 //! synchronous updates and full rebuilds.
+//!
+//! The `*_subtitle` helpers are the single source of that one-line summary:
+//! the search projection and the unified library list/search contract both
+//! call them, so the two vocabularies cannot drift apart (docs/11).
 
 use crate::domain::asset::Asset;
 use crate::domain::external_ref::AssetExternalRef;
@@ -11,6 +16,17 @@ use crate::domain::search::SearchDocument;
 use crate::domain::service::{format_money, BillingCadence, ServiceRecord};
 use crate::domain::software::SoftwareRecord;
 use crate::domain::tag::Tag;
+
+/// Concise module-aware summary of a media record ("Anime · 2023").
+///
+/// Shared by [`project_media`] and the unified library summary contract
+/// (docs/11) so both speak the same vocabulary.
+pub fn media_subtitle(record: &MediaRecord) -> Option<String> {
+    Some(match record.year {
+        Some(year) => format!("{} · {}", record.media_type.label(), year),
+        None => record.media_type.label().to_string(),
+    })
+}
 
 /// Projects one media asset into a `SearchDocument`.
 ///
@@ -24,10 +40,7 @@ pub fn project_media(
     tags: &[Tag],
     refs: &[AssetExternalRef],
 ) -> SearchDocument {
-    let subtitle = match record.year {
-        Some(year) => Some(format!("{} · {}", record.media_type.label(), year)),
-        None => Some(record.media_type.label().to_string()),
-    };
+    let subtitle = media_subtitle(record);
 
     let mut body_parts: Vec<String> = Vec::new();
     if let Some(platform) = record.platform.as_deref().map(str::trim) {
@@ -70,6 +83,19 @@ pub fn project_media(
     }
 }
 
+/// Concise module-aware summary of a software record ("CLI Tool · 14.1.0").
+///
+/// Shared by [`project_software`] and the unified library summary contract
+/// (docs/11).
+pub fn software_subtitle(record: &SoftwareRecord) -> Option<String> {
+    Some(match &record.version {
+        Some(version) if !version.trim().is_empty() => {
+            format!("{} · {}", record.category.label(), version.trim())
+        }
+        _ => record.category.label().to_string(),
+    })
+}
+
 /// Projects one software asset into a `SearchDocument` (ADR 0006 software
 /// example).
 ///
@@ -83,12 +109,7 @@ pub fn project_software(
     tags: &[Tag],
     refs: &[AssetExternalRef],
 ) -> SearchDocument {
-    let subtitle = match &record.version {
-        Some(version) if !version.trim().is_empty() => {
-            Some(format!("{} · {}", record.category.label(), version.trim()))
-        }
-        _ => Some(record.category.label().to_string()),
-    };
+    let subtitle = software_subtitle(record);
 
     let mut body_parts: Vec<String> = Vec::new();
     if let Some(purpose) = record.purpose.as_deref().map(str::trim) {
@@ -133,6 +154,23 @@ pub fn project_software(
     }
 }
 
+/// Concise module-aware summary of a service record ("SaaS · OpenAI · Plus"):
+/// type label plus only the fields that have values, in a stable order.
+///
+/// Shared by [`project_service`] and the unified library summary contract
+/// (docs/11).
+pub fn service_subtitle(record: &ServiceRecord) -> Option<String> {
+    let mut parts: Vec<String> = vec![record.service_type.label().to_string()];
+    for value in [record.provider.as_deref(), record.plan.as_deref()] {
+        if let Some(value) = value.map(str::trim) {
+            if !value.is_empty() {
+                parts.push(value.to_string());
+            }
+        }
+    }
+    Some(parts.join(" · "))
+}
+
 /// Projects one service asset into a `SearchDocument` (docs/10).
 ///
 /// - title: canonical asset name
@@ -151,17 +189,7 @@ pub fn project_service(
     tags: &[Tag],
     refs: &[AssetExternalRef],
 ) -> SearchDocument {
-    let mut subtitle_parts: Vec<String> = vec![record.service_type.label().to_string()];
-    if let Some(provider) = record.provider.as_deref().map(str::trim) {
-        if !provider.is_empty() {
-            subtitle_parts.push(provider.to_string());
-        }
-    }
-    if let Some(plan) = record.plan.as_deref().map(str::trim) {
-        if !plan.is_empty() {
-            subtitle_parts.push(plan.to_string());
-        }
-    }
+    let subtitle = service_subtitle(record);
 
     let mut body_parts: Vec<String> = Vec::new();
     match (record.cost_minor, record.currency.as_deref()) {
@@ -230,7 +258,7 @@ pub fn project_service(
         asset_id: asset.id,
         kind: asset.kind.as_str().to_string(),
         title: asset.name.clone(),
-        subtitle: Some(subtitle_parts.join(" · ")),
+        subtitle,
         body: if body_parts.is_empty() {
             None
         } else {

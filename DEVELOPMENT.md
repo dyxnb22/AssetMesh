@@ -5,10 +5,10 @@ This document covers how to build, test, and use the implemented headless core
 Subscriptions), and records the concrete contracts the implementation
 established on top of the architecture docs and ADRs.
 
-**Current implementation target:** Phase 4 — Unified Library Core. See
+**Current implementation target:** Phase 5 — Application Shell / Desktop UI.
+Phase 4 — Unified Library Core is complete (4A–4D); see
 `docs/11-unified-library-core.md` for the implementation contract and
-`docs/07-roadmap.md` for phase boundaries. Phase 4 is not described below as
-already implemented unless a capability is explicitly listed as existing.
+`docs/07-roadmap.md` for phase boundaries.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ AssetMesh/
 │   │   └── src/
 │   │       ├── domain/           # Asset, MediaRecord, SoftwareRecord, ServiceRecord, Relation, Refs, Activity, Tag, SearchDocument
 │   │       ├── ports/            # repositories, UnitOfWork, SearchIndex, discovery providers, Clock, IdGenerator
-│   │       ├── application/      # use cases: media, software + discovery/adoption, services, relations, asset/merge, search, import, portable export
+│   │       ├── application/      # use cases: media, software + discovery/adoption, services, relations, asset/merge, unified library, search, import, portable export
 │   │       └── error.rs          # typed AppError model
 │   ├── providers/                # assetmesh-providers: macOS / Homebrew / npm+pipx discovery (seam-tested)
 │   ├── storage-sqlite/           # assetmesh-storage-sqlite: SQLite adapter
@@ -103,15 +103,47 @@ assetmesh relation add <api-id> hosted_on <vps-id>
 assetmesh relation add <domain-id> points_to <api-id>
 assetmesh relation list <vps-id>               # shows `hosts`
 
+# Unified library (Phase 4A) — one application contract across every module
+assetmesh library list
+assetmesh library list --module media --sort name --limit 20 --offset 40
+assetmesh library list --kind media.anime --kind service.saas --tag ai
+assetmesh library list --lifecycle active-or-archived   # archived is opt-in
+assetmesh library get <id-or-prefix>          # typed Media/Software/Service details
+assetmesh library search frieren              # same summary vocabulary as the list
+assetmesh library search 腾讯 --module services
+assetmesh library list --json                 # the application DTOs, unmapped
+
+# Relation graph queries (Phase 4B) — read-only, bounded, inverse-resolved
+assetmesh relation neighbors <id>             # every directly connected asset
+assetmesh relation dependencies <id>          # what it needs (depends_on/installed_via/hosted_on)
+assetmesh relation dependents <vps-id>        # what needs it
+assetmesh relation impact <vps-id>            # transitive dependents + paths
+assetmesh relation impact <vps-id> --depth 1  # bounded; reports when the bound hid more
+assetmesh relation traverse <id> --direction both --type depends_on --depth 4 \
+                                       [--include-archived]
+
+# Cross-module activity (Phase 4C)
+assetmesh activity list
+assetmesh activity list --asset <id> --type media.completed
+assetmesh activity list --module services --since 2026-01-01 --limit 50
+
+# Duplicate review (Phase 4C) — advisory only; merging stays an explicit command
+assetmesh duplicates list
+assetmesh duplicates list --kind software.cli --active-only
+
 assetmesh export <dir>              # portable bundle (see below)
 assetmesh import <dir>              # restore canonical data by canonical ID
 ```
 
 IDs may be given in full or as a unique prefix (≥4 chars).
 
-Phase 4 will add unified-library and graph-query CLI coverage only as a thin
-adapter over the new application services. Do not implement Phase 4 semantics
-inside CLI command handlers.
+Every Phase 4 command is a thin adapter: it parses arguments into an
+application query (`LibraryQuery`, `LibrarySearchQuery`, `TraversalOptions`,
+`ActivityQuery`, `DuplicateQuery`), calls the service, and formats the result.
+Module dispatch, lifecycle rules, ordering, pagination, traversal, inverse
+resolution, duplicate matching, and event-type classification all live in the
+application layer — the CLI never joins module repositories, never walks a
+graph, and never decides what a duplicate is.
 
 ## Version axes (ADR 0008)
 
@@ -326,26 +358,147 @@ transactions.
   rebuild use case and is tested to survive deletion. Media, Software, and
   Services all project into this shared derived index.
 
-## Current Phase 4 implementation target
+## Phase 4 — Unified Library Core (complete)
 
-Phase 4 consolidates existing module capabilities rather than adding a fourth
-asset domain. The detailed contract is in `docs/11-unified-library-core.md`.
-Implementation work should proceed in this order:
+Phase 4 consolidated the existing module capabilities rather than adding a
+fourth asset domain. The full contract is in
+`docs/11-unified-library-core.md`; this section records the implementation
+details that are not obvious from the docs.
 
-1. **4A — Unified Library Query:** stable typed summary/detail DTOs, shared
-   filtering/sorting/pagination, cross-module list/detail/search behavior.
-2. **4B — Relation Traversal and Impact:** incoming/outgoing/neighbors,
-   dependency/dependent traversal, bounded cycle-safe impact queries with
-   explainable paths.
-3. **4C — Search/Activity/Duplicate Review:** application query boundaries
-   around the existing Search Projection and activity log, plus deterministic
-   review-only duplicate evidence that never auto-merges.
-4. **4D — Contract Hardening:** CLI and cross-module end-to-end coverage over
-   the same transport-neutral application services Phase 5 Desktop will use.
+| Sub-phase | Service | Status |
+| --- | --- | --- |
+| 4A — Unified Library Query | `application/library_service.rs` | complete |
+| 4B — Relation Traversal & Impact | `application/relation_query_service.rs` | complete |
+| 4C — Activity & Duplicate Review | `application/activity_service.rs`, `application/duplicate_review_service.rs` | complete |
+| 4D — Contract Hardening | CLI + cross-module E2E | complete |
 
-Phase 4 must not introduce Tauri/React UI, graph visualization, HTTP/MCP
-servers, semantic/vector search, runtime monitoring, plugin ABI, sync/CRDTs,
-or speculative background-job infrastructure.
+Phase 4 introduced **no database migration, no schema change, and no new
+index**: traversal, activity querying, and duplicate review are all derived
+from existing canonical rows. The only port addition is
+`RelationReader::list_for_assets`, so a BFS frontier is one batch query instead
+of one query per node.
+
+### Unified library query contract (Phase 4A)
+
+`LibraryService::new(factory)` exposes:
+
+- `get_asset(id) -> AssetDetailView` — one consistent read snapshot containing
+  the asset, its **typed** module details (`AssetDetails::Media | Software |
+  Service`), tags, and external refs. Nothing collapses into
+  `serde_json::Value`.
+- `list_assets(&LibraryQuery) -> Page<AssetSummary>`
+- `search_assets(&LibrarySearchQuery) -> Page<AssetSummary>` — over the
+  existing Search Projection, returning the same `AssetSummary` vocabulary.
+- `resolve_merge_redirect(id) -> AssetId` — follows `merged_into` with a
+  visited set, so adapters never hand-roll redirect chains.
+
+`AssetSummary { id, kind, name, lifecycle, subtitle, tags, updated_at }`.
+`subtitle` comes from the module's own summary helper in
+`application/projection.rs`, which the search projection also uses — list,
+search, and FTS subtitles cannot drift.
+
+Query rules:
+
+- `LibraryQuery { lifecycle, modules, kinds, tags, sort, page }`;
+  `LibrarySearchQuery { text, lifecycle, modules, kinds, tags, page }`.
+- Lifecycle defaults to `LifecycleFilter::Active`. Archived is opt-in
+  (`ActiveOrArchived` / `All`); merged tombstones are redirects and are never
+  listed or searchable.
+- `modules` and `kinds` compose (both must match). A contradictory pair (e.g.
+  `--module media --kind software.cli`) yields an empty page without reading
+  storage.
+- Tag filters require every requested tag, case-insensitively.
+- Sorts: `UpdatedDesc` (default), `UpdatedAsc`, `NameAsc`, `NameDesc`,
+  `KindAsc` — every one with `AssetId` ascending as the secondary key.
+- `PageRequest { limit, offset }`: `limit = 0` selects
+  `DEFAULT_PAGE_LIMIT` (50) and is clamped to `MAX_PAGE_LIMIT` (200).
+  `Page.total` is `Some(exact)` for the list and `None` for search (relevance
+  ordering exposes no count); search pages can also be shorter than `limit`
+  because filters are applied after hydration. The search hydration window
+  (`offset + limit`) is bounded, so an absurd offset returns an empty page
+  instead of asking the index for everything.
+
+Detail semantics:
+
+| Case | Result |
+| --- | --- |
+| unknown id | `not_found("asset", id)` |
+| merged tombstone | `conflict` naming the surviving asset |
+| archived | readable |
+| no module details | `not_found("module details", id)` |
+
+Composition and the deliberate trade-off:
+
+- the unified list is composed from the existing module readers — **no new port
+  method, no new SQL, no migration**;
+- each selected module reader is called exactly once, and module list rows
+  already carry their tags, so there is no per-asset asset/detail/tag lookup;
+  a `core` test asserts one unified read opens exactly one `QueryUnitOfWork`
+  and uses no repository capability twice;
+- filtering/sorting/paging run in the application layer over the selected
+  modules' rows rather than as a SQL `LIMIT`. For a local personal library
+  that is the right trade and keeps Phase 4A out of storage; if it ever
+  matters, the follow-up is a repository-level paged cross-module query (port
+  in core, SQLite + test double, contract tests) — never an adapter-side join.
+
+### Relation traversal and impact (Phase 4B)
+
+`RelationQueryService::new(factory)` provides `neighbors`, `outgoing`,
+`incoming`, `dependencies`, `dependents`, `traverse`, and `impact`. All seven
+share one BFS engine:
+
+- one `QueryUnitOfWork` per traversal, one batch edge query per frontier;
+- visited-set cycle protection; `max_depth = 0` reaches nothing beyond the
+  root and values above `MAX_TRAVERSAL_DEPTH` (32) are clamped;
+- the relation-type filter matches the row's **stored** type, so
+  `Incoming + [DependsOn]` works; every reported type is the **effective** type
+  from the expanding node, so adapters never derive an inverse;
+- `DEPENDENCY_RELATION_TYPES` (`depends_on`, `installed_via`, `hosted_on`) is
+  the single definition of dependency semantics — `uses`, `points_to`, and
+  `related_to` are deliberately not dependencies;
+- `dependencies` / `dependents` / `impact` fix their own direction and type
+  set and keep only the caller's `max_depth` and `include_archived`;
+- `TraversalView.truncated` re-applies the query's own filters, so it never
+  claims the depth bound hid an edge the walk would have skipped;
+- merged tombstones are never nodes and are refused as a root with the same
+  redirect-naming conflict the library uses; archived nodes are opt-in and are
+  never traversed through; an asset with no module details is still a node,
+  because relations are shared infrastructure;
+- one-hop queries hydrate only the neighbour by identity — they do not load the
+  library index that traversal needs.
+
+### Activity and duplicate review (Phase 4C)
+
+`ActivityService::query` takes an `ActivityQuery` (asset, event types, modules,
+actors, time range, page) and returns `Page<ActivityView>`, newest first with
+the event id as the tie-breaker. `ActivityModule::of_event_type` in
+`domain/activity.rs` is the only event-type → subsystem mapping.
+
+`DuplicateReviewService::candidates` returns `Page<DuplicateCandidate>` where
+each candidate is a canonically-ordered pair plus typed `DuplicateEvidence`.
+Bucketing is by `(kind, normalized name)` and by module-specific deterministic
+keys, so cost is bounded by the largest bucket. Detection never merges and
+never scores; merging stays `AssetService::merge_assets`. Archived assets are
+reviewable by default (an archived loser is a legitimate merge, ADR 0005);
+merged tombstones never are. There is no dismissal storage.
+
+Documented trade-offs, same framing as the library list above:
+
+- activity and duplicate queries compose in the application layer over
+  `ActivityReader::list_all` and the module readers rather than pushing the
+  filter into SQL. One query, no N+1; the follow-up if the activity log ever
+  grows large enough to matter is a repository-level filtered page, not an
+  adapter-side scan;
+- duplicate bucketing is bounded by the largest bucket, so a very large bucket
+  of identical names is still quadratic *within that bucket*. Real personal
+  inventories do not produce that shape, and the alternative (a SQL GROUP BY)
+  would move detection rules into storage.
+
+Tests: `core/tests/relation_query_use_cases.rs`,
+`core/tests/activity_duplicate_use_cases.rs`,
+`storage-sqlite/tests/relation_query_contracts.rs`,
+`storage-sqlite/tests/activity_duplicate_contracts.rs`, and the cross-module
+`unified_core_works_end_to_end_across_modules` in `cli/tests/cli_e2e.rs`.
 
 ## Concurrency & consistency
 

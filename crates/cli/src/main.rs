@@ -4,13 +4,23 @@
 
 mod format;
 
+use assetmesh_core::application::activity_service::{ActivityQuery, ActivityService};
+use assetmesh_core::application::duplicate_review_service::{
+    DuplicateQuery, DuplicateReviewService,
+};
 use assetmesh_core::application::import_media::{ImportFormatHint, MediaImportService};
+use assetmesh_core::application::library_service::{
+    LibraryModule, LibraryQuery, LibrarySearchQuery, LibraryService, LibrarySort, PageRequest,
+};
 use assetmesh_core::application::media_service::{
     CreateMedia, ExternalRefInput, MediaService, UpdateMediaMetadata,
 };
 use assetmesh_core::application::portable::{
     read_bundle_from_directory, write_bundle_to_directory, PortableExportService,
     PortableImportService,
+};
+use assetmesh_core::application::relation_query_service::{
+    RelationQueryService, TraversalDirection, TraversalOptions,
 };
 use assetmesh_core::application::relation_service::RelationService;
 use assetmesh_core::application::search_service::SearchService;
@@ -21,6 +31,7 @@ use assetmesh_core::application::software_discovery::ClassifiedCandidate;
 use assetmesh_core::application::software_service::{
     AdoptOverrides, AdoptTarget, CreateSoftware, SoftwareService, UpdateSoftwareMetadata,
 };
+use assetmesh_core::domain::asset::AssetKind;
 use assetmesh_core::domain::ids::{AssetId, RelationId};
 use assetmesh_core::domain::media::{MediaStatus, MediaType, Progress};
 use assetmesh_core::domain::relation::{RelationProvenance, RelationType};
@@ -37,9 +48,11 @@ use assetmesh_providers::{CliToolsProvider, HomebrewProvider, MacosApplicationsP
 use assetmesh_storage_sqlite::SharedSqlite;
 use clap::{Parser, Subcommand, ValueEnum};
 use format::{
-    fmt_time, print_adoption_outcome, print_import_report, print_media_detail, print_media_list,
-    print_relation_views, print_scan_report, print_search_hits, print_service_detail,
-    print_service_list, print_software_detail, print_software_list,
+    fmt_time, print_activity_page, print_adoption_outcome, print_asset_detail, print_asset_list,
+    print_duplicate_candidates, print_graph_nodes, print_import_report, print_media_detail,
+    print_media_list, print_neighbor_views, print_relation_views, print_scan_report,
+    print_search_hits, print_service_detail, print_service_list, print_software_detail,
+    print_software_list,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -87,6 +100,21 @@ enum Command {
     Relation {
         #[command(subcommand)]
         cmd: RelationCommand,
+    },
+    /// Cross-module activity history (Phase 4C).
+    Activity {
+        #[command(subcommand)]
+        cmd: ActivityCommand,
+    },
+    /// Review likely duplicate pairs (Phase 4C). Never merges.
+    Duplicates {
+        #[command(subcommand)]
+        cmd: DuplicatesCommand,
+    },
+    /// The unified library across Media, Software, and Services (Phase 4).
+    Library {
+        #[command(subcommand)]
+        cmd: LibraryCommand,
     },
     /// Write a portable export bundle to a directory.
     Export {
@@ -487,6 +515,162 @@ enum RelationCommand {
     List { asset: String },
     /// Remove a relation by its id (see `relation list`).
     Remove { relation_id: String },
+    /// Every directly connected asset, both directions (Phase 4B).
+    Neighbors {
+        asset: String,
+        /// Restrict to relation types, e.g. depends_on (repeatable).
+        #[arg(long = "type")]
+        relation_types: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// What this asset depends on, transitively (Phase 4B).
+    Dependencies {
+        asset: String,
+        /// Hops to follow.
+        #[arg(long, default_value_t = 8)]
+        depth: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// What depends on this asset, transitively (Phase 4B).
+    Dependents {
+        asset: String,
+        /// Hops to follow.
+        #[arg(long, default_value_t = 8)]
+        depth: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// What could be affected if this asset went away, with paths (Phase 4B).
+    Impact {
+        asset: String,
+        /// Hops to follow.
+        #[arg(long, default_value_t = 8)]
+        depth: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Bounded graph traversal in any direction (Phase 4B).
+    Traverse {
+        asset: String,
+        #[arg(long, value_enum, default_value_t = CliTraversalDirection::Outgoing)]
+        direction: CliTraversalDirection,
+        /// Restrict to relation types, e.g. depends_on (repeatable).
+        #[arg(long = "type")]
+        relation_types: Vec<String>,
+        /// Hops to follow.
+        #[arg(long, default_value_t = 8)]
+        depth: usize,
+        /// Include archived assets as nodes.
+        #[arg(long)]
+        include_archived: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ActivityCommand {
+    /// Recent cross-module activity, newest first (Phase 4C).
+    List {
+        /// Only events about this asset.
+        #[arg(long)]
+        asset: Option<String>,
+        /// Only these event types, e.g. media.completed (repeatable).
+        #[arg(long = "type")]
+        event_types: Vec<String>,
+        /// Only these subsystems: asset, media, software, services, relation, import.
+        #[arg(long = "module")]
+        modules: Vec<String>,
+        /// Only these actors, e.g. user or import (repeatable).
+        #[arg(long)]
+        actor: Vec<String>,
+        /// Inclusive lower bound (YYYY-MM-DD or RFC 3339).
+        #[arg(long)]
+        since: Option<String>,
+        /// Inclusive upper bound (YYYY-MM-DD or RFC 3339).
+        #[arg(long)]
+        until: Option<String>,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum DuplicatesCommand {
+    /// Review likely duplicate pairs. Never merges anything.
+    List {
+        /// Restrict to asset kinds such as software.cli (repeatable).
+        #[arg(long = "kind")]
+        kinds: Vec<String>,
+        /// Exclude archived assets from the review.
+        #[arg(long)]
+        active_only: bool,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum LibraryCommand {
+    /// List the whole library as one page, across every module.
+    List {
+        /// Which lifecycle states are visible. `all` still never shows merged
+        /// tombstones: they are redirects, not library entries.
+        #[arg(long, value_enum, default_value_t = CliLifecycle::Active)]
+        lifecycle: CliLifecycle,
+        /// Restrict to modules (repeatable): media, software, or services.
+        #[arg(long = "module", value_enum)]
+        modules: Vec<CliLibraryModule>,
+        /// Restrict to asset kinds such as `media.anime` (repeatable).
+        #[arg(long = "kind")]
+        kinds: Vec<String>,
+        /// Require a tag (repeatable; every one must match).
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long, value_enum, default_value_t = CliLibrarySort::Updated)]
+        sort: CliLibrarySort,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one asset's unified detail view (typed module details included).
+    Get {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Search the whole library through the shared search projection.
+    Search {
+        query: String,
+        /// Archived assets are searchable but opt-in, as in `library list`.
+        #[arg(long, value_enum, default_value_t = CliLifecycle::Active)]
+        lifecycle: CliLifecycle,
+        /// Restrict to modules (repeatable): media, software, or services.
+        #[arg(long = "module", value_enum)]
+        modules: Vec<CliLibraryModule>,
+        /// Require a tag (repeatable; every one must match).
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -519,6 +703,80 @@ enum RefCommand {
     List {
         asset: String,
     },
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+enum CliTraversalDirection {
+    Outgoing,
+    Incoming,
+    Both,
+}
+
+impl From<CliTraversalDirection> for TraversalDirection {
+    fn from(value: CliTraversalDirection) -> Self {
+        match value {
+            CliTraversalDirection::Outgoing => TraversalDirection::Outgoing,
+            CliTraversalDirection::Incoming => TraversalDirection::Incoming,
+            CliTraversalDirection::Both => TraversalDirection::Both,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+enum CliLifecycle {
+    Active,
+    /// Active plus archived.
+    ActiveOrArchived,
+    /// Active plus archived (merged tombstones are redirects and never listed).
+    All,
+}
+
+impl From<CliLifecycle> for LifecycleFilter {
+    fn from(value: CliLifecycle) -> Self {
+        match value {
+            CliLifecycle::Active => LifecycleFilter::Active,
+            CliLifecycle::ActiveOrArchived => LifecycleFilter::ActiveOrArchived,
+            CliLifecycle::All => LifecycleFilter::All,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+enum CliLibraryModule {
+    Media,
+    Software,
+    Services,
+}
+
+impl From<CliLibraryModule> for LibraryModule {
+    fn from(value: CliLibraryModule) -> Self {
+        match value {
+            CliLibraryModule::Media => LibraryModule::Media,
+            CliLibraryModule::Software => LibraryModule::Software,
+            CliLibraryModule::Services => LibraryModule::Services,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+enum CliLibrarySort {
+    Updated,
+    UpdatedAsc,
+    Name,
+    NameDesc,
+    Kind,
+}
+
+impl From<CliLibrarySort> for LibrarySort {
+    fn from(value: CliLibrarySort) -> Self {
+        match value {
+            CliLibrarySort::Updated => LibrarySort::UpdatedDesc,
+            CliLibrarySort::UpdatedAsc => LibrarySort::UpdatedAsc,
+            CliLibrarySort::Name => LibrarySort::NameAsc,
+            CliLibrarySort::NameDesc => LibrarySort::NameDesc,
+            CliLibrarySort::Kind => LibrarySort::KindAsc,
+        }
+    }
 }
 
 #[derive(ValueEnum, Clone, Copy)]
@@ -734,6 +992,9 @@ fn run(cli: Cli) -> Result<(), AppError> {
         Command::Service { cmd } => run_service(factory, clock, ids, cmd),
         Command::Asset { cmd } => run_asset(factory, clock, ids, cmd),
         Command::Relation { cmd } => run_relation(factory.clone(), clock, ids, cmd),
+        Command::Library { cmd } => run_library(factory, cmd),
+        Command::Activity { cmd } => run_activity(factory, cmd),
+        Command::Duplicates { cmd } => run_duplicates(factory, cmd),
         Command::Export { dir } => {
             let mut service = PortableExportService::new(factory, clock);
             let bundle = service.export(env!("CARGO_PKG_VERSION"))?;
@@ -947,6 +1208,187 @@ fn run_media(
                     failure.records_committed, failure.error
                 )));
             }
+        }
+    }
+    Ok(())
+}
+
+/// Unified library commands (Phase 4A).
+///
+/// This handler only translates arguments into an application query and
+/// formats the result: module dispatch, lifecycle rules, ordering, and
+/// pagination all live in `LibraryService`. It needs no clock and no id
+/// generator because the unified library is read-only.
+fn run_library(factory: SharedFactory, cmd: LibraryCommand) -> Result<(), AppError> {
+    let mut library = LibraryService::new(factory.clone());
+
+    match cmd {
+        LibraryCommand::List {
+            lifecycle,
+            modules,
+            kinds,
+            tags,
+            sort,
+            limit,
+            offset,
+            json,
+        } => {
+            let kinds = kinds
+                .iter()
+                .map(|kind| {
+                    AssetKind::parse(kind).ok_or_else(|| {
+                        AppError::validation(format!(
+                            "unknown asset kind {kind:?}; expected one of: media.movie, media.tv, \
+                             media.anime, media.game, software.app, software.cli, \
+                             software.package, software.runtime, software.tool, service.saas, \
+                             service.api, service.vps, service.domain, service.local"
+                        ))
+                    })
+                })
+                .collect::<AppResult<Vec<_>>>()?;
+            let query = LibraryQuery {
+                lifecycle: lifecycle.into(),
+                modules: modules.into_iter().map(Into::into).collect(),
+                kinds,
+                tags,
+                sort: sort.into(),
+                page: PageRequest::new(limit, offset),
+            };
+            let page = library.list_assets(&query)?;
+            print_asset_list(&page, json);
+        }
+        LibraryCommand::Get { id, json } => {
+            let asset_id = resolve_asset_id(&factory, &id)?;
+            let view = library.get_asset(asset_id)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&view).unwrap_or_else(|_| "{}".to_string())
+                );
+            } else {
+                print_asset_detail(&view);
+            }
+        }
+        LibraryCommand::Search {
+            query,
+            lifecycle,
+            modules,
+            tags,
+            limit,
+            offset,
+            json,
+        } => {
+            let query = LibrarySearchQuery {
+                text: query,
+                lifecycle: lifecycle.into(),
+                modules: modules.into_iter().map(Into::into).collect(),
+                kinds: Vec::new(),
+                tags,
+                page: PageRequest::new(limit, offset),
+            };
+            let page = library.search_assets(&query)?;
+            print_asset_list(&page, json);
+        }
+    }
+    Ok(())
+}
+
+/// Traversal options with only the depth set; the service supplies the rest.
+fn bounded_options(depth: usize) -> TraversalOptions {
+    TraversalOptions {
+        max_depth: depth,
+        ..TraversalOptions::default()
+    }
+}
+
+fn parse_relation_types(
+    raw: &[String],
+) -> Result<Vec<assetmesh_core::domain::relation::RelationType>, AppError> {
+    raw.iter()
+        .map(|value| {
+            assetmesh_core::domain::relation::RelationType::parse(value).ok_or_else(|| {
+                AppError::validation(format!(
+                    "unknown relation type {value:?}; expected one of: depends_on, dependency_of, \
+                     uses, used_by, installed_via, installs, hosted_on, hosts, points_to, \
+                     pointed_to_by, related_to"
+                ))
+            })
+        })
+        .collect()
+}
+
+/// Activity commands (Phase 4C): parse → query → format.
+fn run_activity(factory: SharedFactory, cmd: ActivityCommand) -> Result<(), AppError> {
+    let mut service = ActivityService::new(factory.clone());
+    match cmd {
+        ActivityCommand::List {
+            asset,
+            event_types,
+            modules,
+            actor,
+            since,
+            until,
+            limit,
+            offset,
+            json,
+        } => {
+            let modules = modules
+                .iter()
+                .map(|value| {
+                    assetmesh_core::domain::activity::ActivityModule::parse(value).ok_or_else(
+                        || {
+                            AppError::validation(format!(
+                            "unknown activity module {value:?}; expected one of: asset, media, \
+                             software, services, relation, import"
+                        ))
+                        },
+                    )
+                })
+                .collect::<AppResult<Vec<_>>>()?;
+            let query = ActivityQuery {
+                asset_id: match asset.as_deref() {
+                    Some(value) => Some(resolve_asset_id(&factory, value)?),
+                    None => None,
+                },
+                event_types,
+                modules,
+                actors: actor,
+                since: since.as_deref().map(parse_service_timestamp).transpose()?,
+                until: until.as_deref().map(parse_service_timestamp).transpose()?,
+                page: PageRequest::new(limit, offset),
+            };
+            let page = service.query(&query)?;
+            print_activity_page(&page, json);
+        }
+    }
+    Ok(())
+}
+
+/// Duplicate review commands (Phase 4C): review only, never a merge.
+fn run_duplicates(factory: SharedFactory, cmd: DuplicatesCommand) -> Result<(), AppError> {
+    let mut service = DuplicateReviewService::new(factory.clone());
+    match cmd {
+        DuplicatesCommand::List {
+            kinds,
+            active_only,
+            limit,
+            offset,
+            json,
+        } => {
+            let kinds = kinds
+                .iter()
+                .map(|kind| {
+                    AssetKind::parse(kind)
+                        .ok_or_else(|| AppError::validation(format!("unknown asset kind {kind:?}")))
+                })
+                .collect::<AppResult<Vec<_>>>()?;
+            let query = DuplicateQuery {
+                kinds,
+                include_archived: !active_only,
+                page: PageRequest::new(limit, offset),
+            };
+            let page = service.candidates(&query)?;
+            print_duplicate_candidates(&page, json);
         }
     }
     Ok(())
@@ -1618,9 +2060,60 @@ fn run_relation(
     ids: SharedIdGenerator,
     cmd: RelationCommand,
 ) -> Result<(), AppError> {
+    // Phase 4B graph queries are read-only and need neither clock nor ids, but
+    // the write/listing commands below do.
     let mut relations = RelationService::new(factory.clone(), clock, ids);
 
     match cmd {
+        RelationCommand::Neighbors {
+            asset,
+            relation_types,
+            json,
+        } => {
+            let asset_id = resolve_asset_id(&factory, &asset)?;
+            let options = TraversalOptions {
+                relation_types: parse_relation_types(&relation_types)?,
+                ..TraversalOptions::default()
+            };
+            let views = RelationQueryService::new(factory).neighbors(asset_id, &options)?;
+            print_neighbor_views(&views, json);
+        }
+        RelationCommand::Dependencies { asset, depth, json } => {
+            let asset_id = resolve_asset_id(&factory, &asset)?;
+            let view = RelationQueryService::new(factory)
+                .dependencies(asset_id, &bounded_options(depth))?;
+            print_graph_nodes(&view, json);
+        }
+        RelationCommand::Dependents { asset, depth, json } => {
+            let asset_id = resolve_asset_id(&factory, &asset)?;
+            let view =
+                RelationQueryService::new(factory).dependents(asset_id, &bounded_options(depth))?;
+            print_graph_nodes(&view, json);
+        }
+        RelationCommand::Impact { asset, depth, json } => {
+            let asset_id = resolve_asset_id(&factory, &asset)?;
+            let view =
+                RelationQueryService::new(factory).impact(asset_id, &bounded_options(depth))?;
+            print_graph_nodes(&view, json);
+        }
+        RelationCommand::Traverse {
+            asset,
+            direction,
+            relation_types,
+            depth,
+            include_archived,
+            json,
+        } => {
+            let asset_id = resolve_asset_id(&factory, &asset)?;
+            let options = TraversalOptions {
+                direction: direction.into(),
+                relation_types: parse_relation_types(&relation_types)?,
+                max_depth: depth,
+                include_archived,
+            };
+            let view = RelationQueryService::new(factory).traverse(asset_id, &options)?;
+            print_graph_nodes(&view, json);
+        }
         RelationCommand::Add {
             source,
             relation_type,

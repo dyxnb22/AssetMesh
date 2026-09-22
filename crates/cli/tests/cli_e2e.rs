@@ -1269,3 +1269,764 @@ fn create_service(dir: &std::path::Path, db: &str, args: &[&str]) -> String {
         .trim()
         .to_string()
 }
+
+/// Phase 4A: the unified library CLI must consume the application contract
+/// only. It builds one Media, one Software, and one Service asset, then drives
+/// `library list` / `library get` / `library search` over the compiled binary.
+#[test]
+fn unified_library_works_end_to_end() {
+    let dir = unique_dir("library");
+    let db = "library.db";
+
+    let media = run(
+        &dir,
+        db,
+        &[
+            "media",
+            "add",
+            "--title",
+            "Sousou no Frieren",
+            "--media-type",
+            "anime",
+            "--year",
+            "2023",
+            "--tag",
+            "healing",
+            "--ref",
+            "tmdb:209867",
+        ],
+    )
+    .0
+    .lines()
+    .next()
+    .unwrap()
+    .trim_start_matches("created ")
+    .trim()
+    .to_string();
+
+    let software = create_software(
+        &dir,
+        db,
+        &[
+            "--name",
+            "ripgrep",
+            "--category",
+            "cli",
+            "--version",
+            "14.1.0",
+            "--tag",
+            "dev",
+        ],
+    );
+
+    let service = create_service(
+        &dir,
+        db,
+        &[
+            "--name",
+            "OpenAI",
+            "--type",
+            "saas",
+            "--provider",
+            "OpenAI",
+            "--plan",
+            "Plus",
+            "--cost",
+            "19.99",
+            "--currency",
+            "USD",
+            "--tag",
+            "ai",
+        ],
+    );
+
+    // --- library list: one page across every module ---
+    let (out, err, ok) = run(&dir, db, &["library", "list"]);
+    assert!(ok, "library list failed: {err}");
+    assert!(out.contains("Sousou no Frieren"), "{out}");
+    assert!(out.contains("ripgrep"), "{out}");
+    assert!(out.contains("OpenAI"), "{out}");
+    assert!(out.contains("3 asset(s) on this page, 3 total"), "{out}");
+    assert!(out.contains("media.anime"), "{out}");
+    assert!(out.contains("software.cli"), "{out}");
+    assert!(out.contains("service.saas"), "{out}");
+    // Module-aware subtitles come from the modules' own summary helpers.
+    assert!(out.contains("Anime · 2023"), "{out}");
+    assert!(out.contains("CLI Tool · 14.1.0"), "{out}");
+    assert!(out.contains("SaaS · OpenAI · Plus"), "{out}");
+
+    // --- library list filters ---
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--module", "media"]);
+    assert!(ok && out.contains("Sousou no Frieren"), "{out}");
+    assert!(
+        !out.contains("ripgrep"),
+        "media filter leaked software: {out}"
+    );
+    assert!(out.contains("1 asset(s) on this page, 1 total"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--module", "services"]);
+    assert!(ok && out.contains("OpenAI"), "{out}");
+    assert!(!out.contains("Sousou no Frieren"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--kind", "software.cli"]);
+    assert!(ok && out.contains("ripgrep"), "{out}");
+    assert_eq!(out.matches("asset(s)").count(), 1, "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--tag", "ai"]);
+    assert!(ok && out.contains("OpenAI"), "{out}");
+    assert!(
+        !out.contains("ripgrep"),
+        "tag filter leaked another module: {out}"
+    );
+
+    // Sorting is application contract, not CLI logic: verify it through the
+    // same DTOs the CLI prints.
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--sort", "name", "--json"]);
+    assert!(ok, "{out}");
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let names: Vec<&str> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["OpenAI", "ripgrep", "Sousou no Frieren"]);
+    let kinds: Vec<&str> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, vec!["service.saas", "software.cli", "media.anime"]);
+
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &["library", "list", "--sort", "name-desc", "--json"],
+    );
+    assert!(ok, "{out}");
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let reversed: Vec<&str> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(reversed, vec!["Sousou no Frieren", "ripgrep", "OpenAI"]);
+
+    let (page1, _, ok) = run(
+        &dir,
+        db,
+        &["library", "list", "--sort", "name", "--limit", "2"],
+    );
+    assert!(ok, "{page1}");
+    assert!(
+        page1.contains("2 asset(s) on this page, 3 total"),
+        "{page1}"
+    );
+    let (page2, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "library", "list", "--sort", "name", "--limit", "2", "--offset", "2",
+        ],
+    );
+    assert!(ok, "{page2}");
+    assert!(
+        page2.contains("1 asset(s) on this page, 3 total"),
+        "{page2}"
+    );
+    let page1_ids: Vec<&str> = page1
+        .lines()
+        .filter(|line| line.len() > 38 && line.contains('-'))
+        .map(|line| &line[..36])
+        .collect();
+    let page2_ids: Vec<&str> = page2
+        .lines()
+        .filter(|line| line.len() > 38 && line.contains('-'))
+        .map(|line| &line[..36])
+        .collect();
+    for id in &page2_ids {
+        assert!(!page1_ids.contains(id), "pagination repeated {id}");
+    }
+
+    // A page past the end is empty, not an error.
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "library", "list", "--sort", "name", "--limit", "2", "--offset", "9",
+        ],
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains("(no assets)"), "{out}");
+
+    // --- library get: typed details for each module ---
+    let (out, _, ok) = run(&dir, db, &["library", "get", &media]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Kind:        media.anime"), "{out}");
+    assert!(out.contains("Lifecycle:   active"), "{out}");
+    assert!(out.contains("Tags:        healing"), "{out}");
+    assert!(out.contains("tmdb:209867"), "{out}");
+    assert!(out.contains("Status:   planned"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "get", &software]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Kind:        software.cli"), "{out}");
+    assert!(out.contains("Install source:"), "{out}");
+    assert!(out.contains("14.1.0"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "get", &service]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Kind:        service.saas"), "{out}");
+    assert!(out.contains("USD 19.99"), "{out}");
+    assert!(out.contains("Provider:      OpenAI"), "{out}");
+
+    // Prefix resolution is the shared CLI input path; an unmatched prefix is a
+    // caller error rather than an empty result.
+    let (out, err, ok) = run(&dir, db, &["library", "get", "zzzz"]);
+    assert!(!ok, "{out}");
+    assert!(err.contains("not found"), "stderr: {err}");
+
+    // --- library search: one contract across modules ---
+    let (out, _, ok) = run(&dir, db, &["library", "search", "frieren"]);
+    assert!(ok && out.contains("Sousou no Frieren"), "{out}");
+    assert!(!out.contains("ripgrep"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "search", "ripgrep"]);
+    assert!(ok && out.contains("ripgrep"), "{out}");
+    assert!(!out.contains("Sousou no Frieren"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "search", "openai"]);
+    assert!(ok && out.contains("OpenAI"), "{out}");
+    assert!(!out.contains("ripgrep"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "search", "tmdb:209867"]);
+    assert!(
+        ok && out.contains("Sousou no Frieren"),
+        "alias search: {out}"
+    );
+
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &["library", "search", "e", "--module", "services"],
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains("OpenAI"), "{out}");
+    assert!(!out.contains("ripgrep"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["library", "search", "nothingmatchesthis"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("(no assets)"), "{out}");
+
+    // --- JSON output exposes the same application DTOs ---
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--json"]);
+    assert!(ok, "{out}");
+    let page: serde_json::Value = serde_json::from_str(&out).expect("valid JSON page");
+    assert_eq!(page["total"], 3);
+    assert_eq!(page["items"].as_array().unwrap().len(), 3);
+    for item in page["items"].as_array().unwrap() {
+        for key in [
+            "id",
+            "kind",
+            "name",
+            "lifecycle",
+            "subtitle",
+            "tags",
+            "updated_at",
+        ] {
+            assert!(item.get(key).is_some(), "summary DTO missing {key}: {item}");
+        }
+    }
+
+    let (out, _, ok) = run(&dir, db, &["library", "get", &media, "--json"]);
+    assert!(ok, "{out}");
+    let detail: serde_json::Value = serde_json::from_str(&out).expect("valid JSON detail");
+    assert_eq!(detail["asset"]["kind"], "media.anime");
+    // The typed union is self-describing: the module tag matches
+    // `AssetKind::module()`, and the record fields stay typed.
+    assert_eq!(detail["details"]["module"], "media");
+    assert_eq!(detail["details"]["media_type"], "anime");
+    assert_eq!(detail["tags"][0], "healing");
+    assert_eq!(detail["external_refs"].as_array().unwrap().len(), 1);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Phase 4A: lifecycle semantics are application rules, so the CLI only has to
+/// pass the filter through.
+#[test]
+fn unified_library_lifecycle_and_merge_semantics_end_to_end() {
+    let dir = unique_dir("library-lifecycle");
+    let db = "lifecycle.db";
+
+    let archived = run(
+        &dir,
+        db,
+        &[
+            "media",
+            "add",
+            "--title",
+            "Archived Anime",
+            "--media-type",
+            "anime",
+        ],
+    )
+    .0
+    .lines()
+    .next()
+    .unwrap()
+    .trim_start_matches("created ")
+    .trim()
+    .to_string();
+    let winner = run(
+        &dir,
+        db,
+        &[
+            "media",
+            "add",
+            "--title",
+            "Winner Anime",
+            "--media-type",
+            "anime",
+        ],
+    )
+    .0
+    .lines()
+    .next()
+    .unwrap()
+    .trim_start_matches("created ")
+    .trim()
+    .to_string();
+    let loser = run(
+        &dir,
+        db,
+        &[
+            "media",
+            "add",
+            "--title",
+            "Loser Anime",
+            "--media-type",
+            "anime",
+        ],
+    )
+    .0
+    .lines()
+    .next()
+    .unwrap()
+    .trim_start_matches("created ")
+    .trim()
+    .to_string();
+    let service = create_service(&dir, db, &["--name", "OpenAI", "--type", "saas"]);
+
+    // Archiving is opt-in in the library.
+    let (_, err, ok) = run(&dir, db, &["asset", "archive", &archived]);
+    assert!(ok, "{err}");
+    let (out, _, ok) = run(&dir, db, &["library", "list"]);
+    assert!(ok, "{out}");
+    assert!(
+        !out.contains("Archived Anime"),
+        "archived must be hidden by default: {out}"
+    );
+    assert!(out.contains("3 asset(s) on this page, 3 total"), "{out}");
+
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &["library", "list", "--lifecycle", "active-or-archived"],
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains("Archived Anime"), "{out}");
+    assert!(out.contains("4 asset(s) on this page, 4 total"), "{out}");
+    // `all` behaves the same way: a tombstone is never a library row.
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--lifecycle", "all"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("4 asset(s) on this page, 4 total"), "{out}");
+
+    // An archived asset is still readable in detail.
+    let (out, _, ok) = run(&dir, db, &["library", "get", &archived]);
+    assert!(ok && out.contains("Lifecycle:   archived"), "{out}");
+
+    // Merging tombstones the loser; the library hides it and names the
+    // survivor instead of showing stale details.
+    let (_, err, ok) = run(&dir, db, &["asset", "merge", &loser, &winner]);
+    assert!(ok, "{err}");
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--lifecycle", "all"]);
+    assert!(ok, "{out}");
+    assert!(
+        !out.contains("Loser Anime"),
+        "merged tombstone leaked into the library: {out}"
+    );
+    // Winner + service live, plus the archived one under `all`.
+    assert!(out.contains("3 asset(s) on this page, 3 total"), "{out}");
+
+    let (out, err, ok) = run(&dir, db, &["library", "get", &loser]);
+    assert!(!ok, "a tombstone must not resolve as a detail: {out}");
+    assert!(
+        err.contains(&winner) && err.contains("merged into"),
+        "the error must name the survivor: {err}"
+    );
+    let (out, _, ok) = run(&dir, db, &["library", "get", &winner]);
+    assert!(ok && out.contains("Winner Anime"), "{out}");
+
+    // Search keeps the same rule.
+    let (out, _, ok) = run(&dir, db, &["library", "search", "anime"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Winner Anime"), "{out}");
+    assert!(!out.contains("Loser Anime"), "{out}");
+    assert!(!out.contains("Archived Anime"), "{out}");
+    let (out, _, ok) = run(
+        &dir,
+        db,
+        &[
+            "library",
+            "search",
+            "anime",
+            "--lifecycle",
+            "active-or-archived",
+        ],
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains("Archived Anime"), "{out}");
+    assert!(!out.contains("Loser Anime"), "{out}");
+
+    // A bad --kind is a caller error, not a silent empty page.
+    let (out, err, ok) = run(&dir, db, &["library", "list", "--kind", "nonsense"]);
+    assert!(!ok, "unknown kind must fail: {out}");
+    assert!(err.contains("unknown asset kind"), "stderr: {err}");
+
+    // Sanity: the module commands are unaffected.
+    let (out, _, ok) = run(&dir, db, &["service", "get", &service]);
+    assert!(ok && out.contains("OpenAI"), "{out}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Creates a software record through the real CLI and returns its id.
+fn create_software(dir: &std::path::Path, db: &str, args: &[&str]) -> String {
+    let mut argv = vec!["software", "add"];
+    argv.extend_from_slice(args);
+    let (out, err, ok) = run(dir, db, &argv);
+    assert!(ok, "software add should succeed: {err}");
+    assert!(out.starts_with("created "), "{out}");
+    out.lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("created ")
+        .trim()
+        .to_string()
+}
+
+/// Phase 4D: one cross-module fixture exercising the whole Phase 4 surface
+/// through the compiled binary — library, search, relation traversal, impact,
+/// activity, duplicate review — and confirming the derived state stays
+/// consistent through export/import and a search rebuild.
+#[test]
+fn unified_core_works_end_to_end_across_modules() {
+    let dir = unique_dir("phase4");
+    let db = "phase4.db";
+
+    // --- build the fixture: Media A, Software B/C, Service D/E ---
+    let media = run(
+        &dir,
+        db,
+        &[
+            "media",
+            "add",
+            "--title",
+            "Sousou no Frieren",
+            "--media-type",
+            "anime",
+            "--year",
+            "2023",
+            "--tag",
+            "healing",
+            "--ref",
+            "tmdb:209867",
+        ],
+    )
+    .0
+    .lines()
+    .next()
+    .unwrap()
+    .trim_start_matches("created ")
+    .trim()
+    .to_string();
+    let ripgrep = create_software(
+        &dir,
+        db,
+        &[
+            "--name",
+            "ripgrep",
+            "--category",
+            "cli",
+            "--version",
+            "14.1.0",
+            "--tag",
+            "dev",
+            "--install-location",
+            "/opt/homebrew/bin/rg",
+        ],
+    );
+    let fzf = create_software(&dir, db, &["--name", "fzf", "--category", "cli"]);
+    let openai = create_service(
+        &dir,
+        db,
+        &[
+            "--name",
+            "OpenAI",
+            "--type",
+            "saas",
+            "--provider",
+            "OpenAI",
+            "--plan",
+            "Plus",
+            "--cost",
+            "19.99",
+            "--currency",
+            "USD",
+            "--tag",
+            "ai",
+        ],
+    );
+    let vps = create_service(&dir, db, &["--name", "Hetzner VPS", "--type", "vps"]);
+
+    // --- relations: A uses D, A depends_on D, B depends_on C,
+    //     B installed_via E, D hosted_on E ---
+    // `uses` and `depends_on` are both recorded between A and D so the fixture
+    // proves that only the latter creates a dependency.
+    for (source, relation_type, target) in [
+        (&media, "uses", &openai),
+        (&media, "depends_on", &openai),
+        (&ripgrep, "depends_on", &fzf),
+        (&ripgrep, "installed_via", &vps),
+        (&openai, "hosted_on", &vps),
+    ] {
+        let (out, err, ok) = run(
+            &dir,
+            db,
+            &["relation", "add", source, relation_type, target],
+        );
+        assert!(ok, "relation add failed: {err}{out}");
+    }
+    // A renewal so the services module has its own activity vocabulary.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &["service", "renew", &openai, "--renewed-at", "2026-10-01"],
+    );
+    assert!(ok, "{err}");
+
+    // --- unified library ---
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--sort", "name", "--json"]);
+    assert!(ok, "{out}");
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let names: Vec<&str> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].as_str().unwrap())
+        .collect();
+    // Case-insensitive name order: fzf < hetzner < openai < ripgrep < sousou.
+    assert_eq!(
+        names,
+        vec![
+            "fzf",
+            "Hetzner VPS",
+            "OpenAI",
+            "ripgrep",
+            "Sousou no Frieren"
+        ]
+    );
+    assert_eq!(page["total"], 5);
+
+    // --- relation traversal and impact ---
+    // Neighbours read from the queried asset's perspective: the CLI never
+    // derives an inverse itself.
+    let (out, _, ok) = run(&dir, db, &["relation", "neighbors", &vps]);
+    assert!(ok, "{out}");
+    assert!(out.contains("hosts"), "{out}");
+    assert!(out.contains("installs"), "{out}");
+    assert!(out.contains("OpenAI"), "{out}");
+    assert!(out.contains("ripgrep"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["relation", "dependencies", &ripgrep]);
+    assert!(ok, "{out}");
+    assert!(out.contains("fzf"), "{out}");
+    assert!(out.contains("depends_on"), "{out}");
+    // The VPS is reached through `installed_via`, not through `uses`.
+    assert!(out.contains("Hetzner VPS"), "{out}");
+    assert!(out.contains("installed_via"), "{out}");
+
+    let (out, _, ok) = run(&dir, db, &["relation", "dependents", &vps]);
+    assert!(ok, "{out}");
+    assert!(out.contains("ripgrep"), "{out}");
+    assert!(out.contains("OpenAI"), "{out}");
+
+    // Impact is transitive and explainable: the media asset depends on the
+    // service that is hosted on the VPS.
+    let (out, _, ok) = run(&dir, db, &["relation", "impact", &vps]);
+    assert!(ok, "{out}");
+    assert!(out.contains("Sousou no Frieren"), "impact: {out}");
+    assert!(out.contains("--hosts-->"), "impact path: {out}");
+    assert!(out.contains("--dependency_of-->"), "impact path: {out}");
+
+    let (out, _, ok) = run(&dir, db, &["relation", "impact", &vps, "--json"]);
+    assert!(ok, "{out}");
+    let impact: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let media_node = impact["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["asset"]["name"] == "Sousou no Frieren")
+        .expect("the media asset is affected two hops away");
+    assert_eq!(media_node["depth"], 2);
+    assert_eq!(media_node["path"].as_array().unwrap().len(), 2);
+    assert_eq!(media_node["path"][0]["relation_type"], "hosts");
+
+    // Depth bounding.
+    let (out, _, ok) = run(&dir, db, &["relation", "impact", &vps, "--depth", "1"]);
+    assert!(ok, "{out}");
+    assert!(
+        !out.contains("Sousou no Frieren"),
+        "depth 1 stops early: {out}"
+    );
+    assert!(out.contains("depth bound reached"), "{out}");
+
+    // --- activity ---
+    let (out, _, ok) = run(&dir, db, &["activity", "list", "--json"]);
+    assert!(ok, "{out}");
+    let activity: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(activity["total"].as_u64().unwrap() >= 10);
+    let modules: Vec<&str> = activity["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["module"].as_str().unwrap())
+        .collect();
+    for expected in ["asset", "media", "software", "services", "relation"] {
+        assert!(
+            modules.contains(&expected),
+            "missing {expected} in {modules:?}"
+        );
+    }
+
+    let (out, _, ok) = run(&dir, db, &["activity", "list", "--type", "service.renewed"]);
+    assert!(ok && out.contains("service.renewed"), "{out}");
+    let (out, _, ok) = run(&dir, db, &["activity", "list", "--module", "relation"]);
+    assert!(ok && out.contains("relation.created"), "{out}");
+    let (out, _, ok) = run(&dir, db, &["activity", "list", "--asset", &ripgrep]);
+    assert!(ok && out.contains("software.created"), "{out}");
+
+    // --- duplicate review: advisory only ---
+    let duplicate = create_software(&dir, db, &["--name", "RIPGREP", "--category", "cli"]);
+    let (out, _, ok) = run(&dir, db, &["duplicates", "list", "--json"]);
+    assert!(ok, "{out}");
+    let duplicates: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let candidate = duplicates["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|candidate| {
+            let ids = [
+                candidate["left"]["id"].as_str().unwrap(),
+                candidate["right"]["id"].as_str().unwrap(),
+            ];
+            ids.contains(&ripgrep.as_str()) && ids.contains(&duplicate.as_str())
+        })
+        .expect("the same normalized name is a candidate");
+    assert_eq!(candidate["evidence"][0]["evidence"], "same_normalized_name");
+
+    // The review never merges: both assets still exist and are still listed.
+    let (out, _, ok) = run(&dir, db, &["library", "list", "--json"]);
+    assert!(ok, "{out}");
+    let page: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(page["total"], 6);
+    assert!(page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["id"] == serde_json::json!(duplicate)));
+
+    // The same name on a different kind is not a candidate.
+    run(
+        &dir,
+        db,
+        &[
+            "media",
+            "add",
+            "--title",
+            "ripgrep",
+            "--media-type",
+            "movie",
+        ],
+    );
+    let (out, _, ok) = run(&dir, db, &["duplicates", "list", "--json"]);
+    assert!(ok, "{out}");
+    let duplicates: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let cross_kind = duplicates["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate["left"]["kind"] != candidate["right"]["kind"]);
+    assert!(!cross_kind, "different kinds are never duplicates");
+
+    // --- lifecycle: archive one asset, then merge a duplicate ---
+    let (_, err, ok) = run(&dir, db, &["asset", "archive", &fzf]);
+    assert!(ok, "{err}");
+    let (out, _, ok) = run(&dir, db, &["relation", "dependencies", &ripgrep]);
+    assert!(ok, "{out}");
+    assert!(
+        !out.contains("fzf"),
+        "an archived node is not traversed through: {out}"
+    );
+
+    let (_, err, ok) = run(&dir, db, &["asset", "merge", &duplicate, &ripgrep]);
+    assert!(ok, "{err}");
+    let (out, _, ok) = run(&dir, db, &["duplicates", "list", "--json"]);
+    assert!(ok, "{out}");
+    let duplicates: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        duplicates["total"], 0,
+        "the merged pair is no longer a candidate: {duplicates}"
+    );
+    let (out, err, ok) = run(&dir, db, &["relation", "dependencies", &duplicate]);
+    assert!(!ok, "{out}");
+    assert!(
+        err.contains("merged into") && err.contains(&ripgrep),
+        "the graph refuses a tombstone and names the survivor: {err}"
+    );
+
+    // --- export / import round trip preserves the derived views ---
+    let bundle = dir.join("bundle");
+    let (_, err, ok) = run(&dir, db, &["export", bundle.to_str().unwrap()]);
+    assert!(ok, "{err}");
+    let fresh = unique_dir("phase4-restore");
+    let (_, err, ok) = run(&fresh, "restored.db", &["import", bundle.to_str().unwrap()]);
+    assert!(ok, "{err}");
+
+    let (out, _, ok) = run(&fresh, "restored.db", &["relation", "impact", &vps]);
+    assert!(ok, "{out}");
+    assert!(
+        out.contains("Sousou no Frieren"),
+        "impact after import: {out}"
+    );
+    let (out, _, ok) = run(&fresh, "restored.db", &["duplicates", "list", "--json"]);
+    assert!(ok, "{out}");
+    let duplicates: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(duplicates["total"], 0, "no duplicate pair after restore");
+
+    // A search rebuild leaves every derived query answering the same.
+    let before = run(&fresh, "restored.db", &["library", "search", "ripgrep"]).0;
+    let (_, err, ok) = run(&fresh, "restored.db", &["media", "search", "ripgrep"]);
+    assert!(ok, "{err}");
+    let after = run(&fresh, "restored.db", &["library", "search", "ripgrep"]).0;
+    assert_eq!(
+        before, after,
+        "a rebuild must not change what the library finds"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_dir_all(&fresh).ok();
+}

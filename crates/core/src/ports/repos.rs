@@ -172,6 +172,12 @@ pub trait RelationReader {
     fn get(&mut self, id: RelationId) -> AppResult<Option<Relation>>;
     /// Relations stored with this asset as either endpoint.
     fn list_for_asset(&mut self, asset_id: AssetId) -> AppResult<Vec<Relation>>;
+    /// Every relation touching any of these assets, ordered by identity.
+    ///
+    /// The batch form graph traversal needs: expanding one BFS frontier is a
+    /// single query instead of one per visited node. An empty slice yields no
+    /// rows rather than an error.
+    fn list_for_assets(&mut self, asset_ids: &[AssetId]) -> AppResult<Vec<Relation>>;
     /// Every relation, ordered by identity — used by export and merge.
     fn list_all(&mut self) -> AppResult<Vec<Relation>>;
 }

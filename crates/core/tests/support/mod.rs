@@ -457,6 +457,26 @@ impl RelationReader for MemStore {
         relations.sort_by_key(|r| r.id.as_uuid());
         Ok(relations)
     }
+    fn list_for_assets(&mut self, asset_ids: &[AssetId]) -> AppResult<Vec<Relation>> {
+        // Mirrors the SQLite adapter: every relation touching any of the given
+        // assets, ordered by identity, and an empty slice yields no rows.
+        let wanted: std::collections::HashSet<String> =
+            asset_ids.iter().map(|id| id.to_string()).collect();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut relations: Vec<Relation> = self
+            .relations
+            .values()
+            .filter(|r| {
+                wanted.contains(&r.source_asset_id.to_string())
+                    || wanted.contains(&r.target_asset_id.to_string())
+            })
+            .cloned()
+            .collect();
+        relations.sort_by_key(|r| r.id.as_uuid());
+        Ok(relations)
+    }
     fn list_all(&mut self) -> AppResult<Vec<Relation>> {
         Ok(self.relations.values().cloned().collect())
     }
@@ -987,6 +1007,22 @@ impl TestEnv {
         &self,
     ) -> assetmesh_core::application::service_service::ServiceService<MemFactory> {
         assetmesh_core::application::service_service::ServiceService::new(
+            self.factory.clone(),
+            self.clock.clone(),
+            self.ids.clone(),
+        )
+    }
+
+    pub fn library_service(
+        &self,
+    ) -> assetmesh_core::application::library_service::LibraryService<MemFactory> {
+        assetmesh_core::application::library_service::LibraryService::new(self.factory.clone())
+    }
+
+    pub fn software_service(
+        &self,
+    ) -> assetmesh_core::application::software_service::SoftwareService<MemFactory> {
+        assetmesh_core::application::software_service::SoftwareService::new(
             self.factory.clone(),
             self.clock.clone(),
             self.ids.clone(),

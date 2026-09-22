@@ -42,6 +42,86 @@ pub mod actors {
     pub const SYSTEM: &str = "system";
 }
 
+/// Which subsystem an activity event belongs to.
+///
+/// Derived from the event type by exactly one mapping, so an adapter never
+/// string-matches `event_type` itself (docs/11 4C). A module adds its events
+/// by extending [`ActivityModule::of_event_type`], not by teaching every
+/// consumer a new prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityModule {
+    /// Kernel asset lifecycle: created, archived, merged.
+    Asset,
+    Media,
+    Software,
+    Services,
+    Relation,
+    /// Legacy import (`media.imported` carries actor `import`).
+    Import,
+}
+
+impl ActivityModule {
+    /// The subsystem that owns `event_type`, or `None` for an unrecognized
+    /// name. Unknown names are a forward-compatibility case, not an error: a
+    /// newer module's events still appear, just unclassified.
+    pub fn of_event_type(event_type: &str) -> Option<Self> {
+        // Import is an actor-shaped subsystem that reuses the `media.` prefix,
+        // so it is matched on the whole name before the prefix mapping.
+        if event_type == event_types::MEDIA_IMPORTED {
+            return Some(ActivityModule::Import);
+        }
+        let (prefix, _) = event_type.split_once('.')?;
+        match prefix {
+            "asset" => Some(ActivityModule::Asset),
+            "media" => Some(ActivityModule::Media),
+            "software" => Some(ActivityModule::Software),
+            "service" => Some(ActivityModule::Services),
+            "relation" => Some(ActivityModule::Relation),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            ActivityModule::Asset => "asset",
+            ActivityModule::Media => "media",
+            ActivityModule::Software => "software",
+            ActivityModule::Services => "services",
+            ActivityModule::Relation => "relation",
+            ActivityModule::Import => "import",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "asset" => Some(ActivityModule::Asset),
+            "media" => Some(ActivityModule::Media),
+            "software" => Some(ActivityModule::Software),
+            "services" | "service" => Some(ActivityModule::Services),
+            "relation" => Some(ActivityModule::Relation),
+            "import" => Some(ActivityModule::Import),
+            _ => None,
+        }
+    }
+
+    /// Every module, for adapters that offer a filter list.
+    pub const ALL: [ActivityModule; 6] = [
+        ActivityModule::Asset,
+        ActivityModule::Media,
+        ActivityModule::Software,
+        ActivityModule::Services,
+        ActivityModule::Relation,
+        ActivityModule::Import,
+    ];
+}
+
+impl std::fmt::Display for ActivityModule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// One semantic, append-oriented activity event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivityEvent {
