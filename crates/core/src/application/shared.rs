@@ -33,6 +33,15 @@ pub fn load_active_asset(uow: &mut dyn UnitOfWork, asset_id: AssetId) -> AppResu
     Ok(asset)
 }
 
+/// Enforces optimistic concurrency on canonical assets.
+/// Returns [`AppError::StaleRevision`] when the actual revision diverges.
+pub fn check_asset_revision(asset: &Asset, expected: i64) -> AppResult<()> {
+    if asset.revision != expected {
+        return Err(AppError::stale_revision(expected, asset.revision));
+    }
+    Ok(())
+}
+
 /// A namespaced reference must be free, or already owned by the same asset,
 /// before it is written. Called inside the caller's transaction so the check
 /// and the insert cannot be separated.

@@ -4,8 +4,6 @@
 //! `RelationQueryService` in `assetmesh-core`.
 //! Follows the architectural invariant: Zero direct SQL / raw repository access.
 
-use std::sync::Arc;
-
 use assetmesh_core::application::relation_query_service::{
     RelationQueryService, TraversalDirection, TraversalOptions, DEFAULT_MAX_DEPTH,
 };
@@ -148,12 +146,14 @@ pub fn relation_attach_impl(
 
     state.with_factory(|factory| {
         let mut svc = RelationService::new(factory.clone(), state.clock.clone(), state.ids.clone());
-        let relation = svc.attach(
+        let relation = svc.attach_with_revisions(
             source,
             relation_type,
             target,
             payload.note,
             RelationProvenance::Manual,
+            payload.expected_source_revision,
+            payload.expected_target_revision,
         )?;
 
         Ok(MutationReceiptDto {
@@ -177,9 +177,22 @@ pub fn relation_remove_impl(
         .map(RelationId::from_uuid)
         .map_err(|e| DesktopError::invalid_input(format!("invalid relation_id: {e}")))?;
 
+    let context_asset_id = match payload.context_asset_id.as_deref() {
+        Some(s) => Some(
+            uuid::Uuid::parse_str(s)
+                .map(AssetId::from_uuid)
+                .map_err(|e| DesktopError::invalid_input(format!("invalid context_asset_id: {e}")))?,
+        ),
+        None => None,
+    };
+
     state.with_factory(|factory| {
         let mut svc = RelationService::new(factory.clone(), state.clock.clone(), state.ids.clone());
-        svc.remove(relation_id)?;
+        svc.remove_with_revision(
+            relation_id,
+            context_asset_id,
+            payload.expected_context_revision,
+        )?;
 
         Ok(MutationReceiptDto {
             operation: "relation.remove".to_string(),
@@ -194,7 +207,7 @@ pub fn relation_remove_impl(
 #[tauri::command]
 pub async fn relation_list(
     asset_id: String,
-    state: State<'_, Arc<DesktopState>>,
+    state: State<'_, DesktopState>,
 ) -> Result<Vec<RelationViewDto>, DesktopError> {
     relation_list_impl(asset_id, &state)
 }
@@ -202,7 +215,7 @@ pub async fn relation_list(
 #[tauri::command]
 pub async fn relation_neighbors(
     query: RelationNeighborsQueryDto,
-    state: State<'_, Arc<DesktopState>>,
+    state: State<'_, DesktopState>,
 ) -> Result<Vec<NeighborViewDto>, DesktopError> {
     relation_neighbors_impl(query, &state)
 }
@@ -210,7 +223,7 @@ pub async fn relation_neighbors(
 #[tauri::command]
 pub async fn relation_traverse(
     query: RelationTraverseQueryDto,
-    state: State<'_, Arc<DesktopState>>,
+    state: State<'_, DesktopState>,
 ) -> Result<TraversalViewDto, DesktopError> {
     relation_traverse_impl(query, &state)
 }
@@ -218,7 +231,7 @@ pub async fn relation_traverse(
 #[tauri::command]
 pub async fn relation_attach(
     payload: RelationAttachDto,
-    state: State<'_, Arc<DesktopState>>,
+    state: State<'_, DesktopState>,
 ) -> Result<MutationReceiptDto, DesktopError> {
     relation_attach_impl(payload, &state)
 }
@@ -226,7 +239,7 @@ pub async fn relation_attach(
 #[tauri::command]
 pub async fn relation_remove(
     payload: RelationRemoveDto,
-    state: State<'_, Arc<DesktopState>>,
+    state: State<'_, DesktopState>,
 ) -> Result<MutationReceiptDto, DesktopError> {
     relation_remove_impl(payload, &state)
 }

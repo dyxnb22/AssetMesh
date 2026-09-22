@@ -233,6 +233,7 @@ describe('Software Workflow UI (P5-06)', () => {
       expect(softwareCmdSpy).toHaveBeenCalledWith({
         action: 'archive',
         asset_id: 'asset-software-001',
+        expected_revision: 1,
       });
     });
 

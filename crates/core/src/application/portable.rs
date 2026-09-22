@@ -1030,6 +1030,12 @@ impl BundleLock {
     }
 }
 
+impl Drop for BundleLock {
+    fn drop(&mut self) {
+        let _ = self._file.unlock();
+    }
+}
+
 /// Lock location: `<parent>/.<name>.lock`, a sibling of the target bundle directory.
 pub fn lock_path(target: &Path) -> PathBuf {
     let parent = target.parent().unwrap_or_else(|| Path::new("."));

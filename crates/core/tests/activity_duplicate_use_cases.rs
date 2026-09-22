@@ -234,6 +234,7 @@ fn activity_reports_events_from_every_module_newest_first() {
         .record_renewal(
             assetmesh_core::application::service_service::RecordRenewal {
                 asset_id: f.service,
+                expected_revision: Some(1),
                 renewed_at: f.env.clock.now(),
                 charged_cost_minor: None,
                 currency: None,
@@ -363,6 +364,7 @@ fn activity_filters_by_asset_type_module_actor_and_time() {
         .record_renewal(
             assetmesh_core::application::service_service::RecordRenewal {
                 asset_id: f.service,
+                expected_revision: Some(1),
                 renewed_at: f.env.clock.now(),
                 charged_cost_minor: None,
                 currency: None,
@@ -429,6 +431,90 @@ fn activity_filters_by_asset_type_module_actor_and_time() {
         .unwrap();
     assert!(empty_window.items.is_empty());
     assert_eq!(empty_window.total, Some(0));
+}
+
+#[test]
+fn activity_filters_by_kind_narrower_than_module() {
+    // docs/12 specifies activity filtering by asset/kind/type/time. A kind is
+    // finer than a module: `media.movie` and `media.anime` are both the Media
+    // module, so "movie events only" is a question the module filter cannot
+    // answer. That gap is what this pins.
+    let f = fixture();
+    f.env.media_service().start_media(f.media).unwrap();
+
+    let movie = f
+        .env
+        .media_service()
+        .create_media(media_cmd("Dune", MediaType::Movie))
+        .unwrap();
+    f.env
+        .media_service()
+        .start_media(movie.entry.asset.id)
+        .unwrap();
+
+    let mut service = activity(&f.env);
+    let kind = AssetKind::MediaMovie;
+
+    let movies_only = service
+        .query(&ActivityQuery {
+            kinds: vec![kind],
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(!movies_only.items.is_empty());
+    assert!(
+        movies_only.items.iter().all(|event| {
+            // Media-start belongs to the movie only if its asset is the movie;
+            // the asset id is the only way to tell two same-type events apart.
+            event.asset_id.is_none() || event.asset_id == Some(movie.entry.asset.id)
+        }),
+        "the anime's events must not appear: {:?}",
+        types(&movies_only.items)
+    );
+
+    // Both kinds together is the union of the two media assets' events — which
+    // includes each asset's own `asset.created`, whose module is Asset rather
+    // than Media. The kind filter is about the asset, not the subsystem.
+    let both_media = service
+        .query(&ActivityQuery {
+            kinds: vec![AssetKind::MediaMovie, AssetKind::MediaAnime],
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(!both_media.items.is_empty());
+    assert!(both_media.items.iter().all(|event| {
+        event.asset_id.is_none()
+            || event.asset_id == Some(movie.entry.asset.id)
+            || event.asset_id == Some(f.media)
+    }));
+    assert!(
+        !types(&both_media.items).contains(&event_types::SERVICE_RENEWED.to_string()),
+        "a service event has no media kind and must be excluded"
+    );
+
+    // The union is larger than the movie-only result, so both kinds really are
+    // contributing rather than one of them swallowing the other.
+    assert!(
+        both_media.total.unwrap() > movies_only.total.unwrap(),
+        "{} events across both media kinds vs {} for the movie alone",
+        both_media.total.unwrap(),
+        movies_only.total.unwrap()
+    );
+
+    // A kind with no events in this fixture matches nothing, rather than
+    // everything (which is what an unhandled filter would degrade to).
+    let unknown = service
+        .query(&ActivityQuery {
+            kinds: vec![AssetKind::MediaGame],
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        unknown.items.is_empty(),
+        "no game was created in this fixture: {:?}",
+        types(&unknown.items)
+    );
+    assert_eq!(unknown.total, Some(0));
 }
 
 #[test]
@@ -1025,6 +1111,7 @@ fn activity_and_duplicate_reads_use_one_snapshot_and_no_per_row_queries() {
         .record_renewal(
             assetmesh_core::application::service_service::RecordRenewal {
                 asset_id: f.service,
+                expected_revision: Some(1),
                 renewed_at: f.env.clock.now(),
                 charged_cost_minor: None,
                 currency: None,

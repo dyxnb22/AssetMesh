@@ -65,10 +65,21 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
     /// Archives an active asset. Archived assets reject normal mutations but
     /// remain searchable and exported.
     pub fn archive_asset(&mut self, asset_id: AssetId) -> AppResult<()> {
+        self.archive_asset_with_revision(asset_id, None).map(|_| ())
+    }
+
+    pub fn archive_asset_with_revision(
+        &mut self,
+        asset_id: AssetId,
+        expected_revision: Option<i64>,
+    ) -> AppResult<Asset> {
         let now = self.clock.now();
 
         self.factory.transact(&mut |uow| {
             let mut asset = load_active_asset(uow, asset_id)?;
+            if let Some(expected) = expected_revision {
+                crate::application::shared::check_asset_revision(&asset, expected)?;
+            }
             asset.archive(now);
             uow.assets().update(&asset)?;
             uow.activity().append(&ActivityEvent::new(
@@ -82,34 +93,23 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
             // Storage failures propagate — they must not be silently
             // swallowed while the canonical change commits.
             refresh_projection(uow, &asset)?;
-            Ok(())
+            Ok(asset)
         })
     }
 
     /// Explicitly merges `loser` into `winner`.
-    ///
-    /// Phase 2 behavior (full conflict UI is deferred, see DEVELOPMENT.md):
-    /// - both assets must exist; the loser may be active or archived (never
-    ///   already merged); the winner must be active; kinds must match;
-    /// - external refs move to the winner; pairs the winner already owns are
-    ///   dropped from the loser as redundant duplicates;
-    /// - tags are unioned;
-    /// - module details (media, software) move if the winner has none; if
-    ///   both exist the survivor wins and the loser's record is preserved
-    ///   inside the `asset.merged` activity payload for traceability;
-    /// - service details move if the winner has none, but a merge of two
-    ///   assets that BOTH carry a ServiceRecord is refused: two same-type
-    ///   records can still conflict on provider/plan/cost/renewal, and
-    ///   docs/10 forbids silently choosing a survivor. Field-level conflict
-    ///   review is Phase 3C, so the merge fails loudly and leaves both
-    ///   records intact rather than discarding one;
-    /// - relations touching the loser are re-pointed at the winner, or
-    ///   dropped when that would duplicate the winner's own relations or
-    ///   connect the winner to itself;
-    /// - the loser becomes a `merged` tombstone pointing at the winner;
-    /// - collections/attachments do not exist yet, so their merge handling
-    ///   remains a documented deferral (ADR 0005).
     pub fn merge_assets(&mut self, loser_id: AssetId, winner_id: AssetId) -> AppResult<()> {
+        self.merge_assets_with_revisions(loser_id, winner_id, None, None)
+            .map(|_| ())
+    }
+
+    pub fn merge_assets_with_revisions(
+        &mut self,
+        loser_id: AssetId,
+        winner_id: AssetId,
+        expected_loser_revision: Option<i64>,
+        expected_winner_revision: Option<i64>,
+    ) -> AppResult<Asset> {
         let now = self.clock.now();
 
         if loser_id == winner_id {
@@ -129,7 +129,13 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
                     "asset is already merged and cannot be merged again",
                 ));
             }
+            if let Some(expected_loser) = expected_loser_revision {
+                crate::application::shared::check_asset_revision(&loser, expected_loser)?;
+            }
             let winner = load_active_asset(uow, winner_id)?;
+            if let Some(expected_winner) = expected_winner_revision {
+                crate::application::shared::check_asset_revision(&winner, expected_winner)?;
+            }
 
             if loser.kind != winner.kind {
                 return Err(AppError::conflict(format!(
@@ -307,7 +313,7 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
             // Projection: drop the loser, refresh the winner.
             uow.search_index().remove(loser_id)?;
             refresh_projection(uow, &winner_mut)?;
-            Ok(())
+            Ok(winner_mut)
         })
     }
 

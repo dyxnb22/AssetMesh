@@ -58,13 +58,32 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
         note: Option<String>,
         provenance: RelationProvenance,
     ) -> AppResult<Relation> {
+        self.attach_with_revisions(source, relation_type, target, note, provenance, None, None)
+    }
+
+    pub fn attach_with_revisions(
+        &mut self,
+        source: AssetId,
+        relation_type: RelationType,
+        target: AssetId,
+        note: Option<String>,
+        provenance: RelationProvenance,
+        expected_source_revision: Option<i64>,
+        expected_target_revision: Option<i64>,
+    ) -> AppResult<Relation> {
         let now = self.clock.now();
         let note = crate::domain::validation::optional_text(&note, "note")?;
         let relation_id = RelationId::from_uuid(self.ids.new_id());
 
         self.factory.transact(&mut |uow| {
-            load_active_asset(uow, source)?;
-            load_active_asset(uow, target)?;
+            let source_asset = load_active_asset(uow, source)?;
+            if let Some(expected) = expected_source_revision {
+                crate::application::shared::check_asset_revision(&source_asset, expected)?;
+            }
+            let target_asset = load_active_asset(uow, target)?;
+            if let Some(expected) = expected_target_revision {
+                crate::application::shared::check_asset_revision(&target_asset, expected)?;
+            }
             let mut relation = Relation::new(
                 relation_id,
                 source,
@@ -107,6 +126,15 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
     }
 
     pub fn remove(&mut self, relation_id: RelationId) -> AppResult<()> {
+        self.remove_with_revision(relation_id, None, None)
+    }
+
+    pub fn remove_with_revision(
+        &mut self,
+        relation_id: RelationId,
+        context_asset_id: Option<AssetId>,
+        expected_context_revision: Option<i64>,
+    ) -> AppResult<()> {
         let now = self.clock.now();
 
         self.factory.transact(&mut |uow| {
@@ -114,6 +142,19 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
                 .relations()
                 .get(relation_id)?
                 .ok_or_else(|| AppError::not_found("relation", relation_id))?;
+
+            if let Some(context_id) = context_asset_id {
+                if relation.source_asset_id != context_id && relation.target_asset_id != context_id {
+                    return Err(AppError::validation(format!(
+                        "context asset {context_id} does not touch relation {relation_id}"
+                    )));
+                }
+                let context_asset = load_active_asset(uow, context_id)?;
+                if let Some(expected) = expected_context_revision {
+                    crate::application::shared::check_asset_revision(&context_asset, expected)?;
+                }
+            }
+
             uow.relations().delete(relation_id)?;
             uow.activity().append(&ActivityEvent::new(
                 event_types::RELATION_REMOVED,

@@ -89,6 +89,8 @@ fn relation_workflow_inverse_and_duplicate_prevention() {
             relation_type: "depends_on".into(),
             target_asset_id: b.clone(),
             note: Some("ripgrep is written in Rust".into()),
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -163,6 +165,8 @@ fn relation_workflow_inverse_and_duplicate_prevention() {
             relation_type: "dependency_of".into(),
             target_asset_id: a.clone(),
             note: None,
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -184,6 +188,8 @@ fn relation_workflow_symmetric_canonicalization() {
             relation_type: "related_to".into(),
             target_asset_id: b.clone(),
             note: Some("both modal editors".into()),
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -205,6 +211,8 @@ fn relation_workflow_symmetric_canonicalization() {
             relation_type: "related_to".into(),
             target_asset_id: a,
             note: None,
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -227,6 +235,8 @@ fn relation_workflow_cycle_safe_traversal() {
             relation_type: "depends_on".into(),
             target_asset_id: b.clone(),
             note: None,
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -238,6 +248,8 @@ fn relation_workflow_cycle_safe_traversal() {
             relation_type: "depends_on".into(),
             target_asset_id: c.clone(),
             note: None,
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -249,6 +261,8 @@ fn relation_workflow_cycle_safe_traversal() {
             relation_type: "depends_on".into(),
             target_asset_id: a.clone(),
             note: None,
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -295,6 +309,8 @@ fn relation_workflow_depth_cap_and_truncation() {
                 relation_type: "depends_on".into(),
                 target_asset_id: dst.clone(),
                 note: None,
+                expected_source_revision: None,
+                expected_target_revision: None,
             },
             &state,
         )
@@ -356,6 +372,8 @@ fn relation_workflow_archived_filtering() {
             relation_type: "uses".into(),
             target_asset_id: active_dep.clone(),
             note: None,
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -367,6 +385,8 @@ fn relation_workflow_archived_filtering() {
             relation_type: "uses".into(),
             target_asset_id: to_archive.clone(),
             note: None,
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -376,6 +396,7 @@ fn relation_workflow_archived_filtering() {
     media_command_impl(
         MediaCommandDto::Archive {
             asset_id: to_archive.clone(),
+            expected_revision: None,
         },
         &state,
     )
@@ -424,6 +445,8 @@ fn relation_workflow_remove_and_activity() {
             relation_type: "uses".into(),
             target_asset_id: b.clone(),
             note: Some("Temporary relation".into()),
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -437,6 +460,8 @@ fn relation_workflow_remove_and_activity() {
     let receipt = relation_remove_impl(
         RelationRemoveDto {
             relation_id: rel_id,
+            context_asset_id: None,
+            expected_context_revision: None,
         },
         &state,
     )

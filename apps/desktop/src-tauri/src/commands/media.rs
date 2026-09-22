@@ -1,12 +1,9 @@
 //! Media module write commands and mutation receipts (P5-06).
 
-use std::sync::Arc;
-
 use assetmesh_core::application::asset_service::AssetService;
 use assetmesh_core::application::media_service::{CreateMedia, MediaService, UpdateMediaMetadata};
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::media::{MediaStatus, MediaType, Progress};
-use assetmesh_core::ports::{SystemClock, UuidV7Generator};
 use tauri::State;
 
 use crate::dto::{MediaCommandDto, MutationReceiptDto};
@@ -75,9 +72,8 @@ pub fn media_command_impl(
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = MediaService::new(factory.clone(), clock, id_gen);
+                let mut svc =
+                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
                 let view = svc.create_media(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "media.create".into(),
@@ -127,9 +123,8 @@ pub fn media_command_impl(
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = MediaService::new(factory.clone(), clock, id_gen);
+                let mut svc =
+                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
                 let view = svc.update_metadata(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "media.update_metadata".into(),
@@ -140,7 +135,11 @@ pub fn media_command_impl(
                 })
             })
         }
-        MediaCommandDto::TransitionStatus { asset_id, status } => {
+        MediaCommandDto::TransitionStatus {
+            asset_id,
+            status,
+            expected_revision,
+        } => {
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
@@ -149,21 +148,17 @@ pub fn media_command_impl(
                 DesktopError::invalid_input(format!("unknown media status: {status}"))
             })?;
 
+            if target_status == MediaStatus::Planned {
+                return Err(DesktopError::invalid_input(
+                    "transition to planned is not supported",
+                ));
+            }
+
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = MediaService::new(factory.clone(), clock, id_gen);
-                let view = match target_status {
-                    MediaStatus::InProgress => svc.start_media(id)?,
-                    MediaStatus::Paused => svc.pause_media(id)?,
-                    MediaStatus::Dropped => svc.drop_media(id)?,
-                    MediaStatus::Completed => svc.complete_media(id)?,
-                    MediaStatus::Planned => {
-                        return Err(DesktopError::invalid_input(
-                            "transition to planned is not supported",
-                        ));
-                    }
-                };
+                let mut svc =
+                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+                let view =
+                    svc.transition_status_with_revision(id, target_status, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: format!("media.transition.{}", target_status.as_str()),
                     asset_ids: vec![view.entry.asset.id.to_string()],
@@ -178,6 +173,7 @@ pub fn media_command_impl(
             unit,
             current,
             total,
+            expected_revision,
         } => {
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
@@ -190,10 +186,9 @@ pub fn media_command_impl(
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = MediaService::new(factory.clone(), clock, id_gen);
-                let view = svc.update_progress(id, progress)?;
+                let mut svc =
+                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+                let view = svc.update_progress_with_revision(id, progress, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "media.update_progress".into(),
                     asset_ids: vec![view.entry.asset.id.to_string()],
@@ -203,16 +198,19 @@ pub fn media_command_impl(
                 })
             })
         }
-        MediaCommandDto::Rate { asset_id, rating } => {
+        MediaCommandDto::Rate {
+            asset_id,
+            rating,
+            expected_revision,
+        } => {
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = MediaService::new(factory.clone(), clock, id_gen);
-                let view = svc.rate_media(id, rating)?;
+                let mut svc =
+                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+                let view = svc.rate_media_with_revision(id, rating, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "media.rate".into(),
                     asset_ids: vec![view.entry.asset.id.to_string()],
@@ -222,20 +220,22 @@ pub fn media_command_impl(
                 })
             })
         }
-        MediaCommandDto::Archive { asset_id } => {
+        MediaCommandDto::Archive {
+            asset_id,
+            expected_revision,
+        } => {
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = AssetService::new(factory.clone(), clock, id_gen);
-                svc.archive_asset(id)?;
+                let mut svc =
+                    AssetService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+                let asset = svc.archive_asset_with_revision(id, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "asset.archive".into(),
                     asset_ids: vec![asset_id],
-                    revision: None,
+                    revision: Some(asset.revision),
                     changed: true,
                     warnings: Vec::new(),
                 })

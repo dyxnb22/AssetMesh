@@ -21,9 +21,17 @@ export const MergeModal: React.FC<MergeModalProps> = ({
   onClose,
   onMerged,
 }) => {
-  // Explicit winner selection: defaults to left, but user must have clear control
-  const [winnerId, setWinnerId] = useState<string>(candidate.left.id);
-  const loserId = winnerId === candidate.left.id ? candidate.right.id : candidate.left.id;
+  // No winner is preselected: the completion condition for P5-08 is that the
+  // UI must not pick a winner on the user's behalf. `null` means "the user has
+  // not chosen yet", and nothing downstream — preview, confirmation, apply —
+  // runs until they do.
+  const [winnerId, setWinnerId] = useState<string | null>(null);
+  const loserId =
+    winnerId === null
+      ? null
+      : winnerId === candidate.left.id
+        ? candidate.right.id
+        : candidate.left.id;
 
   const [preview, setPreview] = useState<MergePreviewDto | null>(null);
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
@@ -48,8 +56,20 @@ export const MergeModal: React.FC<MergeModalProps> = ({
     }
   }, [transport]);
 
+  // A reused modal must not keep a previous review's choice: opening it on a
+  // different candidate pair starts from "no survivor chosen".
   useEffect(() => {
-    if (isOpen) {
+    setWinnerId(null);
+    setPreview(null);
+    setConfirmed(false);
+    setError(null);
+  }, [candidate.left.id, candidate.right.id]);
+
+  useEffect(() => {
+    // Only once the user has chosen. A preview is a statement about one
+    // (winner, loser) pair, so firing it against a default would reinstate the
+    // automatic choice the spec forbids.
+    if (isOpen && winnerId !== null && loserId !== null) {
       loadPreview(winnerId, loserId);
     }
   }, [isOpen, winnerId, loserId, loadPreview]);
@@ -62,8 +82,14 @@ export const MergeModal: React.FC<MergeModalProps> = ({
     }
   };
 
+  const winnerAsset = winnerId === null ? null
+    : winnerId === candidate.left.id ? candidate.left : candidate.right;
+  const loserAsset = loserId === null ? null
+    : loserId === candidate.left.id ? candidate.left : candidate.right;
+
   const handleExecuteMerge = async () => {
     if (!preview || !preview.can_merge || merging) return;
+    if (winnerId === null || loserId === null) return;
     setMerging(true);
     setError(null);
 
@@ -71,6 +97,8 @@ export const MergeModal: React.FC<MergeModalProps> = ({
       const receipt = await transport.mergeApply({
         winner_id: winnerId,
         loser_id: loserId,
+        expected_winner_revision: preview.winner_revision,
+        expected_loser_revision: preview.loser_revision,
       });
       onMerged(receipt, winnerId);
       onClose();
@@ -80,9 +108,6 @@ export const MergeModal: React.FC<MergeModalProps> = ({
       setMerging(false);
     }
   };
-
-  const winnerAsset = winnerId === candidate.left.id ? candidate.left : candidate.right;
-  const loserAsset = winnerId === candidate.left.id ? candidate.right : candidate.left;
 
   return (
     <div
@@ -165,6 +190,9 @@ export const MergeModal: React.FC<MergeModalProps> = ({
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)', marginBottom: '8px' }}>
               1. Choose Surviving Asset (Winner):
             </div>
+            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginBottom: '8px' }}>
+              Nothing is preselected — the survivor is yours to choose.
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               {/* Left Candidate Card */}
               <div
@@ -202,7 +230,11 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                     {candidate.left.name}
                   </label>
                   <Badge variant={winnerId === candidate.left.id ? 'mesh' : 'muted'}>
-                    {winnerId === candidate.left.id ? 'Survivor' : 'Loser'}
+                    {winnerId === candidate.left.id
+                      ? 'Survivor'
+                      : winnerId === null
+                        ? 'Not selected'
+                        : 'Loser'}
                   </Badge>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -250,7 +282,11 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                     {candidate.right.name}
                   </label>
                   <Badge variant={winnerId === candidate.right.id ? 'mesh' : 'muted'}>
-                    {winnerId === candidate.right.id ? 'Survivor' : 'Loser'}
+                    {winnerId === candidate.right.id
+                      ? 'Survivor'
+                      : winnerId === null
+                        ? 'Not selected'
+                        : 'Loser'}
                   </Badge>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -302,7 +338,22 @@ export const MergeModal: React.FC<MergeModalProps> = ({
               2. Merge Impact Preview:
             </div>
 
-            {loadingPreview ? (
+            {winnerId === null ? (
+              <div
+                data-testid="merge-choice-required"
+                style={{
+                  padding: '16px',
+                  backgroundColor: 'var(--color-canvas)',
+                  border: '1px dashed var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-muted)',
+                  fontSize: '12px',
+                  textAlign: 'center',
+                }}
+              >
+                Choose a surviving asset above to see what this merge would move.
+              </div>
+            ) : loadingPreview ? (
               <div
                 data-testid="merge-preview-loading"
                 style={{ padding: '16px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '12px' }}
@@ -366,10 +417,10 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                 {/* Impact details */}
                 <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <div data-testid="impact-lifecycle">
-                    <strong>Survivor:</strong> {winnerAsset.name} ({winnerAsset.id}) remains active.
+                    <strong>Survivor:</strong> {winnerAsset?.name} ({winnerAsset?.id}) remains active.
                   </div>
                   <div data-testid="impact-tombstone">
-                    <strong>Tombstone:</strong> {loserAsset.name} ({loserAsset.id}) will be marked merged and redirect to {winnerAsset.name}.
+                    <strong>Tombstone:</strong> {loserAsset?.name} ({loserAsset?.id}) will be marked merged and redirect to {winnerAsset?.name}.
                   </div>
                   <div data-testid="impact-tags">
                     <strong>Tags Transfer:</strong>{' '}
@@ -408,7 +459,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
           )}
 
           {/* Confirmation Checkbox */}
-          {preview?.can_merge && (
+          {preview?.can_merge && winnerAsset && loserAsset && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
               <input
                 id="merge-confirm-checkbox"

@@ -182,6 +182,7 @@ describe('Media Workflow UI (P5-06)', () => {
         action: 'transition_status',
         asset_id: 'asset-media-001',
         status: 'in_progress',
+        expected_revision: 1,
       });
     });
 
@@ -199,6 +200,7 @@ describe('Media Workflow UI (P5-06)', () => {
         action: 'transition_status',
         asset_id: 'asset-media-001',
         status: 'paused',
+        expected_revision: 2,
       });
     });
 
@@ -234,6 +236,7 @@ describe('Media Workflow UI (P5-06)', () => {
         current: 12,
         total: 24,
         unit: 'episodes',
+        expected_revision: 1,
       });
     });
 
@@ -255,6 +258,7 @@ describe('Media Workflow UI (P5-06)', () => {
         action: 'rate',
         asset_id: 'asset-media-001',
         rating: 10,
+        expected_revision: 2,
       });
     });
 
@@ -292,6 +296,7 @@ describe('Media Workflow UI (P5-06)', () => {
       expect(mediaCmdSpy).toHaveBeenCalledWith({
         action: 'archive',
         asset_id: 'asset-media-001',
+        expected_revision: 1,
       });
     });
 

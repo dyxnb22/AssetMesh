@@ -10,7 +10,7 @@ import type {
 } from './types';
 
 interface RelationExplorerProps {
-  rootAsset: { id: string; name: string; kind?: string; lifecycle?: string };
+  rootAsset: { id: string; name: string; kind?: string; lifecycle?: string; revision?: number };
   capabilities: AppCapabilities | null;
   onOpenAssetDetail?: (assetId: string) => void;
   onAssetUpdated?: () => void;
@@ -71,7 +71,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [direction, includeArchived, maxDepth, mode, rootAsset.id, transport]);
+  }, [transport, rootAsset.id, mode, direction, maxDepth, includeArchived]);
 
   useEffect(() => {
     loadData();
@@ -80,7 +80,11 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
   const handleRemoveRelation = async (relationId: string) => {
     setDeleting(true);
     try {
-      await transport.relationRemove({ relation_id: relationId });
+      await transport.relationRemove({
+        relation_id: relationId,
+        context_asset_id: rootAsset.id,
+        expected_context_revision: rootAsset.revision,
+      });
       setDeletingRelationId(null);
       loadData();
       onAssetUpdated?.();
@@ -680,7 +684,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
       <AttachRelationModal
         isOpen={isAttachOpen}
         onClose={() => setIsAttachOpen(false)}
-        sourceAsset={{ id: rootAsset.id, name: rootAsset.name }}
+        sourceAsset={{ id: rootAsset.id, name: rootAsset.name, revision: rootAsset.revision }}
         capabilities={capabilities}
         onAttached={() => {
           loadData();

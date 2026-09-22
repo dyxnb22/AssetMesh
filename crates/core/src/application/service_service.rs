@@ -9,9 +9,10 @@
 //! module — discovery, health checks, and renewal automation are explicitly
 //! out of scope for Phase 3.
 //!
-//! Money reaches this layer already parsed into integer minor units; decimal
-//! parsing is an adapter concern (ADR 0010). No field of the command DTOs may
-//! hold credential material: the canonical vocabulary is closed (ADR 0010).
+//! Money reaches this layer already parsed into integer minor units
+//! ([`crate::domain::service::parse_money_to_minor`] is the rule that does it);
+//! no field of the command DTOs holds a decimal string, and none may hold
+//! credential material: the canonical vocabulary is closed (ADR 0010).
 
 use crate::application::projection::project_service;
 use crate::application::shared::{ensure_ref_available, normalize_tags, ExternalRefInput};
@@ -124,6 +125,61 @@ pub struct RecordRenewal {
     pub next_renews_at: Option<Timestamp>,
     /// Next known end of entitlement, when known.
     pub next_expires_at: Option<Timestamp>,
+    pub expected_revision: Option<i64>,
+}
+
+/// Parses user/adapter money strings into validated minor units paired with currency.
+///
+/// Currency and amount are strictly coupled:
+/// - (None, None) or ("", "") -> (None, None)
+/// - (Some(c), Some(cur)) with both non-empty -> parsed (Some(minor), Some(cur.to_uppercase()))
+/// - Any half-state (amount without currency or currency without amount) -> Err(AppError::validation)
+/// - Invalid decimals, negative values, non-digits -> Err(AppError::validation)
+pub fn parse_money_pair(
+    cost: Option<&str>,
+    currency: Option<&str>,
+) -> AppResult<(Option<i64>, Option<String>)> {
+    let cost = cost.map(str::trim).filter(|s| !s.is_empty());
+    let currency = currency.map(str::trim).filter(|s| !s.is_empty());
+    match (cost, currency) {
+        (None, None) => Ok((None, None)),
+        (Some(c), Some(cur)) => {
+            let minor = crate::domain::service::parse_money_to_minor(c)?;
+            let upper_cur = cur.to_ascii_uppercase();
+            if upper_cur.len() != 3 || !upper_cur.chars().all(|ch| ch.is_ascii_alphabetic()) {
+                return Err(AppError::validation(format!(
+                    "currency code must be a 3-letter ISO code, found {cur:?}"
+                )));
+            }
+            Ok((Some(minor), Some(upper_cur)))
+        }
+        (Some(_), None) => Err(AppError::validation(
+            "cost amount specified without required currency",
+        )),
+        (None, Some(_)) => Err(AppError::validation(
+            "currency specified without cost amount",
+        )),
+    }
+}
+
+/// Parses patch money strings into Patch<i64> and Patch<String>.
+pub fn parse_money_patch(
+    cost: Option<&str>,
+    currency: Option<&str>,
+) -> AppResult<(Patch<i64>, Patch<String>)> {
+    match (cost, currency) {
+        (None, None) => Ok((Patch::Leave, Patch::Leave)),
+        (Some(c), Some(cur)) if c.trim().is_empty() && cur.trim().is_empty() => {
+            Ok((Patch::Clear, Patch::Clear))
+        }
+        (Some(c), Some(cur)) if !c.trim().is_empty() && !cur.trim().is_empty() => {
+            let (minor, cur_norm) = parse_money_pair(Some(c), Some(cur))?;
+            Ok((Patch::Set(minor.unwrap()), Patch::Set(cur_norm.unwrap())))
+        }
+        _ => Err(AppError::validation(
+            "cost and currency must be set together or cleared together",
+        )),
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -363,9 +419,9 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
     }
 
     /// Records an explicit renewal: one short transaction that applies the
-    /// caller-supplied next-boundary/cost facts, appends exactly one
-    /// `service.renewed` event, and refreshes the projection when a visible
-    /// canonical field changed (docs/10).
+    /// caller-supplied next-boundary/cost facts, advances the asset's revision,
+    /// appends exactly one `service.renewed` event, and refreshes the projection
+    /// (docs/10).
     ///
     /// No calendar arithmetic happens here. The next renewal/expiry boundary
     /// is whatever the caller supplied, so month length, timezone, and
@@ -383,10 +439,15 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
             }
         }
 
+        let now = self.clock.now();
+
         self.factory.transact(&mut |uow| {
             // One transaction loads the asset, the record, and writes both the
             // canonical change and its event (ADR 0007).
-            let asset = crate::application::shared::load_active_asset(uow, cmd.asset_id)?;
+            let mut asset = crate::application::shared::load_active_asset(uow, cmd.asset_id)?;
+            if let Some(expected) = cmd.expected_revision {
+                crate::application::shared::check_asset_revision(&asset, expected)?;
+            }
             let mut record = load_service_record(uow, cmd.asset_id)?;
 
             if record.service_type.asset_kind() != asset.kind {
@@ -398,10 +459,6 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
                     asset.kind
                 )));
             }
-
-            // Kept for the projection decision below: only a change to a
-            // search-visible field is worth rewriting the document.
-            let before = record.clone();
 
             if let Some(cost) = cmd.charged_cost_minor {
                 record.cost_minor = Some(cost);
@@ -423,6 +480,20 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
             record.validate()?;
 
             uow.services().upsert(&record)?;
+
+            // A renewal is a canonical change to the asset, not only to its
+            // details: the next boundary the user just set is what the library
+            // sorts and lists by. Bumping revision/updated_at here also keeps
+            // `asset.updated_at` and the search projection in step — the
+            // projection carries `asset.updated_at`, so it must be refreshed
+            // even when this renewal changed no field of the record (e.g. a
+            // re-recorded renewal with no new facts).
+            //
+            // `updated_at` is the transaction time, not `cmd.renewed_at`: the
+            // latter is a historical fact about when the provider charged, and
+            // backdating a renewal must not rewind the row's last-modified time.
+            asset.touch(now);
+            uow.assets().update(&asset)?;
 
             // The event carries the currency AS STORED, not as typed: `usd`
             // and `USD` are the same currency, and an activity event is an
@@ -452,9 +523,9 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
                 cmd.renewed_at,
             ))?;
 
-            if before != record {
-                update_service_projection(uow, &asset, &record)?;
-            }
+            // Unconditional, not `before != record`: the projection carries
+            // `asset.updated_at`, which the touch above just moved.
+            update_service_projection(uow, &asset, &record)?;
             Ok(())
         })?;
 

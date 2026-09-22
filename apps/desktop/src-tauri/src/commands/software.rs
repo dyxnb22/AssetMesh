@@ -1,7 +1,5 @@
 //! Software module write commands, discovery preview, and mutation receipts (P5-06).
 
-use std::sync::Arc;
-
 use assetmesh_core::application::asset_service::AssetService;
 use assetmesh_core::application::software_service::{
     AdoptOverrides, AdoptTarget, CreateSoftware, SoftwareService, UpdateSoftwareMetadata,
@@ -9,7 +7,6 @@ use assetmesh_core::application::software_service::{
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::software::{InstallSource, SoftwareCategory};
 use assetmesh_core::ports::providers::SoftwareCandidate;
-use assetmesh_core::ports::{SystemClock, UuidV7Generator};
 use assetmesh_providers::{CliToolsProvider, HomebrewProvider, MacosApplicationsProvider};
 use tauri::State;
 
@@ -36,9 +33,7 @@ pub fn software_discover_impl(
     state: &DesktopState,
 ) -> Result<Vec<ClassifiedCandidateDto>, DesktopError> {
     state.with_factory(|factory| {
-        let clock = Arc::new(SystemClock);
-        let id_gen = Arc::new(UuidV7Generator);
-        let mut svc = SoftwareService::new(factory.clone(), clock, id_gen);
+        let mut svc = SoftwareService::new(factory.clone(), state.clock.clone(), state.ids.clone());
 
         let mut all_classified = Vec::new();
         if let Ok(macos_prov) = MacosApplicationsProvider::system_default() {
@@ -121,9 +116,8 @@ pub fn software_command_impl(
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = SoftwareService::new(factory.clone(), clock, id_gen);
+                let mut svc =
+                    SoftwareService::new(factory.clone(), state.clock.clone(), state.ids.clone());
                 let view = svc.create_software(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "software.create".into(),
@@ -182,9 +176,8 @@ pub fn software_command_impl(
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = SoftwareService::new(factory.clone(), clock, id_gen);
+                let mut svc =
+                    SoftwareService::new(factory.clone(), state.clock.clone(), state.ids.clone());
                 let view = svc.update_metadata(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "software.update_metadata".into(),
@@ -232,9 +225,8 @@ pub fn software_command_impl(
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = SoftwareService::new(factory.clone(), clock, id_gen);
+                let mut svc =
+                    SoftwareService::new(factory.clone(), state.clock.clone(), state.ids.clone());
                 let outcome = svc.adopt_candidate(candidate, overrides)?;
                 Ok(MutationReceiptDto {
                     operation: "software.adopt".into(),
@@ -245,20 +237,22 @@ pub fn software_command_impl(
                 })
             })
         }
-        SoftwareCommandDto::Archive { asset_id } => {
+        SoftwareCommandDto::Archive {
+            asset_id,
+            expected_revision,
+        } => {
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = AssetService::new(factory.clone(), clock, id_gen);
-                svc.archive_asset(id)?;
+                let mut svc =
+                    AssetService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+                let asset = svc.archive_asset_with_revision(id, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "asset.archive".into(),
                     asset_ids: vec![asset_id],
-                    revision: None,
+                    revision: Some(asset.revision),
                     changed: true,
                     warnings: Vec::new(),
                 })

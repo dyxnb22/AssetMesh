@@ -1,15 +1,13 @@
 //! Services module write commands, subscription updates, and renewals (P5-06).
 
-use std::sync::Arc;
-
 use assetmesh_core::application::asset_service::AssetService;
 use assetmesh_core::application::service_service::{
-    CreateService, Patch, RecordRenewal, ServiceService, UpdateService,
+    parse_money_pair, parse_money_patch, CreateService, Patch, RecordRenewal, ServiceService,
+    UpdateService,
 };
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::service::{BillingCadence, ServiceType};
 use assetmesh_core::domain::Timestamp;
-use assetmesh_core::ports::{SystemClock, UuidV7Generator};
 use tauri::State;
 
 use crate::dto::{MutationReceiptDto, ServiceCommandDto};
@@ -22,59 +20,6 @@ pub fn service_command(
     state: State<'_, DesktopState>,
 ) -> Result<MutationReceiptDto, DesktopError> {
     service_command_impl(command, &state)
-}
-
-pub fn parse_money_to_minor(s: &str) -> Result<i64, DesktopError> {
-    let s = s.trim();
-    if s.is_empty() {
-        return Err(DesktopError::invalid_input("cost string is empty"));
-    }
-    let parts: Vec<&str> = s.split('.').collect();
-    match parts.len() {
-        1 => {
-            let whole: i64 = parts[0]
-                .parse()
-                .map_err(|e| DesktopError::invalid_input(format!("invalid cost: {e}")))?;
-            if whole < 0 {
-                return Err(DesktopError::invalid_input("cost cannot be negative"));
-            }
-            whole
-                .checked_mul(100)
-                .ok_or_else(|| DesktopError::invalid_input("cost overflow"))
-        }
-        2 => {
-            let whole: i64 = parts[0]
-                .parse()
-                .map_err(|e| DesktopError::invalid_input(format!("invalid cost: {e}")))?;
-            if whole < 0 {
-                return Err(DesktopError::invalid_input("cost cannot be negative"));
-            }
-            let dec = parts[1];
-            let cents = match dec.len() {
-                0 => 0,
-                1 => {
-                    let d = dec
-                        .parse::<i64>()
-                        .map_err(|e| DesktopError::invalid_input(format!("invalid cost: {e}")))?;
-                    d.checked_mul(10)
-                        .ok_or_else(|| DesktopError::invalid_input("cost overflow"))?
-                }
-                2 => dec
-                    .parse::<i64>()
-                    .map_err(|e| DesktopError::invalid_input(format!("invalid cost: {e}")))?,
-                _ => {
-                    return Err(DesktopError::invalid_input(
-                        "cost cannot have more than 2 decimal places",
-                    ))
-                }
-            };
-            whole
-                .checked_mul(100)
-                .and_then(|w| w.checked_add(cents))
-                .ok_or_else(|| DesktopError::invalid_input("cost overflow"))
-        }
-        _ => Err(DesktopError::invalid_input("invalid cost format")),
-    }
 }
 
 pub fn parse_timestamp(s: &str) -> Result<Timestamp, DesktopError> {
@@ -128,15 +73,8 @@ pub fn service_command_impl(
                 None
             };
 
-            let cost_minor = match (cost.as_deref(), currency.as_deref()) {
-                (None, None) => None,
-                (Some(c), Some(_)) => Some(parse_money_to_minor(c)?),
-                _ => {
-                    return Err(DesktopError::invalid_input(
-                        "cost and currency must be both present or both absent",
-                    ))
-                }
-            };
+            let (cost_minor, currency) =
+                parse_money_pair(cost.as_deref(), currency.as_deref())?;
 
             let r_at = if let Some(r) = renews_at.as_deref() {
                 Some(parse_timestamp(r)?)
@@ -172,9 +110,8 @@ pub fn service_command_impl(
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = ServiceService::new(factory.clone(), clock, id_gen);
+                let mut svc =
+                    ServiceService::new(factory.clone(), state.clock.clone(), state.ids.clone());
                 let view = svc.create_service(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "service.create".into(),
@@ -233,21 +170,8 @@ pub fn service_command_impl(
                 });
             }
 
-            let (cost_patch, currency_patch) = match (cost.as_deref(), currency.as_deref()) {
-                (None, None) => (Patch::Leave, Patch::Leave),
-                (Some(c), Some(cur)) if c.trim().is_empty() && cur.trim().is_empty() => {
-                    (Patch::Clear, Patch::Clear)
-                }
-                (Some(c), Some(cur)) => {
-                    let minor = parse_money_to_minor(c)?;
-                    (Patch::Set(minor), Patch::Set(cur.trim().to_uppercase()))
-                }
-                _ => {
-                    return Err(DesktopError::invalid_input(
-                        "cost and currency must be set together or cleared together",
-                    ))
-                }
-            };
+            let (cost_patch, currency_patch) =
+                parse_money_patch(cost.as_deref(), currency.as_deref())?;
 
             let cadence_patch = match billing_cadence.as_deref() {
                 None => Patch::Leave,
@@ -298,9 +222,8 @@ pub fn service_command_impl(
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = ServiceService::new(factory.clone(), clock, id_gen);
+                let mut svc =
+                    ServiceService::new(factory.clone(), state.clock.clone(), state.ids.clone());
                 let view = svc.update_service(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "service.update".into(),
@@ -318,20 +241,14 @@ pub fn service_command_impl(
             currency,
             next_renews_at,
             next_expires_at,
+            expected_revision,
         } => {
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
-            let charged_cost_minor = match (cost.as_deref(), currency.as_deref()) {
-                (None, None) => None,
-                (Some(c), Some(_)) => Some(parse_money_to_minor(c)?),
-                _ => {
-                    return Err(DesktopError::invalid_input(
-                        "cost and currency must be both present or both absent",
-                    ))
-                }
-            };
+            let (charged_cost_minor, currency) =
+                parse_money_pair(cost.as_deref(), currency.as_deref())?;
 
             let renewed_at_ts = parse_timestamp(&renews_at)?;
 
@@ -351,15 +268,15 @@ pub fn service_command_impl(
                 asset_id: id,
                 renewed_at: renewed_at_ts,
                 charged_cost_minor,
-                currency: currency.map(|c| c.trim().to_uppercase()),
+                currency,
                 next_renews_at: next_r_ts,
                 next_expires_at: next_e_ts,
+                expected_revision,
             };
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = ServiceService::new(factory.clone(), clock, id_gen);
+                let mut svc =
+                    ServiceService::new(factory.clone(), state.clock.clone(), state.ids.clone());
                 let view = svc.record_renewal(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "service.record_renewal".into(),
@@ -370,20 +287,22 @@ pub fn service_command_impl(
                 })
             })
         }
-        ServiceCommandDto::Archive { asset_id } => {
+        ServiceCommandDto::Archive {
+            asset_id,
+            expected_revision,
+        } => {
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
             state.with_factory(|factory| {
-                let clock = Arc::new(SystemClock);
-                let id_gen = Arc::new(UuidV7Generator);
-                let mut svc = AssetService::new(factory.clone(), clock, id_gen);
-                svc.archive_asset(id)?;
+                let mut svc =
+                    AssetService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+                let asset = svc.archive_asset_with_revision(id, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "asset.archive".into(),
                     asset_ids: vec![asset_id],
-                    revision: None,
+                    revision: Some(asset.revision),
                     changed: true,
                     warnings: Vec::new(),
                 })

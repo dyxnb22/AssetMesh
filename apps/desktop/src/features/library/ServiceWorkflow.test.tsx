@@ -231,6 +231,7 @@ describe('Service Workflow UI (P5-06)', () => {
       expect(serviceCmdSpy).toHaveBeenCalledWith({
         action: 'archive',
         asset_id: 'asset-service-001',
+        expected_revision: 1,
       });
     });
 

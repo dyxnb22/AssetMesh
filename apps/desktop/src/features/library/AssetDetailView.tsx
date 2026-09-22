@@ -314,6 +314,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         action: 'transition_status',
         asset_id: detail.id,
         status,
+        expected_revision: detail.revision,
       });
       const freshDetail = await transport.getAsset(detail.id);
       setDetail(freshDetail);
@@ -342,6 +343,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         action: 'update_progress',
         asset_id: detail.id,
         ...prog,
+        expected_revision: detail.revision,
       });
       const freshDetail = await transport.getAsset(detail.id);
       setDetail(freshDetail);
@@ -366,6 +368,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         action: 'rate',
         asset_id: detail.id,
         rating,
+        expected_revision: detail.revision,
       });
       const freshDetail = await transport.getAsset(detail.id);
       setDetail(freshDetail);
@@ -391,16 +394,19 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         receipt = await transport.softwareCommand({
           action: 'archive',
           asset_id: detail.id,
+          expected_revision: detail.revision,
         });
       } else if (detail.kind.startsWith('service')) {
         receipt = await transport.serviceCommand({
           action: 'archive',
           asset_id: detail.id,
+          expected_revision: detail.revision,
         });
       } else {
         receipt = await transport.mediaCommand({
           action: 'archive',
           asset_id: detail.id,
+          expected_revision: detail.revision,
         });
       }
       const freshDetail = await transport.getAsset(detail.id);
@@ -537,6 +543,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         next_renews_at: renewalNextDate.trim() || undefined,
         cost: renewalCost.trim() || undefined,
         currency: renewalCost.trim() ? renewalCurrency.trim().toUpperCase() : undefined,
+        expected_revision: detail.revision,
       });
 
       const freshDetail = await transport.getAsset(detail.id);

@@ -25,7 +25,8 @@ use assetmesh_core::application::relation_query_service::{
 use assetmesh_core::application::relation_service::RelationService;
 use assetmesh_core::application::search_service::SearchService;
 use assetmesh_core::application::service_service::{
-    CreateService, Patch, RecordRenewal, ServiceService, UpdateService,
+    parse_money_pair, parse_money_patch, CreateService, Patch, RecordRenewal, ServiceService,
+    UpdateService,
 };
 use assetmesh_core::application::software_discovery::ClassifiedCandidate;
 use assetmesh_core::application::software_service::{
@@ -583,6 +584,10 @@ enum ActivityCommand {
         /// Only these subsystems: asset, media, software, services, relation, import.
         #[arg(long = "module")]
         modules: Vec<String>,
+        /// Only these asset kinds, e.g. media.anime (repeatable). Narrower than
+        /// a module: a module owns several kinds.
+        #[arg(long = "kind")]
+        kinds: Vec<String>,
         /// Only these actors, e.g. user or import (repeatable).
         #[arg(long)]
         actor: Vec<String>,
@@ -1326,6 +1331,7 @@ fn run_activity(factory: SharedFactory, cmd: ActivityCommand) -> Result<(), AppE
             asset,
             event_types,
             modules,
+            kinds,
             actor,
             since,
             until,
@@ -1353,6 +1359,17 @@ fn run_activity(factory: SharedFactory, cmd: ActivityCommand) -> Result<(), AppE
                 },
                 event_types,
                 modules,
+                kinds: kinds
+                    .into_iter()
+                    .map(|value| {
+                        AssetKind::parse(&value).ok_or_else(|| {
+                            AppError::validation(format!(
+                                "unknown asset kind {value:?}; see `assetmesh capabilities` for the \
+                                 list"
+                            ))
+                        })
+                    })
+                    .collect::<AppResult<Vec<_>>>()?,
                 actors: actor,
                 since: since.as_deref().map(parse_service_timestamp).transpose()?,
                 until: until.as_deref().map(parse_service_timestamp).transpose()?,
@@ -1535,7 +1552,8 @@ fn run_service(
                 .iter()
                 .map(|raw| parse_ref_input(raw))
                 .collect::<Result<Vec<_>, AppError>>()?;
-            let (cost_minor, currency) = parse_money_pair(cost, currency)?;
+            let (cost_minor, currency) =
+                parse_money_pair(cost.as_deref(), currency.as_deref())?;
             let view = services.create_service(CreateService {
                 name,
                 service_type: service_type.into(),
@@ -1611,20 +1629,11 @@ fn run_service(
             clear_auto_renew,
         } => {
             let asset_id = resolve_asset_id(&factory, &id)?;
-            let (cost_minor, currency) =
-                if clear_cost {
-                    (Patch::<i64>::Clear, Patch::<String>::Clear)
-                } else {
-                    match (cost, currency) {
-                        (None, None) => (Patch::Leave, Patch::Leave),
-                        (Some(raw), Some(cur)) => {
-                            (Patch::Set(parse_cost_minor(&raw)?), Patch::Set(cur))
-                        }
-                        _ => return Err(AppError::validation(
-                            "--cost and --currency must be given together (or use --clear-cost)",
-                        )),
-                    }
-                };
+            let (cost_minor, currency) = if clear_cost {
+                (Patch::<i64>::Clear, Patch::<String>::Clear)
+            } else {
+                parse_money_patch(cost.as_deref(), currency.as_deref())?
+            };
             let view = services.update_service(UpdateService {
                 asset_id,
                 name,
@@ -1674,7 +1683,9 @@ fn run_service(
             next_expiry,
         } => {
             let asset_id = resolve_asset_id(&factory, &id)?;
-            let (cost_minor, currency) = parse_money_pair(cost, currency)?;
+            let current = services.get_service(asset_id)?;
+            let (cost_minor, currency) =
+                parse_money_pair(cost.as_deref(), currency.as_deref())?;
             // The renewal moment is required by the argument parser, never
             // invented here: a renewal the caller cannot date is not a fact
             // AssetMesh may timestamp on their behalf (docs/10).
@@ -1692,6 +1703,7 @@ fn run_service(
                     .as_deref()
                     .map(parse_service_timestamp)
                     .transpose()?,
+                expected_revision: Some(current.entry.asset.revision),
             })?;
             let record = &view.entry.record;
             println!("renewed {}", view.entry.asset.id);
@@ -1721,59 +1733,6 @@ fn parse_date_patch(raw: Option<&str>, clear: bool) -> AppResult<Patch<Timestamp
         None if clear => Ok(Patch::Clear),
         None => Ok(Patch::Leave),
     }
-}
-
-/// Parses `--cost`/`--currency` into canonical integer minor units. The two
-/// arguments are a pair: both present or both absent (ADR 0010).
-fn parse_money_pair(
-    cost: Option<String>,
-    currency: Option<String>,
-) -> AppResult<(Option<i64>, Option<String>)> {
-    match (cost, currency) {
-        (None, None) => Ok((None, None)),
-        (Some(raw), Some(currency)) => Ok((Some(parse_cost_minor(&raw)?), Some(currency))),
-        _ => Err(AppError::validation(
-            "--cost and --currency must be given together",
-        )),
-    }
-}
-
-/// Parses a decimal amount into integer minor units (ADR 0010). V1 uses two
-/// decimal places; anything that could not be represented without rounding
-/// is rejected rather than silently rounded. No floating point is involved.
-fn parse_cost_minor(raw: &str) -> AppResult<i64> {
-    let raw = raw.trim();
-    let invalid = || {
-        AppError::validation(format!(
-            "cost must be a decimal amount like 19.99, got {raw:?}"
-        ))
-    };
-    let (integer, fraction) = match raw.split_once('.') {
-        Some((integer, fraction)) => (integer, fraction),
-        None => (raw, ""),
-    };
-    if integer.is_empty()
-        || !integer.chars().all(|c| c.is_ascii_digit())
-        || !fraction.chars().all(|c| c.is_ascii_digit())
-    {
-        return Err(invalid());
-    }
-    if fraction.len() > 2 {
-        return Err(AppError::validation(format!(
-            "cost has more than two decimal places and cannot be represented in minor units \
-             without rounding: {raw:?}"
-        )));
-    }
-    let integer_value: i64 = integer.parse().map_err(|_| invalid())?;
-    let fraction_value: i64 = match fraction.len() {
-        0 => 0,
-        1 => fraction.parse::<i64>().unwrap() * 10,
-        _ => fraction.parse::<i64>().unwrap(),
-    };
-    integer_value
-        .checked_mul(100)
-        .and_then(|value| value.checked_add(fraction_value))
-        .ok_or_else(|| AppError::validation(format!("cost is too large: {raw:?}")))
 }
 
 /// Parses `YYYY-MM-DD` (as UTC midnight) or an RFC 3339 timestamp. Renewal

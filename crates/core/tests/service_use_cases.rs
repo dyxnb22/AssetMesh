@@ -958,6 +958,7 @@ fn record_renewal_applies_explicit_facts_and_emits_one_event() {
             currency: Some("usd".into()),
             next_renews_at: Some(ts("2026-11-01T00:00:00Z")),
             next_expires_at: Some(ts("2027-01-01T00:00:00Z")),
+            expected_revision: None,
         })
         .unwrap();
 
@@ -1034,6 +1035,7 @@ fn record_renewal_never_computes_a_next_boundary() {
             currency: None,
             next_renews_at: Some(ts("2026-10-29T00:00:00Z")),
             next_expires_at: None,
+            expected_revision: None,
         })
         .unwrap();
     assert_eq!(
@@ -1051,6 +1053,7 @@ fn record_renewal_never_computes_a_next_boundary() {
             currency: None,
             next_renews_at: None,
             next_expires_at: None,
+            expected_revision: None,
         })
         .unwrap();
     assert_eq!(
@@ -1092,6 +1095,7 @@ fn record_renewal_publishes_a_currency_only_when_a_charge_was_reported() {
             currency: None,
             next_renews_at: None,
             next_expires_at: None,
+            expected_revision: None,
         })
         .unwrap();
     let renewed: Vec<_> = view
@@ -1129,6 +1133,7 @@ fn record_renewal_validates_money_lifecycle_and_missing_records() {
             currency: None,
             next_renews_at: None,
             next_expires_at: None,
+            expected_revision: None,
         })
         .unwrap_err();
     assert!(matches!(err, AppError::Validation { .. }), "{err:?}");
@@ -1158,6 +1163,7 @@ fn record_renewal_validates_money_lifecycle_and_missing_records() {
             currency: None,
             next_renews_at: None,
             next_expires_at: None,
+            expected_revision: None,
         })
         .unwrap_err();
     assert!(matches!(err, AppError::NotFound { .. }), "{err:?}");
@@ -1172,9 +1178,115 @@ fn record_renewal_validates_money_lifecycle_and_missing_records() {
             currency: None,
             next_renews_at: None,
             next_expires_at: None,
+            expected_revision: None,
         })
         .unwrap_err();
     assert!(matches!(err, AppError::Conflict { .. }), "{err:?}");
+}
+
+#[test]
+fn record_renewal_is_a_canonical_change_to_the_asset() {
+    // A renewal moves the row: revision and updated_at must both advance, or
+    // the library's recency ordering and the search projection disagree with
+    // what the user just did. Regression test — renewal used to touch only the
+    // service record, leaving the asset untouched.
+    let mut t = test_env();
+    let mut services = t.service_service();
+    let created = services
+        .create_service(create_cmd("Odd Cycle", ServiceType::Saas))
+        .unwrap();
+    let id = created.entry.asset.id;
+    let before = t
+        .factory
+        .read(&mut |uow| uow.assets().get(id))
+        .unwrap()
+        .expect("asset exists");
+
+    services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: Some(500),
+            currency: Some("EUR".into()),
+            next_renews_at: Some(ts("2026-11-01T00:00:00Z")),
+            next_expires_at: None,
+            expected_revision: None,
+        })
+        .unwrap();
+
+    let after = t
+        .factory
+        .read(&mut |uow| uow.assets().get(id))
+        .unwrap()
+        .expect("asset exists");
+    assert_eq!(
+        after.revision,
+        before.revision + 1,
+        "a renewal must bump the revision"
+    );
+    assert!(
+        after.updated_at >= before.updated_at,
+        "a renewal must move updated_at"
+    );
+
+    // The projection carries `asset.updated_at`, so it is rewritten even for a
+    // renewal that changes no visible record field — here the record's cost and
+    // renewal date are set, and the search-visible body must still agree.
+    let mut search = t.search_service();
+    let hits = search.search("renews 2026-11-01", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].asset_id, id);
+}
+
+#[test]
+fn record_renewal_refreshes_the_projection_even_without_new_facts() {
+    // The other half of the invariant above: a renewal that supplies no new
+    // facts still advances the asset, and the search document must still match
+    // canonical data afterwards. Before the fix the projection was only
+    // rewritten when the record itself changed, so its `updated_at` went stale.
+    let mut t = test_env();
+    let mut services = t.service_service();
+    let id = services
+        .create_service(create_cmd("Renewal Only", ServiceType::Saas))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let before = t
+        .factory
+        .read(&mut |uow| uow.assets().get(id))
+        .unwrap()
+        .expect("asset exists");
+
+    services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: None,
+            currency: None,
+            next_renews_at: None,
+            next_expires_at: None,
+            expected_revision: None,
+        })
+        .unwrap();
+
+    let after = t
+        .factory
+        .read(&mut |uow| uow.assets().get(id))
+        .unwrap()
+        .expect("asset exists");
+    assert_eq!(after.revision, before.revision + 1);
+
+    // Wipe the projections and rebuild from canonical data: the name must still
+    // be findable, and a rebuild must not resurrect a stale document.
+    t.factory
+        .transact(&mut |uow| uow.search_index().replace_all(&[]))
+        .unwrap();
+    let mut search = t.search_service();
+    search.rebuild().unwrap();
+    let hits = search.search("Renewal Only", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].asset_id, id);
 }
 
 #[test]
@@ -1196,6 +1308,7 @@ fn record_renewal_updates_the_search_projection() {
             currency: Some("EUR".into()),
             next_renews_at: Some(ts("2026-11-01T00:00:00Z")),
             next_expires_at: None,
+            expected_revision: None,
         })
         .unwrap();
 
@@ -1278,3 +1391,130 @@ fn service_urls_must_have_a_real_host_and_no_credentials() {
         6
     );
 }
+
+#[test]
+fn record_renewal_enforces_optimistic_concurrency_with_expected_revision() {
+    let t = test_env();
+    let mut services = t.service_service();
+    let created = services
+        .create_service(create_cmd("Revision Check Service", ServiceType::Saas))
+        .unwrap();
+    let id = created.entry.asset.id;
+    assert_eq!(created.entry.asset.revision, 1);
+
+    // Stale expected_revision: 999 != 1 -> must fail with StaleRevision
+    let err = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: None,
+            currency: None,
+            next_renews_at: None,
+            next_expires_at: None,
+            expected_revision: Some(999),
+        })
+        .unwrap_err();
+
+    assert!(
+        matches!(err, AppError::StaleRevision { expected: 999, found: 1 }),
+        "expected StaleRevision, got: {err:?}"
+    );
+
+    // Correct expected_revision: 1 -> succeeds and bumps revision to 2
+    let updated = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-10-01T00:00:00Z"),
+            charged_cost_minor: Some(1500),
+            currency: Some("USD".into()),
+            next_renews_at: Some(ts("2026-11-01T00:00:00Z")),
+            next_expires_at: None,
+            expected_revision: Some(1),
+        })
+        .unwrap();
+
+    assert_eq!(updated.entry.asset.revision, 2);
+
+    // Submitting old revision (1) again fails
+    let stale_err = services
+        .record_renewal(RecordRenewal {
+            asset_id: id,
+            renewed_at: ts("2026-11-01T00:00:00Z"),
+            charged_cost_minor: None,
+            currency: None,
+            next_renews_at: None,
+            next_expires_at: None,
+            expected_revision: Some(1),
+        })
+        .unwrap_err();
+
+    assert!(
+        matches!(stale_err, AppError::StaleRevision { expected: 1, found: 2 }),
+        "expected StaleRevision, got: {stale_err:?}"
+    );
+}
+
+#[test]
+fn service_money_parsing_and_pairing_boundary_cases() {
+    use assetmesh_core::application::service_service::{parse_money_pair, parse_money_patch};
+
+    // Valid money strings and normalized currency
+    let (minor, cur) = parse_money_pair(Some("12.99"), Some("usd")).unwrap();
+    assert_eq!(minor, Some(1299));
+    assert_eq!(cur.as_deref(), Some("USD"));
+
+    let (minor, cur) = parse_money_pair(Some("0.05"), Some("EUR")).unwrap();
+    assert_eq!(minor, Some(5));
+    assert_eq!(cur.as_deref(), Some("EUR"));
+
+    let (minor, cur) = parse_money_pair(None, None).unwrap();
+    assert_eq!(minor, None);
+    assert_eq!(cur, None);
+
+    let (minor, cur) = parse_money_pair(Some(""), Some("")).unwrap();
+    assert_eq!(minor, None);
+    assert_eq!(cur, None);
+
+    // Half-states: amount without currency or currency without amount
+    let err = parse_money_pair(Some("12.99"), None).unwrap_err();
+    assert!(err.to_string().contains("without required currency"));
+
+    let err = parse_money_pair(None, Some("USD")).unwrap_err();
+    assert!(err.to_string().contains("without cost amount"));
+
+    // Illegal decimal places (> 2 decimal places)
+    let err = parse_money_pair(Some("12.345"), Some("USD")).unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }));
+
+    // Non-numeric string
+    let err = parse_money_pair(Some("abc"), Some("USD")).unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }));
+
+    // Negative amounts
+    let err = parse_money_pair(Some("-10.00"), Some("USD")).unwrap_err();
+    assert!(matches!(err, AppError::Validation { .. }));
+
+    // Non-3-letter currency
+    let err = parse_money_pair(Some("10.00"), Some("US")).unwrap_err();
+    assert!(err.to_string().contains("3-letter ISO code"));
+
+    let err = parse_money_pair(Some("10.00"), Some("USDD")).unwrap_err();
+    assert!(err.to_string().contains("3-letter ISO code"));
+
+    // Patch tests
+    let (c_patch, cur_patch) = parse_money_patch(None, None).unwrap();
+    assert!(matches!(c_patch, Patch::Leave));
+    assert!(matches!(cur_patch, Patch::Leave));
+
+    let (c_patch, cur_patch) = parse_money_patch(Some(""), Some("")).unwrap();
+    assert!(matches!(c_patch, Patch::Clear));
+    assert!(matches!(cur_patch, Patch::Clear));
+
+    let (c_patch, cur_patch) = parse_money_patch(Some("99.99"), Some("GBP")).unwrap();
+    assert_eq!(c_patch, Patch::Set(9999));
+    assert_eq!(cur_patch, Patch::Set("GBP".into()));
+
+    let patch_err = parse_money_patch(Some("99.99"), None).unwrap_err();
+    assert!(matches!(patch_err, AppError::Validation { .. }));
+}
+

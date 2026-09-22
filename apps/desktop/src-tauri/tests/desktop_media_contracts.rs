@@ -149,9 +149,11 @@ fn media_workflow_status_transitions() {
     let start_cmd = MediaCommandDto::TransitionStatus {
         asset_id: asset_id.clone(),
         status: "in_progress".into(),
+        expected_revision: receipt.revision,
     };
     let r1 = media_command_impl(start_cmd, &state).expect("start");
     assert_eq!(r1.operation, "media.transition.in_progress");
+    assert!(r1.revision.is_some());
 
     // Check read-back
     let d1 = library_get_impl(&asset_id, &state).expect("get");
@@ -161,6 +163,7 @@ fn media_workflow_status_transitions() {
     let pause_cmd = MediaCommandDto::TransitionStatus {
         asset_id: asset_id.clone(),
         status: "paused".into(),
+        expected_revision: r1.revision,
     };
     let r2 = media_command_impl(pause_cmd, &state).expect("pause");
     assert_eq!(r2.operation, "media.transition.paused");
@@ -169,6 +172,7 @@ fn media_workflow_status_transitions() {
     let complete_cmd = MediaCommandDto::TransitionStatus {
         asset_id: asset_id.clone(),
         status: "completed".into(),
+        expected_revision: r2.revision,
     };
     let r3 = media_command_impl(complete_cmd, &state).expect("complete");
     assert_eq!(r3.operation, "media.transition.completed");
@@ -204,6 +208,7 @@ fn media_workflow_progress_and_rating() {
         unit: Some("chapters".into()),
         current: Some(5.0),
         total: Some(10.0),
+        expected_revision: receipt.revision,
     };
     let r_prog = media_command_impl(prog_cmd, &state).expect("update progress");
     assert_eq!(r_prog.operation, "media.update_progress");
@@ -217,6 +222,7 @@ fn media_workflow_progress_and_rating() {
         unit: Some("chapters".into()),
         current: Some(-1.0),
         total: Some(10.0),
+        expected_revision: r_prog.revision,
     };
     let err_prog = media_command_impl(invalid_prog_cmd, &state).unwrap_err();
     assert_eq!(err_prog.category, "invalid_input");
@@ -225,6 +231,7 @@ fn media_workflow_progress_and_rating() {
     let rate_cmd = MediaCommandDto::Rate {
         asset_id: asset_id.clone(),
         rating: 8.5,
+        expected_revision: r_prog.revision,
     };
     let r_rate = media_command_impl(rate_cmd, &state).expect("rate");
     assert_eq!(r_rate.operation, "media.rate");
@@ -236,6 +243,7 @@ fn media_workflow_progress_and_rating() {
     let invalid_rate_cmd = MediaCommandDto::Rate {
         asset_id: asset_id.clone(),
         rating: 12.0,
+        expected_revision: r_rate.revision,
     };
     let err_rate = media_command_impl(invalid_rate_cmd, &state).unwrap_err();
     assert_eq!(err_rate.category, "invalid_input");
@@ -265,12 +273,82 @@ fn media_workflow_archive() {
     // Archive
     let archive_cmd = MediaCommandDto::Archive {
         asset_id: asset_id.clone(),
+        expected_revision: receipt.revision,
     };
     let r_archive = media_command_impl(archive_cmd, &state).expect("archive");
     assert_eq!(r_archive.operation, "asset.archive");
+    assert!(r_archive.revision.is_some());
 
     // Read back and verify lifecycle is archived
     let detail = library_get_impl(&asset_id, &state).expect("get");
     assert_eq!(detail.lifecycle, "archived");
     assert!(detail.archived_at.is_some());
+}
+
+#[test]
+fn media_stale_revision_is_rejected_with_stale_revision_category() {
+    let state = setup_test_state("media_stale_rev");
+
+    let create_cmd = MediaCommandDto::Create {
+        title: "Stale Test".into(),
+        media_type: "anime".into(),
+        summary: None,
+        status: Some("planned".into()),
+        rating: None,
+        year: None,
+        platform: None,
+        progress_unit: None,
+        progress_current: None,
+        progress_total: None,
+        notes: None,
+        tags: vec![],
+    };
+    let receipt = media_command_impl(create_cmd, &state).expect("create");
+    let asset_id = receipt.asset_ids[0].clone();
+
+    // Transition with stale expected revision 999
+    let bad_transition = MediaCommandDto::TransitionStatus {
+        asset_id: asset_id.clone(),
+        status: "in_progress".into(),
+        expected_revision: Some(999),
+    };
+    let err = media_command_impl(bad_transition, &state).unwrap_err();
+    assert_eq!(err.category, "stale_revision");
+
+    // Verify state was not modified (rolled back)
+    let d = library_get_impl(&asset_id, &state).expect("get");
+    assert_eq!(d.details["status"], "planned");
+
+    // Update progress with stale expected revision 999
+    let bad_progress = MediaCommandDto::UpdateProgress {
+        asset_id: asset_id.clone(),
+        unit: Some("episodes".into()),
+        current: Some(3.0),
+        total: Some(12.0),
+        expected_revision: Some(999),
+    };
+    let err = media_command_impl(bad_progress, &state).unwrap_err();
+    assert_eq!(err.category, "stale_revision");
+
+    // Rate with stale expected revision 999
+    let bad_rate = MediaCommandDto::Rate {
+        asset_id: asset_id.clone(),
+        rating: 9.0,
+        expected_revision: Some(999),
+    };
+    let err = media_command_impl(bad_rate, &state).unwrap_err();
+    assert_eq!(err.category, "stale_revision");
+
+    // Archive with stale expected revision 999
+    let bad_archive = MediaCommandDto::Archive {
+        asset_id: asset_id.clone(),
+        expected_revision: Some(999),
+    };
+    let err = media_command_impl(bad_archive, &state).unwrap_err();
+    assert_eq!(err.category, "stale_revision");
+
+    // State still planned and active
+    let d_final = library_get_impl(&asset_id, &state).expect("get");
+    assert_eq!(d_final.lifecycle, "active");
+    assert_eq!(d_final.details["status"], "planned");
 }

@@ -34,19 +34,25 @@ fn setup_test_state(name: &str) -> DesktopState {
 }
 
 fn create_software(name: &str, state: &DesktopState) -> String {
+    create_software_of(name, "cli", state)
+}
+
+/// The same creation with a different Software category, so two assets land in
+/// one module but different kinds (`software.cli` vs `software.app`).
+fn create_software_of(name: &str, category: &str, state: &DesktopState) -> String {
     let receipt = software_command_impl(
         SoftwareCommandDto::Create {
             name: name.into(),
-            category: "cli".into(),
+            category: category.into(),
             summary: Some(format!("Summary for {name}")),
-            install_source: Some("homebrew_formula".into()),
+            install_source: Some("homebrew_cask".into()),
             version: Some("1.0.0".into()),
             install_location: None,
             executable_path: None,
             purpose: Some(format!("Purpose for {name}")),
             notes: None,
             architecture: None,
-            tags: vec!["cli".into()],
+            tags: vec![],
         },
         state,
     )
@@ -118,6 +124,8 @@ fn activity_workflow_query_and_filters() {
             relation_type: "depends_on".into(),
             target_asset_id: service_id.clone(),
             note: Some("CLI depends on API".into()),
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -189,6 +197,57 @@ fn activity_workflow_query_and_filters() {
 }
 
 #[test]
+fn activity_filters_by_kind_narrower_than_by_module() {
+    // docs/12 specifies filtering activity by kind. A module owns several kinds,
+    // so "software.cli events only" is a question the module filter cannot
+    // answer — this pins that the adapter reaches the core's kind filter.
+    let state = setup_test_state("activity-kind");
+
+    let cli_id = create_software("ripgrep", &state);
+    let app_id = create_software_of("VLC", "application", &state);
+
+    let by_kind = activity_query_impl(
+        ActivityQueryDto {
+            kinds: Some(vec!["software.cli".into()]),
+            ..Default::default()
+        },
+        &state,
+    )
+    .expect("query by kind");
+    assert!(!by_kind.items.is_empty());
+    for item in &by_kind.items {
+        assert_eq!(item.asset_id.as_deref(), Some(cli_id.as_str()));
+    }
+
+    // The other kind in the same module returns the other asset, so the filter
+    // really is narrower than the module.
+    let other_kind = activity_query_impl(
+        ActivityQueryDto {
+            kinds: Some(vec!["software.app".into()]),
+            ..Default::default()
+        },
+        &state,
+    )
+    .expect("query by other kind");
+    assert!(!other_kind.items.is_empty());
+    for item in &other_kind.items {
+        assert_eq!(item.asset_id.as_deref(), Some(app_id.as_str()));
+    }
+
+    // An unknown kind is a rejected input, not a silently empty result: the
+    // adapter parses it like every other enumerated field.
+    let bad = activity_query_impl(
+        ActivityQueryDto {
+            kinds: Some(vec!["software.nonsense".into()]),
+            ..Default::default()
+        },
+        &state,
+    )
+    .expect_err("unknown kind");
+    assert_eq!(bad.category, "invalid_input");
+}
+
+#[test]
 fn activity_workflow_history_survives_archive_and_merge() {
     let state = setup_test_state("activity-survives");
 
@@ -200,6 +259,8 @@ fn activity_workflow_history_survives_archive_and_merge() {
         MergeApplyDto {
             winner_id: keep_id.clone(),
             loser_id: dup_id.clone(),
+            expected_winner_revision: None,
+            expected_loser_revision: None,
         },
         &state,
     )
@@ -318,6 +379,8 @@ fn merge_workflow_preview_and_conflict_detection() {
         MergeApplyDto {
             winner_id: serv_a.clone(),
             loser_id: serv_b.clone(),
+            expected_winner_revision: None,
+            expected_loser_revision: None,
         },
         &state,
     )
@@ -347,6 +410,8 @@ fn merge_workflow_preview_and_successful_apply() {
             relation_type: "depends_on".into(),
             target_asset_id: other_service_id.clone(),
             note: Some("loser dependency".into()),
+            expected_source_revision: None,
+            expected_target_revision: None,
         },
         &state,
     )
@@ -366,12 +431,16 @@ fn merge_workflow_preview_and_successful_apply() {
     assert!(preview.conflicts.is_empty());
     assert_eq!(preview.transferred_relations_count, 1);
     assert_eq!(preview.redundant_relations_count, 0);
+    assert_eq!(preview.winner_revision, 1);
+    assert_eq!(preview.loser_revision, 1);
 
-    // Apply merge
+    // Apply merge with preview revisions
     let receipt = merge_apply_impl(
         MergeApplyDto {
             winner_id: winner_id.clone(),
             loser_id: loser_id.clone(),
+            expected_winner_revision: Some(preview.winner_revision),
+            expected_loser_revision: Some(preview.loser_revision),
         },
         &state,
     )
@@ -399,7 +468,9 @@ fn merge_workflow_rejects_different_kinds_and_self_merge() {
     let software_id = create_software("Tool X", &state);
     let media_id = create_media("Anime X", &state);
 
-    // 1. Self merge returns conflict
+    // 1. Self merge is a malformed request, not a data conflict. This matches
+    // `merge_assets` on the apply path, which also reports it as invalid_input:
+    // preview and apply must classify the same request the same way.
     let self_err = merge_preview_impl(
         MergePreviewQueryDto {
             winner_id: software_id.clone(),
@@ -408,7 +479,7 @@ fn merge_workflow_rejects_different_kinds_and_self_merge() {
         &state,
     )
     .expect_err("self merge preview");
-    assert_eq!(self_err.category, "conflict");
+    assert_eq!(self_err.category, "invalid_input");
 
     // 2. Different kinds preview returns can_merge: false
     let diff_preview = merge_preview_impl(
@@ -430,9 +501,128 @@ fn merge_workflow_rejects_different_kinds_and_self_merge() {
         MergeApplyDto {
             winner_id: software_id,
             loser_id: media_id,
+            expected_winner_revision: None,
+            expected_loser_revision: None,
         },
         &state,
     )
     .expect_err("different kinds apply");
     assert_eq!(apply_err.category, "conflict");
+}
+
+#[test]
+fn merge_stale_revisions_are_rejected_with_stale_revision_and_rolled_back() {
+    let state = setup_test_state("merge-stale-rev");
+
+    let winner_id = create_software("Merge Win", &state);
+    let loser_id = create_software("Merge Lose", &state);
+
+    // Stale winner revision
+    let err_winner = merge_apply_impl(
+        MergeApplyDto {
+            winner_id: winner_id.clone(),
+            loser_id: loser_id.clone(),
+            expected_winner_revision: Some(999),
+            expected_loser_revision: Some(1),
+        },
+        &state,
+    )
+    .expect_err("stale winner");
+    assert_eq!(err_winner.category, "stale_revision");
+
+    // Stale loser revision
+    let err_loser = merge_apply_impl(
+        MergeApplyDto {
+            winner_id: winner_id.clone(),
+            loser_id: loser_id.clone(),
+            expected_winner_revision: Some(1),
+            expected_loser_revision: Some(999),
+        },
+        &state,
+    )
+    .expect_err("stale loser");
+    assert_eq!(err_loser.category, "stale_revision");
+
+    // Both assets are still active and untouched
+    let w = library_get_impl(&winner_id, &state).expect("get winner");
+    let l = library_get_impl(&loser_id, &state).expect("get loser");
+    assert_eq!(w.lifecycle, "active");
+    assert_eq!(l.lifecycle, "active");
+}
+
+#[test]
+fn relation_mutations_enforce_optimistic_concurrency() {
+    use assetmesh_desktop_lib::commands::{relation_list_impl, relation_remove_impl};
+    use assetmesh_desktop_lib::dto::RelationRemoveDto;
+
+    let state = setup_test_state("relation-concurrency");
+
+    let src_id = create_software("Source App", &state);
+    let tgt_id = create_software("Target App", &state);
+
+    // Stale source revision
+    let err_attach = relation_attach_impl(
+        RelationAttachDto {
+            source_asset_id: src_id.clone(),
+            relation_type: "depends_on".into(),
+            target_asset_id: tgt_id.clone(),
+            note: None,
+            expected_source_revision: Some(999),
+            expected_target_revision: Some(1),
+        },
+        &state,
+    )
+    .expect_err("stale source");
+    assert_eq!(err_attach.category, "stale_revision");
+
+    // Successful attach with correct revisions
+    let attach_ok = relation_attach_impl(
+        RelationAttachDto {
+            source_asset_id: src_id.clone(),
+            relation_type: "depends_on".into(),
+            target_asset_id: tgt_id.clone(),
+            note: None,
+            expected_source_revision: Some(1),
+            expected_target_revision: Some(1),
+        },
+        &state,
+    )
+    .expect("attach");
+    assert!(attach_ok.changed);
+
+    let relations = relation_list_impl(src_id.clone(), &state).expect("list relations");
+    assert_eq!(relations.len(), 1);
+    let rel_id = relations[0].relation_id.clone();
+
+    // Stale remove with wrong context revision
+    let err_remove = relation_remove_impl(
+        RelationRemoveDto {
+            relation_id: rel_id.clone(),
+            context_asset_id: Some(src_id.clone()),
+            expected_context_revision: Some(999),
+        },
+        &state,
+    )
+    .expect_err("stale remove");
+    assert_eq!(err_remove.category, "stale_revision");
+
+    // Relation still exists
+    let relations_after_failed_remove =
+        relation_list_impl(src_id.clone(), &state).expect("list relations");
+    assert_eq!(relations_after_failed_remove.len(), 1);
+
+    // Successful remove with correct context revision
+    let remove_ok = relation_remove_impl(
+        RelationRemoveDto {
+            relation_id: rel_id,
+            context_asset_id: Some(src_id.clone()),
+            expected_context_revision: Some(1),
+        },
+        &state,
+    )
+    .expect("remove ok");
+    assert!(remove_ok.changed);
+
+    let relations_final = relation_list_impl(src_id, &state).expect("list relations");
+    assert_eq!(relations_final.len(), 0);
 }

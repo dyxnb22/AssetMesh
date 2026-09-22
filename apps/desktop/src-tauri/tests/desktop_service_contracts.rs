@@ -291,10 +291,12 @@ fn service_workflow_record_renewal() {
         currency: Some("USD".into()),
         next_renews_at: Some("2025-05-01".into()),
         next_expires_at: Some("2025-05-01".into()),
+        expected_revision: receipt.revision,
     };
     let r_renew = service_command_impl(renew_cmd, &state).expect("record renewal");
     assert_eq!(r_renew.operation, "service.record_renewal");
     assert!(r_renew.changed);
+    assert!(r_renew.revision.is_some());
 
     // Read back and check renews_at was updated to 2025-05-01
     let detail = library_get_impl(&asset_id, &state).expect("get");
@@ -336,11 +338,65 @@ fn service_workflow_archive() {
     // Archive
     let archive_cmd = ServiceCommandDto::Archive {
         asset_id: asset_id.clone(),
+        expected_revision: receipt.revision,
     };
     let r_archive = service_command_impl(archive_cmd, &state).expect("archive");
     assert_eq!(r_archive.operation, "asset.archive");
+    assert!(r_archive.revision.is_some());
 
     let detail = library_get_impl(&asset_id, &state).expect("get");
     assert_eq!(detail.lifecycle, "archived");
     assert!(detail.archived_at.is_some());
+}
+
+#[test]
+fn service_stale_revision_is_rejected_with_stale_revision_category() {
+    let state = setup_test_state("service_stale_rev");
+
+    let create_cmd = ServiceCommandDto::Create {
+        name: "Service Concurrency Test".into(),
+        service_type: "saas".into(),
+        summary: None,
+        provider: None,
+        account_label: None,
+        endpoint_url: None,
+        dashboard_url: None,
+        domain_name: None,
+        plan: None,
+        cost: None,
+        currency: None,
+        billing_cadence: None,
+        renews_at: None,
+        expires_at: None,
+        auto_renew: None,
+        notes: None,
+        tags: vec![],
+    };
+    let receipt = service_command_impl(create_cmd, &state).expect("create");
+    let asset_id = receipt.asset_ids[0].clone();
+
+    // RecordRenewal with wrong expected revision
+    let bad_renew = ServiceCommandDto::RecordRenewal {
+        asset_id: asset_id.clone(),
+        renews_at: "2024-05-01".into(),
+        cost: Some("10.00".into()),
+        currency: Some("USD".into()),
+        next_renews_at: None,
+        next_expires_at: None,
+        expected_revision: Some(999),
+    };
+    let err = service_command_impl(bad_renew, &state).unwrap_err();
+    assert_eq!(err.category, "stale_revision");
+
+    // Archive with wrong expected revision
+    let bad_archive = ServiceCommandDto::Archive {
+        asset_id: asset_id.clone(),
+        expected_revision: Some(999),
+    };
+    let err = service_command_impl(bad_archive, &state).unwrap_err();
+    assert_eq!(err.category, "stale_revision");
+
+    // Still active
+    let d = library_get_impl(&asset_id, &state).expect("get");
+    assert_eq!(d.lifecycle, "active");
 }

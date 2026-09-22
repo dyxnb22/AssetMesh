@@ -133,6 +133,7 @@ fn renew(
     db: &TestSqlite,
     asset_id: AssetId,
 ) -> assetmesh_core::application::service_service::ServiceView {
+    let rev = db.service_service().get_service(asset_id).unwrap().entry.asset.revision;
     db.service_service()
         .record_renewal(
             assetmesh_core::application::service_service::RecordRenewal {
@@ -142,6 +143,7 @@ fn renew(
                 currency: None,
                 next_renews_at: None,
                 next_expires_at: None,
+                expected_revision: Some(rev),
             },
         )
         .unwrap()

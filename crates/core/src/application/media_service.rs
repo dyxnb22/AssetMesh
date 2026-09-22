@@ -261,16 +261,45 @@ impl<F: UnitOfWorkFactory> MediaService<F> {
         )
     }
 
-    fn transition(
+    pub fn transition_status_with_revision(
+        &mut self,
+        asset_id: AssetId,
+        to: MediaStatus,
+        expected_revision: Option<i64>,
+    ) -> AppResult<MediaView> {
+        let event_type = match to {
+            MediaStatus::InProgress => event_types::MEDIA_STARTED,
+            MediaStatus::Paused => event_types::MEDIA_PAUSED,
+            MediaStatus::Dropped => event_types::MEDIA_DROPPED,
+            MediaStatus::Completed => event_types::MEDIA_COMPLETED,
+            MediaStatus::Planned => "media.status_changed",
+        };
+        self.transition_with_revision(asset_id, to, event_type, expected_revision)
+    }
+
+    pub fn transition(
         &mut self,
         asset_id: AssetId,
         to: MediaStatus,
         event_type: &str,
     ) -> AppResult<MediaView> {
+        self.transition_with_revision(asset_id, to, event_type, None)
+    }
+
+    pub fn transition_with_revision(
+        &mut self,
+        asset_id: AssetId,
+        to: MediaStatus,
+        event_type: &str,
+        expected_revision: Option<i64>,
+    ) -> AppResult<MediaView> {
         let now = self.clock.now();
 
         self.factory.transact(&mut |uow| {
             let mut asset = load_active_asset(uow, asset_id)?;
+            if let Some(expected) = expected_revision {
+                crate::application::shared::check_asset_revision(&asset, expected)?;
+            }
             let mut record = load_media_record(uow, asset_id)?;
             let from = record.status;
 
@@ -300,10 +329,22 @@ impl<F: UnitOfWorkFactory> MediaService<F> {
         asset_id: AssetId,
         progress: Progress,
     ) -> AppResult<MediaView> {
+        self.update_progress_with_revision(asset_id, progress, None)
+    }
+
+    pub fn update_progress_with_revision(
+        &mut self,
+        asset_id: AssetId,
+        progress: Progress,
+        expected_revision: Option<i64>,
+    ) -> AppResult<MediaView> {
         let now = self.clock.now();
 
         self.factory.transact(&mut |uow| {
             let mut asset = load_active_asset(uow, asset_id)?;
+            if let Some(expected) = expected_revision {
+                crate::application::shared::check_asset_revision(&asset, expected)?;
+            }
             let mut record = load_media_record(uow, asset_id)?;
             let previous = record.progress.clone();
 
@@ -334,10 +375,22 @@ impl<F: UnitOfWorkFactory> MediaService<F> {
     }
 
     pub fn rate_media(&mut self, asset_id: AssetId, rating: f64) -> AppResult<MediaView> {
+        self.rate_media_with_revision(asset_id, rating, None)
+    }
+
+    pub fn rate_media_with_revision(
+        &mut self,
+        asset_id: AssetId,
+        rating: f64,
+        expected_revision: Option<i64>,
+    ) -> AppResult<MediaView> {
         let now = self.clock.now();
 
         self.factory.transact(&mut |uow| {
             let mut asset = load_active_asset(uow, asset_id)?;
+            if let Some(expected) = expected_revision {
+                crate::application::shared::check_asset_revision(&asset, expected)?;
+            }
             let mut record = load_media_record(uow, asset_id)?;
             let previous = record.rating;
 

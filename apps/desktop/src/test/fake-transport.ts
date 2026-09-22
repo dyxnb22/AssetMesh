@@ -569,9 +569,20 @@ export class FakeDesktopTransport implements DesktopTransport {
 
     if (command.action === 'archive') {
       const currentDetail = await this.getAsset(command.asset_id);
+      if (command.expected_revision !== undefined && command.expected_revision !== null) {
+        if (command.expected_revision !== currentDetail.revision) {
+          const error = new Error(
+            `stale revision: expected ${command.expected_revision}, actual ${currentDetail.revision}`
+          ) as Error & { category?: string };
+          error.category = 'stale_revision';
+          throw error;
+        }
+      }
+      const updatedRev = currentDetail.revision + 1;
       const updatedDetail: AssetDetailDto = {
         ...currentDetail,
         lifecycle: 'archived',
+        revision: updatedRev,
         archived_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -586,7 +597,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       return {
         operation: 'asset.archive',
         asset_ids: [command.asset_id],
-        revision: null,
+        revision: updatedRev,
         changed: true,
         warnings: [],
       };
@@ -817,6 +828,15 @@ export class FakeDesktopTransport implements DesktopTransport {
 
     if (command.action === 'transition_status') {
       const currentDetail = await this.getAsset(command.asset_id);
+      if (command.expected_revision !== undefined && command.expected_revision !== null) {
+        if (command.expected_revision !== currentDetail.revision) {
+          const error = new Error(
+            `stale revision: expected ${command.expected_revision}, actual ${currentDetail.revision}`
+          ) as Error & { category?: string };
+          error.category = 'stale_revision';
+          throw error;
+        }
+      }
       const updatedRev = currentDetail.revision + 1;
       const mediaRecord = {
         ...(currentDetail.details as MediaRecordDto),
@@ -855,6 +875,15 @@ export class FakeDesktopTransport implements DesktopTransport {
       }
 
       const currentDetail = await this.getAsset(command.asset_id);
+      if (command.expected_revision !== undefined && command.expected_revision !== null) {
+        if (command.expected_revision !== currentDetail.revision) {
+          const error = new Error(
+            `stale revision: expected ${command.expected_revision}, actual ${currentDetail.revision}`
+          ) as Error & { category?: string };
+          error.category = 'stale_revision';
+          throw error;
+        }
+      }
       const updatedRev = currentDetail.revision + 1;
       const mediaRecord = {
         ...(currentDetail.details as MediaRecordDto),
@@ -891,6 +920,15 @@ export class FakeDesktopTransport implements DesktopTransport {
       }
 
       const currentDetail = await this.getAsset(command.asset_id);
+      if (command.expected_revision !== undefined && command.expected_revision !== null) {
+        if (command.expected_revision !== currentDetail.revision) {
+          const error = new Error(
+            `stale revision: expected ${command.expected_revision}, actual ${currentDetail.revision}`
+          ) as Error & { category?: string };
+          error.category = 'stale_revision';
+          throw error;
+        }
+      }
       const updatedRev = currentDetail.revision + 1;
       const mediaRecord = {
         ...(currentDetail.details as MediaRecordDto),
@@ -917,9 +955,20 @@ export class FakeDesktopTransport implements DesktopTransport {
 
     if (command.action === 'archive') {
       const currentDetail = await this.getAsset(command.asset_id);
+      if (command.expected_revision !== undefined && command.expected_revision !== null) {
+        if (command.expected_revision !== currentDetail.revision) {
+          const error = new Error(
+            `stale revision: expected ${command.expected_revision}, actual ${currentDetail.revision}`
+          ) as Error & { category?: string };
+          error.category = 'stale_revision';
+          throw error;
+        }
+      }
+      const updatedRev = currentDetail.revision + 1;
       const updatedDetail: AssetDetailDto = {
         ...currentDetail,
         lifecycle: 'archived',
+        revision: updatedRev,
         archived_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -934,7 +983,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       return {
         operation: 'asset.archive',
         asset_ids: [command.asset_id],
-        revision: null,
+        revision: updatedRev,
         changed: true,
         warnings: [],
       };
@@ -1132,6 +1181,15 @@ export class FakeDesktopTransport implements DesktopTransport {
 
     if (command.action === 'record_renewal') {
       const currentDetail = await this.getAsset(command.asset_id);
+      if (command.expected_revision !== undefined && command.expected_revision !== null) {
+        if (command.expected_revision !== currentDetail.revision) {
+          const error = new Error(
+            `stale revision: expected ${command.expected_revision}, actual ${currentDetail.revision}`
+          ) as Error & { category?: string };
+          error.category = 'stale_revision';
+          throw error;
+        }
+      }
       const updatedRev = currentDetail.revision + 1;
       const rec = { ...(currentDetail.details as ServiceRecordDto) };
 
@@ -1164,9 +1222,20 @@ export class FakeDesktopTransport implements DesktopTransport {
 
     if (command.action === 'archive') {
       const currentDetail = await this.getAsset(command.asset_id);
+      if (command.expected_revision !== undefined && command.expected_revision !== null) {
+        if (command.expected_revision !== currentDetail.revision) {
+          const error = new Error(
+            `stale revision: expected ${command.expected_revision}, actual ${currentDetail.revision}`
+          ) as Error & { category?: string };
+          error.category = 'stale_revision';
+          throw error;
+        }
+      }
+      const updatedRev = currentDetail.revision + 1;
       const updatedDetail: AssetDetailDto = {
         ...currentDetail,
         lifecycle: 'archived',
+        revision: updatedRev,
         archived_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -1181,7 +1250,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       return {
         operation: 'asset.archive',
         asset_ids: [command.asset_id],
-        revision: null,
+        revision: updatedRev,
         changed: true,
         warnings: [],
       };
@@ -1417,6 +1486,25 @@ export class FakeDesktopTransport implements DesktopTransport {
       throw err;
     }
 
+    if (payload.expected_source_revision !== undefined && payload.expected_source_revision !== null) {
+      if (source.revision !== payload.expected_source_revision) {
+        const err = new Error(
+          `asset revision mismatch for source ${source.id}: expected ${payload.expected_source_revision}, found ${source.revision}`
+        ) as Error & { category?: string };
+        err.category = 'stale_revision';
+        throw err;
+      }
+    }
+    if (payload.expected_target_revision !== undefined && payload.expected_target_revision !== null) {
+      if (target.revision !== payload.expected_target_revision) {
+        const err = new Error(
+          `asset revision mismatch for target ${target.id}: expected ${payload.expected_target_revision}, found ${target.revision}`
+        ) as Error & { category?: string };
+        err.category = 'stale_revision';
+        throw err;
+      }
+    }
+
     if (source.lifecycle !== 'active' || target.lifecycle !== 'active') {
       const err = new Error('both assets must be active') as Error & { category?: string };
       err.category = 'conflict';
@@ -1451,6 +1539,15 @@ export class FakeDesktopTransport implements DesktopTransport {
       created_at: new Date().toISOString(),
     });
 
+    const nextSourceRev = (source.revision ?? 1) + 1;
+    const nextTargetRev = (target.revision ?? 1) + 1;
+    source.revision = nextSourceRev;
+    target.revision = nextTargetRev;
+    const sDetail = this.details.get(source.id);
+    if (sDetail) sDetail.revision = nextSourceRev;
+    const tDetail = this.details.get(target.id);
+    if (tDetail) tDetail.revision = nextTargetRev;
+
     return {
       operation: 'relation.attach',
       asset_ids: [payload.source_asset_id, payload.target_asset_id],
@@ -1468,6 +1565,29 @@ export class FakeDesktopTransport implements DesktopTransport {
       };
       err.category = 'not_found';
       throw err;
+    }
+
+    if (payload.context_asset_id) {
+      const contextAsset = this.assets.find((a) => a.id === payload.context_asset_id);
+      if (
+        contextAsset &&
+        payload.expected_context_revision !== undefined &&
+        payload.expected_context_revision !== null
+      ) {
+        if (contextAsset.revision !== payload.expected_context_revision) {
+          const err = new Error(
+            `asset revision mismatch for context ${contextAsset.id}: expected ${payload.expected_context_revision}, found ${contextAsset.revision}`
+          ) as Error & { category?: string };
+          err.category = 'stale_revision';
+          throw err;
+        }
+      }
+      if (contextAsset) {
+        const nextRev = (contextAsset.revision ?? 1) + 1;
+        contextAsset.revision = nextRev;
+        const cDetail = this.details.get(contextAsset.id);
+        if (cDetail) cDetail.revision = nextRev;
+      }
     }
 
     this.storedRelations.splice(idx, 1);
@@ -1722,6 +1842,8 @@ export class FakeDesktopTransport implements DesktopTransport {
     return {
       winner,
       loser,
+      winner_revision: winner.revision ?? 1,
+      loser_revision: loser.revision ?? 1,
       can_merge: conflicts.length === 0,
       conflicts,
       transferred_tags,
@@ -1746,8 +1868,34 @@ export class FakeDesktopTransport implements DesktopTransport {
     const winner = this.assets.find((a) => a.id === command.winner_id)!;
     const loser = this.assets.find((a) => a.id === command.loser_id)!;
 
+    if (
+      command.expected_winner_revision !== undefined &&
+      command.expected_winner_revision !== null
+    ) {
+      if ((winner.revision ?? 1) !== command.expected_winner_revision) {
+        const err = new Error(
+          `asset revision mismatch for winner ${winner.id}: expected ${command.expected_winner_revision}, found ${winner.revision ?? 1}`
+        ) as Error & { category?: string };
+        err.category = 'stale_revision';
+        throw err;
+      }
+    }
+    if (
+      command.expected_loser_revision !== undefined &&
+      command.expected_loser_revision !== null
+    ) {
+      if ((loser.revision ?? 1) !== command.expected_loser_revision) {
+        const err = new Error(
+          `asset revision mismatch for loser ${loser.id}: expected ${command.expected_loser_revision}, found ${loser.revision ?? 1}`
+        ) as Error & { category?: string };
+        err.category = 'stale_revision';
+        throw err;
+      }
+    }
+
     // Tombstone the loser
     loser.lifecycle = 'merged';
+    loser.revision = (loser.revision ?? 1) + 1;
     const loserDetail = this.details.get(command.loser_id);
     if (loserDetail) {
       loserDetail.lifecycle = 'merged';

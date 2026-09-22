@@ -6,7 +6,7 @@ import type { AppCapabilities, AssetSummary, DesktopError, MutationReceiptDto } 
 interface AttachRelationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  sourceAsset: { id: string; name: string };
+  sourceAsset: { id: string; name: string; revision?: number };
   capabilities: AppCapabilities | null;
   onAttached: (receipt: MutationReceiptDto) => void;
 }
@@ -122,6 +122,8 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
         relation_type: relationType,
         target_asset_id: selectedTarget.id,
         note: note.trim() || undefined,
+        expected_source_revision: sourceAsset.revision,
+        expected_target_revision: selectedTarget.revision,
       });
 
       onAttached(receipt);

@@ -13,6 +13,7 @@ const assetA: AssetSummary = {
   lifecycle: 'active',
   subtitle: 'Primary application',
   tags: ['app'],
+  revision: 1,
   updated_at: '2024-03-20T10:00:00Z',
 };
 
@@ -23,6 +24,7 @@ const assetB: AssetSummary = {
   lifecycle: 'active',
   subtitle: 'CLI Utility',
   tags: ['cli'],
+  revision: 1,
   updated_at: '2024-03-20T10:00:00Z',
 };
 
@@ -33,6 +35,7 @@ const assetC: AssetSummary = {
   lifecycle: 'active',
   subtitle: 'Cloud Server',
   tags: ['infra'],
+  revision: 1,
   updated_at: '2024-03-20T10:00:00Z',
 };
 
@@ -40,7 +43,11 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
   let fakeTransport: FakeDesktopTransport;
 
   beforeEach(() => {
-    fakeTransport = new FakeDesktopTransport([assetA, assetB, assetC]);
+    fakeTransport = new FakeDesktopTransport([
+      JSON.parse(JSON.stringify(assetA)),
+      JSON.parse(JSON.stringify(assetB)),
+      JSON.parse(JSON.stringify(assetC)),
+    ]);
     setTransport(fakeTransport);
   });
 
@@ -176,6 +183,8 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
         relation_type: 'uses',
         target_asset_id: assetB.id,
         note: 'Uses CLI utility for compilation',
+        expected_source_revision: 1,
+        expected_target_revision: 1,
       });
     });
 
@@ -200,7 +209,7 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
 
     render(
       <RelationExplorer
-        rootAsset={assetA}
+        rootAsset={fakeTransport.assets.find((a) => a.id === assetA.id)!}
         capabilities={fakeTransport.capabilities}
       />
     );
@@ -220,7 +229,11 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
-      expect(removeSpy).toHaveBeenCalledWith({ relation_id: attachedRelId });
+      expect(removeSpy).toHaveBeenCalledWith({
+        relation_id: attachedRelId,
+        context_asset_id: assetA.id,
+        expected_context_revision: 2,
+      });
     });
 
     // Neighbor is removed from list

@@ -5,6 +5,7 @@ export interface AssetSummary {
   lifecycle: 'active' | 'archived' | 'merged';
   subtitle: string | null;
   tags: string[];
+  revision?: number;
   updated_at: string;
 }
 
@@ -259,6 +260,7 @@ export type SoftwareCommand =
   | {
       action: 'archive';
       asset_id: string;
+      expected_revision?: number | null;
     };
 
 export type MediaCommand =
@@ -291,6 +293,7 @@ export type MediaCommand =
       action: 'transition_status';
       asset_id: string;
       status: string;
+      expected_revision?: number | null;
     }
   | {
       action: 'update_progress';
@@ -298,15 +301,18 @@ export type MediaCommand =
       unit?: string | null;
       current?: number | null;
       total?: number | null;
+      expected_revision?: number | null;
     }
   | {
       action: 'rate';
       asset_id: string;
       rating: number;
+      expected_revision?: number | null;
     }
   | {
       action: 'archive';
       asset_id: string;
+      expected_revision?: number | null;
     };
 
 export type ServiceCommand =
@@ -358,10 +364,12 @@ export type ServiceCommand =
       currency?: string | null;
       next_renews_at?: string | null;
       next_expires_at?: string | null;
+      expected_revision?: number | null;
     }
   | {
       action: 'archive';
       asset_id: string;
+      expected_revision?: number | null;
     };
 
 export interface RelationViewDto {
@@ -419,10 +427,14 @@ export interface RelationAttachPayload {
   relation_type: string;
   target_asset_id: string;
   note?: string;
+  expected_source_revision?: number | null;
+  expected_target_revision?: number | null;
 }
 
 export interface RelationRemovePayload {
   relation_id: string;
+  context_asset_id?: string | null;
+  expected_context_revision?: number | null;
 }
 
 // =========================================================================
@@ -478,6 +490,8 @@ export interface DuplicateQuery {
 export interface MergePreviewDto {
   winner: AssetSummary;
   loser: AssetSummary;
+  winner_revision: number;
+  loser_revision: number;
   can_merge: boolean;
   conflicts: string[];
   transferred_tags: string[];
@@ -491,6 +505,8 @@ export interface MergePreviewDto {
 export interface MergeApplyCommand {
   winner_id: string;
   loser_id: string;
+  expected_winner_revision?: number;
+  expected_loser_revision?: number;
 }
 
 // =========================================================================
