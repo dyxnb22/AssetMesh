@@ -1,0 +1,14 @@
+{
+  "name": "assetmesh",
+  "private": true,
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "typecheck": "npm run --workspace=apps/desktop typecheck",
+    "lint": "npm run --workspace=apps/desktop lint",
+    "test": "npm run --workspace=apps/desktop test",
+    "build": "npm run --workspace=apps/desktop build",
+    "test:e2e": "npm run --workspace=apps/desktop test:e2e"
+  }
+}

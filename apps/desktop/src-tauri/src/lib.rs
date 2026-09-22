@@ -1,0 +1,28 @@
+pub mod commands;
+pub mod dto;
+pub mod error;
+pub mod state;
+
+pub use state::DesktopState;
+
+pub fn run() {
+    let state = DesktopState::new();
+
+    // Default db path from env or local file
+    if let Ok(db_env) = std::env::var("ASSETMESH_DB") {
+        let _ = state.initialize(std::path::Path::new(&db_env));
+    } else {
+        let _ = state.initialize(std::path::Path::new("assetmesh.db"));
+    }
+
+    tauri::Builder::default()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            commands::app_capabilities,
+            commands::app_status,
+            commands::app_init,
+            commands::library_list,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
