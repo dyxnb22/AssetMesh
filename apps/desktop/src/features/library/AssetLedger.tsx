@@ -24,6 +24,8 @@ interface AssetLedgerProps {
   loading: boolean;
   selectedAssetId: string | null;
   capabilities: AppCapabilities | null;
+  onNewAsset?: () => void;
+  onDiscoverSoftware?: () => void;
   onSelectAsset: (id: string) => void;
   onOpenDetail?: (id: string) => void;
   onSelectLifecycle: (lifecycle: LifecycleOption) => void;
@@ -50,6 +52,8 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   loading,
   selectedAssetId,
   capabilities,
+  onNewAsset,
+  onDiscoverSoftware,
   onSelectAsset,
   onOpenDetail,
   onSelectLifecycle,
@@ -173,6 +177,61 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 ? `${totalItems} asset${totalItems === 1 ? '' : 's'} recorded`
                 : 'No assets'}
             </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onDiscoverSoftware && module === 'software' && (
+              <button
+                type="button"
+                data-testid="discover-software-button"
+                onClick={onDiscoverSoftware}
+                style={{
+                  padding: '6px 14px',
+                  backgroundColor: 'var(--color-canvas)',
+                  color: 'var(--color-ink)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                🔍 Scan System
+              </button>
+            )}
+
+            {onNewAsset && (
+              <button
+                type="button"
+                data-testid="new-asset-button"
+                onClick={onNewAsset}
+                style={{
+                  padding: '6px 14px',
+                  backgroundColor: 'var(--color-mesh)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                +{' '}
+                {module === 'media'
+                  ? 'Add Media'
+                  : module === 'software'
+                  ? 'Add Software'
+                  : module === 'services'
+                  ? 'Add Service'
+                  : 'New Asset'}
+              </button>
+            )}
           </div>
 
           {/* Search Input Bar */}

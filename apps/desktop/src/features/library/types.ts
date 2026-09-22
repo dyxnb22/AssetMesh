@@ -177,18 +177,172 @@ export interface MutationReceiptDto {
   warnings: string[];
 }
 
-export type SoftwareCommand = {
-  action: 'update_metadata';
-  asset_id: string;
-  expected_revision?: number | null;
-  name?: string | null;
-  summary?: string | null;
+export interface CandidateRefDto {
+  namespace: string;
+  external_id: string;
+}
+
+export interface SoftwareCandidateDto {
+  provider: string;
+  display_name: string;
+  category: string;
+  install_source: string;
   version?: string | null;
   install_location?: string | null;
   executable_path?: string | null;
-  purpose?: string | null;
-  notes?: string | null;
-  architecture?: string | null;
-};
+  external_refs: CandidateRefDto[];
+  metadata?: unknown;
+}
+
+export interface ClassifiedCandidateDto {
+  candidate: SoftwareCandidateDto;
+  disposition: string;
+  matched_asset_ids: string[];
+  message?: string | null;
+}
+
+export type SoftwareCommand =
+  | {
+      action: 'create';
+      name: string;
+      category: string;
+      summary?: string | null;
+      install_source?: string | null;
+      version?: string | null;
+      install_location?: string | null;
+      executable_path?: string | null;
+      purpose?: string | null;
+      notes?: string | null;
+      architecture?: string | null;
+      tags?: string[];
+    }
+  | {
+      action: 'update_metadata';
+      asset_id: string;
+      expected_revision?: number | null;
+      name?: string | null;
+      summary?: string | null;
+      version?: string | null;
+      install_location?: string | null;
+      executable_path?: string | null;
+      purpose?: string | null;
+      notes?: string | null;
+      architecture?: string | null;
+    }
+  | {
+      action: 'adopt_candidate';
+      candidate: SoftwareCandidateDto;
+      target?: string | null;
+      purpose?: string | null;
+      notes?: string | null;
+      tags?: string[];
+    }
+  | {
+      action: 'archive';
+      asset_id: string;
+    };
+
+export type MediaCommand =
+  | {
+      action: 'create';
+      title: string;
+      media_type: string;
+      summary?: string | null;
+      status?: string | null;
+      rating?: number | null;
+      year?: number | null;
+      platform?: string | null;
+      progress_unit?: string | null;
+      progress_current?: number | null;
+      progress_total?: number | null;
+      notes?: string | null;
+      tags?: string[];
+    }
+  | {
+      action: 'update_metadata';
+      asset_id: string;
+      expected_revision?: number | null;
+      title?: string | null;
+      summary?: string | null;
+      year?: number | null;
+      platform?: string | null;
+      notes?: string | null;
+    }
+  | {
+      action: 'transition_status';
+      asset_id: string;
+      status: string;
+    }
+  | {
+      action: 'update_progress';
+      asset_id: string;
+      unit?: string | null;
+      current?: number | null;
+      total?: number | null;
+    }
+  | {
+      action: 'rate';
+      asset_id: string;
+      rating: number;
+    }
+  | {
+      action: 'archive';
+      asset_id: string;
+    };
+
+export type ServiceCommand =
+  | {
+      action: 'create';
+      name: string;
+      service_type: string;
+      summary?: string | null;
+      provider?: string | null;
+      account_label?: string | null;
+      endpoint_url?: string | null;
+      dashboard_url?: string | null;
+      domain_name?: string | null;
+      plan?: string | null;
+      cost?: string | null;
+      currency?: string | null;
+      billing_cadence?: string | null;
+      renews_at?: string | null;
+      expires_at?: string | null;
+      auto_renew?: boolean | null;
+      notes?: string | null;
+      tags?: string[];
+    }
+  | {
+      action: 'update';
+      asset_id: string;
+      expected_revision?: number | null;
+      name?: string | null;
+      summary?: string | null;
+      provider?: string | null;
+      account_label?: string | null;
+      endpoint_url?: string | null;
+      dashboard_url?: string | null;
+      domain_name?: string | null;
+      plan?: string | null;
+      cost?: string | null;
+      currency?: string | null;
+      billing_cadence?: string | null;
+      renews_at?: string | null;
+      expires_at?: string | null;
+      auto_renew?: boolean | null;
+      notes?: string | null;
+    }
+  | {
+      action: 'record_renewal';
+      asset_id: string;
+      renews_at: string;
+      cost?: string | null;
+      currency?: string | null;
+      next_renews_at?: string | null;
+      next_expires_at?: string | null;
+    }
+  | {
+      action: 'archive';
+      asset_id: string;
+    };
 
 

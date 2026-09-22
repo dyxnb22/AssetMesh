@@ -279,9 +279,144 @@ pub struct MutationReceiptDto {
     pub warnings: Vec<String>,
 }
 
+use assetmesh_core::application::software_discovery::{CandidateDisposition, ClassifiedCandidate};
+use assetmesh_core::domain::software::{InstallSource, SoftwareCategory};
+use assetmesh_core::ports::providers::{CandidateRef, SoftwareCandidate};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CandidateRefDto {
+    pub namespace: String,
+    pub external_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SoftwareCandidateDto {
+    pub provider: String,
+    pub display_name: String,
+    pub category: String,
+    pub install_source: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub install_location: Option<String>,
+    #[serde(default)]
+    pub executable_path: Option<String>,
+    #[serde(default)]
+    pub external_refs: Vec<CandidateRefDto>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+impl TryFrom<SoftwareCandidateDto> for SoftwareCandidate {
+    type Error = DesktopError;
+
+    fn try_from(dto: SoftwareCandidateDto) -> Result<Self, Self::Error> {
+        let category = SoftwareCategory::parse(&dto.category).ok_or_else(|| {
+            DesktopError::invalid_input(format!("unknown category: {}", dto.category))
+        })?;
+        let install_source = InstallSource::parse(&dto.install_source).ok_or_else(|| {
+            DesktopError::invalid_input(format!("unknown install source: {}", dto.install_source))
+        })?;
+        let external_refs = dto
+            .external_refs
+            .into_iter()
+            .map(|r| {
+                CandidateRef::new(r.namespace, r.external_id)
+                    .map_err(|e| DesktopError::invalid_input(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(SoftwareCandidate {
+            provider: dto.provider,
+            display_name: dto.display_name,
+            category,
+            install_source,
+            version: dto.version,
+            install_location: dto.install_location,
+            executable_path: dto.executable_path,
+            external_refs,
+            metadata: dto.metadata,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClassifiedCandidateDto {
+    pub candidate: SoftwareCandidateDto,
+    pub disposition: String,
+    pub matched_asset_ids: Vec<String>,
+    pub message: Option<String>,
+}
+
+impl From<ClassifiedCandidate> for ClassifiedCandidateDto {
+    fn from(cc: ClassifiedCandidate) -> Self {
+        let (disposition, matched_asset_ids, message) = match cc.disposition {
+            CandidateDisposition::New => ("new".to_string(), vec![], None),
+            CandidateDisposition::ExactMatch { asset_id } => {
+                ("exact_match".to_string(), vec![asset_id.to_string()], None)
+            }
+            CandidateDisposition::PotentialDuplicate { asset_ids } => (
+                "potential_duplicate".to_string(),
+                asset_ids.into_iter().map(|id| id.to_string()).collect(),
+                None,
+            ),
+            CandidateDisposition::Conflict { message } => {
+                ("conflict".to_string(), vec![], Some(message))
+            }
+        };
+
+        ClassifiedCandidateDto {
+            candidate: SoftwareCandidateDto {
+                provider: cc.candidate.provider,
+                display_name: cc.candidate.display_name,
+                category: cc.candidate.category.as_str().to_string(),
+                install_source: cc.candidate.install_source.as_str().to_string(),
+                version: cc.candidate.version,
+                install_location: cc.candidate.install_location,
+                executable_path: cc.candidate.executable_path,
+                external_refs: cc
+                    .candidate
+                    .external_refs
+                    .into_iter()
+                    .map(|r| CandidateRefDto {
+                        namespace: r.namespace,
+                        external_id: r.external_id,
+                    })
+                    .collect(),
+                metadata: cc.candidate.metadata,
+            },
+            disposition,
+            matched_asset_ids,
+            message,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum SoftwareCommandDto {
+    Create {
+        name: String,
+        category: String,
+        #[serde(default)]
+        summary: Option<String>,
+        #[serde(default)]
+        install_source: Option<String>,
+        #[serde(default)]
+        version: Option<String>,
+        #[serde(default)]
+        install_location: Option<String>,
+        #[serde(default)]
+        executable_path: Option<String>,
+        #[serde(default)]
+        purpose: Option<String>,
+        #[serde(default)]
+        notes: Option<String>,
+        #[serde(default)]
+        architecture: Option<String>,
+        #[serde(default)]
+        tags: Vec<String>,
+    },
     UpdateMetadata {
         asset_id: String,
         #[serde(default)]
@@ -302,5 +437,172 @@ pub enum SoftwareCommandDto {
         notes: Option<String>,
         #[serde(default)]
         architecture: Option<String>,
+    },
+    AdoptCandidate {
+        candidate: SoftwareCandidateDto,
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        purpose: Option<String>,
+        #[serde(default)]
+        notes: Option<String>,
+        #[serde(default)]
+        tags: Vec<String>,
+    },
+    Archive {
+        asset_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum MediaCommandDto {
+    Create {
+        title: String,
+        media_type: String,
+        #[serde(default)]
+        summary: Option<String>,
+        #[serde(default)]
+        status: Option<String>,
+        #[serde(default)]
+        rating: Option<f64>,
+        #[serde(default)]
+        year: Option<i32>,
+        #[serde(default)]
+        platform: Option<String>,
+        #[serde(default)]
+        progress_unit: Option<String>,
+        #[serde(default)]
+        progress_current: Option<f64>,
+        #[serde(default)]
+        progress_total: Option<f64>,
+        #[serde(default)]
+        notes: Option<String>,
+        #[serde(default)]
+        tags: Vec<String>,
+    },
+    UpdateMetadata {
+        asset_id: String,
+        #[serde(default)]
+        expected_revision: Option<i64>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        summary: Option<String>,
+        #[serde(default)]
+        year: Option<i32>,
+        #[serde(default)]
+        platform: Option<String>,
+        #[serde(default)]
+        notes: Option<String>,
+    },
+    TransitionStatus {
+        asset_id: String,
+        status: String,
+    },
+    UpdateProgress {
+        asset_id: String,
+        #[serde(default)]
+        unit: Option<String>,
+        #[serde(default)]
+        current: Option<f64>,
+        #[serde(default)]
+        total: Option<f64>,
+    },
+    Rate {
+        asset_id: String,
+        rating: f64,
+    },
+    Archive {
+        asset_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ServiceCommandDto {
+    Create {
+        name: String,
+        service_type: String,
+        #[serde(default)]
+        summary: Option<String>,
+        #[serde(default)]
+        provider: Option<String>,
+        #[serde(default)]
+        account_label: Option<String>,
+        #[serde(default)]
+        endpoint_url: Option<String>,
+        #[serde(default)]
+        dashboard_url: Option<String>,
+        #[serde(default)]
+        domain_name: Option<String>,
+        #[serde(default)]
+        plan: Option<String>,
+        #[serde(default)]
+        cost: Option<String>,
+        #[serde(default)]
+        currency: Option<String>,
+        #[serde(default)]
+        billing_cadence: Option<String>,
+        #[serde(default)]
+        renews_at: Option<String>,
+        #[serde(default)]
+        expires_at: Option<String>,
+        #[serde(default)]
+        auto_renew: Option<bool>,
+        #[serde(default)]
+        notes: Option<String>,
+        #[serde(default)]
+        tags: Vec<String>,
+    },
+    Update {
+        asset_id: String,
+        #[serde(default)]
+        expected_revision: Option<i64>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        summary: Option<String>,
+        #[serde(default)]
+        provider: Option<String>,
+        #[serde(default)]
+        account_label: Option<String>,
+        #[serde(default)]
+        endpoint_url: Option<String>,
+        #[serde(default)]
+        dashboard_url: Option<String>,
+        #[serde(default)]
+        domain_name: Option<String>,
+        #[serde(default)]
+        plan: Option<String>,
+        #[serde(default)]
+        cost: Option<String>,
+        #[serde(default)]
+        currency: Option<String>,
+        #[serde(default)]
+        billing_cadence: Option<String>,
+        #[serde(default)]
+        renews_at: Option<String>,
+        #[serde(default)]
+        expires_at: Option<String>,
+        #[serde(default)]
+        auto_renew: Option<bool>,
+        #[serde(default)]
+        notes: Option<String>,
+    },
+    RecordRenewal {
+        asset_id: String,
+        renews_at: String,
+        #[serde(default)]
+        cost: Option<String>,
+        #[serde(default)]
+        currency: Option<String>,
+        #[serde(default)]
+        next_renews_at: Option<String>,
+        #[serde(default)]
+        next_expires_at: Option<String>,
+    },
+    Archive {
+        asset_id: String,
     },
 }

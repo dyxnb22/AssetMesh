@@ -25,6 +25,9 @@ pub fn run() {
             commands::library_get,
             commands::library_search,
             commands::software_command,
+            commands::software_discover,
+            commands::media_command,
+            commands::service_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

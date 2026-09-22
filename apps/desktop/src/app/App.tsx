@@ -2,6 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AssetDetailView } from '../features/library/AssetDetailView';
 import { AssetInspector } from '../features/library/AssetInspector';
 import { AssetLedger } from '../features/library/AssetLedger';
+import { CreateMediaModal } from '../features/library/CreateMediaModal';
+import { CreateSoftwareModal } from '../features/library/CreateSoftwareModal';
+import { SoftwareDiscoveryModal } from '../features/library/SoftwareDiscoveryModal';
+import { CreateServiceModal } from '../features/library/CreateServiceModal';
 import { NavigationRail } from '../features/library/NavigationRail';
 import { getTransport } from '../features/library/transport';
 import type {
@@ -25,6 +29,10 @@ export const App: React.FC = () => {
   const [error, setError] = useState<DesktopError | null>(null);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const [activeDetailId, setActiveDetailId] = useState<string | null>(null);
+  const [createMediaOpen, setCreateMediaOpen] = useState(false);
+  const [createSoftwareOpen, setCreateSoftwareOpen] = useState(false);
+  const [softwareDiscoveryOpen, setSoftwareDiscoveryOpen] = useState(false);
+  const [createServiceOpen, setCreateServiceOpen] = useState(false);
 
   const {
     nav,
@@ -346,6 +354,16 @@ export const App: React.FC = () => {
         loading={loadingAssets}
         selectedAssetId={selectedAsset?.id || null}
         capabilities={capabilities}
+        onNewAsset={() => {
+          if (nav.module === 'software') {
+            setCreateSoftwareOpen(true);
+          } else if (nav.module === 'services') {
+            setCreateServiceOpen(true);
+          } else {
+            setCreateMediaOpen(true);
+          }
+        }}
+        onDiscoverSoftware={() => setSoftwareDiscoveryOpen(true)}
         onSelectAsset={(id) => {
           setSelectedAssetId(id);
           setMobileInspectorOpen(true);
@@ -424,6 +442,50 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 5. Create Media Modal */}
+      <CreateMediaModal
+        isOpen={createMediaOpen}
+        onClose={() => setCreateMediaOpen(false)}
+        onCreated={(newId) => {
+          loadAssets();
+          setSelectedAssetId(newId);
+          setActiveDetailId(newId);
+        }}
+      />
+
+      {/* 6. Create Software Modal */}
+      <CreateSoftwareModal
+        isOpen={createSoftwareOpen}
+        onClose={() => setCreateSoftwareOpen(false)}
+        onCreated={(newId) => {
+          loadAssets();
+          setSelectedAssetId(newId);
+          setActiveDetailId(newId);
+        }}
+      />
+
+      {/* 7. Software Discovery & Adoption Modal */}
+      <SoftwareDiscoveryModal
+        isOpen={softwareDiscoveryOpen}
+        onClose={() => setSoftwareDiscoveryOpen(false)}
+        onAdopted={(adoptedId) => {
+          loadAssets();
+          setSelectedAssetId(adoptedId);
+          setActiveDetailId(adoptedId);
+        }}
+      />
+
+      {/* 8. Create Service Modal */}
+      <CreateServiceModal
+        isOpen={createServiceOpen}
+        onClose={() => setCreateServiceOpen(false)}
+        onCreated={(newId) => {
+          loadAssets();
+          setSelectedAssetId(newId);
+          setActiveDetailId(newId);
+        }}
+      />
     </div>
   );
 };

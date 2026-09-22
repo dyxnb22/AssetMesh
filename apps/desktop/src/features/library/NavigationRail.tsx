@@ -58,6 +58,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
       >
         <button
           role="tab"
+          data-testid="nav-all"
           aria-selected={isModuleActive('all')}
           onClick={() => onSelectModule('all')}
           style={{
@@ -79,6 +80,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         <button
           role="tab"
+          data-testid="nav-media"
           aria-selected={isModuleActive('media')}
           onClick={() => onSelectModule('media')}
           style={{
@@ -97,6 +99,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         <button
           role="tab"
+          data-testid="nav-software"
           aria-selected={isModuleActive('software')}
           onClick={() => onSelectModule('software')}
           style={{
@@ -115,6 +118,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         <button
           role="tab"
+          data-testid="nav-services"
           aria-selected={isModuleActive('services')}
           onClick={() => onSelectModule('services')}
           style={{

@@ -4,9 +4,15 @@ import type { ServiceRecordDto } from '../types';
 
 interface ServicePanelProps {
   record: ServiceRecordDto;
+  onEdit?: () => void;
+  onRecordRenewal?: () => void;
 }
 
-export const ServicePanel: React.FC<ServicePanelProps> = ({ record }) => {
+export const ServicePanel: React.FC<ServicePanelProps> = ({
+  record,
+  onEdit,
+  onRecordRenewal,
+}) => {
   const formattedCost =
     record.cost_minor != null && record.currency
       ? `${(record.cost_minor / 100).toFixed(2)} ${record.currency}${
@@ -28,10 +34,53 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({ record }) => {
       data-testid="service-panel"
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-muted)', fontWeight: 600 }}>
-          Service Details
-        </span>
-        <Badge variant="muted">{record.service_type}</Badge>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-muted)', fontWeight: 600 }}>
+            Service Details
+          </span>
+          <Badge variant="muted">{record.service_type}</Badge>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {onRecordRenewal && (
+            <button
+              type="button"
+              data-testid="record-renewal-button"
+              onClick={onRecordRenewal}
+              style={{
+                background: 'none',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 8px',
+                fontSize: '11px',
+                cursor: 'pointer',
+                color: 'var(--color-mesh)',
+                fontWeight: 500,
+              }}
+            >
+              ↻ Record Renewal
+            </button>
+          )}
+
+          {onEdit && (
+            <button
+              type="button"
+              data-testid="edit-service-button"
+              onClick={onEdit}
+              style={{
+                background: 'none',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 8px',
+                fontSize: '11px',
+                cursor: 'pointer',
+                color: 'var(--color-ink)',
+              }}
+            >
+              ✎ Edit
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', fontSize: '12px' }}>

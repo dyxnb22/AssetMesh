@@ -4,11 +4,14 @@ import type {
   AppStatus,
   AssetDetailDto,
   AssetSummary,
+  ClassifiedCandidateDto,
   DesktopError,
   LibraryQuery,
   LibrarySearchQuery,
+  MediaCommand,
   MutationReceiptDto,
   Page,
+  ServiceCommand,
   SoftwareCommand,
 } from './types';
 
@@ -19,7 +22,10 @@ export interface DesktopTransport {
   listAssets(query?: LibraryQuery): Promise<Page<AssetSummary>>;
   searchAssets(query: LibrarySearchQuery): Promise<Page<AssetSummary>>;
   getAsset(id: string): Promise<AssetDetailDto>;
+  softwareDiscover(): Promise<ClassifiedCandidateDto[]>;
   softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto>;
+  mediaCommand(command: MediaCommand): Promise<MutationReceiptDto>;
+  serviceCommand(command: ServiceCommand): Promise<MutationReceiptDto>;
 }
 
 export class TauriTransport implements DesktopTransport {
@@ -47,8 +53,20 @@ export class TauriTransport implements DesktopTransport {
     return await invoke<AssetDetailDto>('library_get', { id });
   }
 
+  async softwareDiscover(): Promise<ClassifiedCandidateDto[]> {
+    return await invoke<ClassifiedCandidateDto[]>('software_discover');
+  }
+
   async softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto> {
     return await invoke<MutationReceiptDto>('software_command', { command });
+  }
+
+  async mediaCommand(command: MediaCommand): Promise<MutationReceiptDto> {
+    return await invoke<MutationReceiptDto>('media_command', { command });
+  }
+
+  async serviceCommand(command: ServiceCommand): Promise<MutationReceiptDto> {
+    return await invoke<MutationReceiptDto>('service_command', { command });
   }
 }
 
