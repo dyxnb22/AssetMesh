@@ -61,7 +61,7 @@ export interface DesktopError {
 }
 
 export type ActiveModule = 'all' | 'media' | 'software' | 'services';
-export type ActiveSection = 'library' | 'relations' | 'activity';
+export type ActiveSection = 'library' | 'relations' | 'activity' | 'duplicates';
 export type SortOption = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'kind_asc';
 export type LifecycleOption = 'active' | 'active_or_archived' | 'all';
 
@@ -406,5 +406,64 @@ export interface RelationRemovePayload {
   relation_id: string;
 }
 
+// =========================================================================
+// Activity Types (P5-08)
+// =========================================================================
 
+export interface ActivityViewDto {
+  id: string;
+  event_type: string;
+  module: string | null;
+  occurred_at: string;
+  actor: string;
+  asset_id: string | null;
+  asset_name: string | null;
+  payload: Record<string, unknown>;
+}
 
+export interface ActivityQuery {
+  asset_id?: string;
+  event_types?: string[];
+  modules?: string[];
+  actors?: string[];
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// =========================================================================
+// Duplicate Review & Merge Types (P5-08)
+// =========================================================================
+
+export interface DuplicateCandidateDto {
+  left: AssetSummary;
+  right: AssetSummary;
+  evidence: Array<Record<string, unknown>>;
+  evidence_labels: string[];
+}
+
+export interface DuplicateQuery {
+  kinds?: string[];
+  include_archived?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface MergePreviewDto {
+  winner: AssetSummary;
+  loser: AssetSummary;
+  can_merge: boolean;
+  conflicts: string[];
+  transferred_tags: string[];
+  transferred_external_refs: ExternalRefDto[];
+  redundant_external_refs: ExternalRefDto[];
+  transferred_relations_count: number;
+  redundant_relations_count: number;
+  notes: string[];
+}
+
+export interface MergeApplyCommand {
+  winner_id: string;
+  loser_id: string;
+}

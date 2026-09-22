@@ -7,6 +7,7 @@ import { ServicePanel } from './panels/ServicePanel';
 import { SoftwarePanel } from './panels/SoftwarePanel';
 import { UnknownPanel } from './panels/UnknownPanel';
 import { RelationExplorer } from './RelationExplorer';
+import { ActivityFeed } from './ActivityFeed';
 import { getTransport, normalizeDesktopError } from './transport';
 import type {
   AppCapabilities,
@@ -82,6 +83,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
   const [mutationError, setMutationError] = useState<DesktopError | null>(null);
   const [isConflict, setIsConflict] = useState(false);
   const [receiptNotice, setReceiptNotice] = useState<string | null>(null);
+  const [showActivity, setShowActivity] = useState(false);
 
   const transport = getTransport();
 
@@ -1859,6 +1861,53 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
           }}
         />
       )}
+
+      {/* Asset Activity History */}
+      <div
+        data-testid="asset-activity-section"
+        style={{
+          backgroundColor: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-md)',
+          padding: '14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span
+            style={{
+              fontSize: '11px',
+              textTransform: 'uppercase',
+              color: 'var(--color-muted)',
+              fontWeight: 600,
+            }}
+          >
+            Activity History
+          </span>
+          <button
+            type="button"
+            data-testid="toggle-asset-activity-button"
+            onClick={() => setShowActivity(!showActivity)}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '11px',
+              color: 'var(--color-mesh)',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            {showActivity ? 'Hide History' : 'Show History'}
+          </button>
+        </div>
+        {showActivity && (
+          <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+            <ActivityFeed assetId={detail.id} onOpenAssetDetail={onOpenAssetDetail} />
+          </div>
+        )}
+      </div>
 
       {/* External References */}
       <ExternalRefsPanel refs={detail.external_refs} />

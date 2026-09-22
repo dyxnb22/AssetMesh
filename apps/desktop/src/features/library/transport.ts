@@ -20,6 +20,12 @@ import type {
   ServiceCommand,
   SoftwareCommand,
   TraversalViewDto,
+  ActivityQuery,
+  ActivityViewDto,
+  DuplicateCandidateDto,
+  DuplicateQuery,
+  MergeApplyCommand,
+  MergePreviewDto,
 } from './types';
 
 export interface DesktopTransport {
@@ -38,6 +44,10 @@ export interface DesktopTransport {
   relationTraverse(query: RelationTraverseQuery): Promise<TraversalViewDto>;
   relationAttach(payload: RelationAttachPayload): Promise<MutationReceiptDto>;
   relationRemove(payload: RelationRemovePayload): Promise<MutationReceiptDto>;
+  activityQuery(query?: ActivityQuery): Promise<Page<ActivityViewDto>>;
+  duplicateCandidates(query?: DuplicateQuery): Promise<Page<DuplicateCandidateDto>>;
+  mergePreview(winner_id: string, loser_id: string): Promise<MergePreviewDto>;
+  mergeApply(command: MergeApplyCommand): Promise<MutationReceiptDto>;
 }
 
 export class TauriTransport implements DesktopTransport {
@@ -99,6 +109,22 @@ export class TauriTransport implements DesktopTransport {
 
   async relationRemove(payload: RelationRemovePayload): Promise<MutationReceiptDto> {
     return await invoke<MutationReceiptDto>('relation_remove', { payload });
+  }
+
+  async activityQuery(query?: ActivityQuery): Promise<Page<ActivityViewDto>> {
+    return await invoke<Page<ActivityViewDto>>('activity_query', { query: query || {} });
+  }
+
+  async duplicateCandidates(query?: DuplicateQuery): Promise<Page<DuplicateCandidateDto>> {
+    return await invoke<Page<DuplicateCandidateDto>>('duplicate_candidates', { query: query || {} });
+  }
+
+  async mergePreview(winner_id: string, loser_id: string): Promise<MergePreviewDto> {
+    return await invoke<MergePreviewDto>('merge_preview', { query: { winner_id, loser_id } });
+  }
+
+  async mergeApply(command: MergeApplyCommand): Promise<MutationReceiptDto> {
+    return await invoke<MutationReceiptDto>('merge_apply', { input: command });
   }
 }
 

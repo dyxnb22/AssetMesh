@@ -8,6 +8,8 @@ import { SoftwareDiscoveryModal } from '../features/library/SoftwareDiscoveryMod
 import { CreateServiceModal } from '../features/library/CreateServiceModal';
 import { NavigationRail } from '../features/library/NavigationRail';
 import { RelationExplorer } from '../features/library/RelationExplorer';
+import { ActivityFeed } from '../features/library/ActivityFeed';
+import { DuplicateReview } from '../features/library/DuplicateReview';
 import { getTransport } from '../features/library/transport';
 import type {
   AppCapabilities,
@@ -369,6 +371,36 @@ export const App: React.FC = () => {
               No asset selected. Select an asset from the library to explore relations and impact.
             </div>
           )}
+        </main>
+      ) : nav.section === 'activity' ? (
+        <main
+          data-testid="activity-workspace"
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            backgroundColor: 'var(--color-canvas)',
+          }}
+        >
+          <ActivityFeed onOpenAssetDetail={(id) => setActiveDetailId(id)} />
+        </main>
+      ) : nav.section === 'duplicates' ? (
+        <main
+          data-testid="duplicates-workspace"
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            backgroundColor: 'var(--color-canvas)',
+          }}
+        >
+          <DuplicateReview
+            capabilities={capabilities}
+            onOpenAssetDetail={(id) => setActiveDetailId(id)}
+            onAssetMerged={() => loadAssets()}
+          />
         </main>
       ) : (
         <>

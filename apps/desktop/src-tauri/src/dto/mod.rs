@@ -745,3 +745,123 @@ pub struct RelationAttachDto {
 pub struct RelationRemoveDto {
     pub relation_id: String,
 }
+
+// =========================================================================
+// Activity DTOs (P5-08)
+// =========================================================================
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivityViewDto {
+    pub id: String,
+    pub event_type: String,
+    pub module: Option<String>,
+    pub occurred_at: String,
+    pub actor: String,
+    pub asset_id: Option<String>,
+    pub asset_name: Option<String>,
+    pub payload: serde_json::Value,
+}
+
+impl From<assetmesh_core::application::activity_service::ActivityView> for ActivityViewDto {
+    fn from(v: assetmesh_core::application::activity_service::ActivityView) -> Self {
+        Self {
+            id: v.id.to_string(),
+            event_type: v.event_type,
+            module: v.module.map(|m| m.as_str().to_string()),
+            occurred_at: v.occurred_at.to_rfc3339(),
+            actor: v.actor,
+            asset_id: v.asset_id.map(|id| id.to_string()),
+            asset_name: v.asset_name,
+            payload: v.payload,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ActivityQueryDto {
+    #[serde(default)]
+    pub asset_id: Option<String>,
+    #[serde(default)]
+    pub event_types: Option<Vec<String>>,
+    #[serde(default)]
+    pub modules: Option<Vec<String>>,
+    #[serde(default)]
+    pub actors: Option<Vec<String>>,
+    #[serde(default)]
+    pub since: Option<String>,
+    #[serde(default)]
+    pub until: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
+// =========================================================================
+// Duplicate Review & Merge DTOs (P5-08)
+// =========================================================================
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DuplicateCandidateDto {
+    pub left: AssetSummaryDto,
+    pub right: AssetSummaryDto,
+    pub evidence: Vec<serde_json::Value>,
+    pub evidence_labels: Vec<String>,
+}
+
+impl From<assetmesh_core::application::duplicate_review_service::DuplicateCandidate>
+    for DuplicateCandidateDto
+{
+    fn from(c: assetmesh_core::application::duplicate_review_service::DuplicateCandidate) -> Self {
+        let evidence_labels = c.evidence.iter().map(|e| e.label()).collect();
+        let evidence = c
+            .evidence
+            .into_iter()
+            .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
+            .collect();
+        Self {
+            left: AssetSummaryDto::from(c.left),
+            right: AssetSummaryDto::from(c.right),
+            evidence,
+            evidence_labels,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct DuplicateQueryDto {
+    #[serde(default)]
+    pub kinds: Option<Vec<String>>,
+    #[serde(default)]
+    pub include_archived: Option<bool>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MergePreviewQueryDto {
+    pub winner_id: String,
+    pub loser_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MergePreviewDto {
+    pub winner: AssetSummaryDto,
+    pub loser: AssetSummaryDto,
+    pub can_merge: bool,
+    pub conflicts: Vec<String>,
+    pub transferred_tags: Vec<String>,
+    pub transferred_external_refs: Vec<ExternalRefDto>,
+    pub redundant_external_refs: Vec<ExternalRefDto>,
+    pub transferred_relations_count: usize,
+    pub redundant_relations_count: usize,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MergeApplyDto {
+    pub winner_id: String,
+    pub loser_id: String,
+}

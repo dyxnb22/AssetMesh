@@ -49,4 +49,18 @@ impl DesktopError {
             message: msg.into(),
         }
     }
+
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        DesktopError {
+            category: "not_found".to_string(),
+            message: msg.into(),
+        }
+    }
+
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        DesktopError {
+            category: "conflict".to_string(),
+            message: msg.into(),
+        }
+    }
 }

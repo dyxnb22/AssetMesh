@@ -184,6 +184,27 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
         >
           Activity
         </button>
+
+        <button
+          role="tab"
+          data-testid="nav-duplicates"
+          aria-selected={currentSection === 'duplicates'}
+          onClick={() => onSelectSection('duplicates')}
+          style={{
+            all: 'unset',
+            cursor: 'pointer',
+            padding: '7px 10px',
+            borderRadius: 'var(--radius-sm)',
+            backgroundColor:
+              currentSection === 'duplicates' ? 'var(--color-surface)' : 'transparent',
+            color:
+              currentSection === 'duplicates' ? 'var(--color-mesh)' : 'var(--color-ink)',
+            fontWeight: currentSection === 'duplicates' ? 600 : 400,
+            fontSize: '12px',
+          }}
+        >
+          Duplicates
+        </button>
       </div>
     </nav>
   );

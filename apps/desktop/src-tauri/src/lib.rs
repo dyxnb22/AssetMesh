@@ -33,6 +33,10 @@ pub fn run() {
             commands::relation_traverse,
             commands::relation_attach,
             commands::relation_remove,
+            commands::activity_query,
+            commands::duplicate_candidates,
+            commands::merge_preview,
+            commands::merge_apply,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

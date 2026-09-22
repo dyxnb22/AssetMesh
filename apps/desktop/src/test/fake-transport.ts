@@ -25,6 +25,12 @@ import type {
   SoftwareRecordDto,
   TraversalNodeDto,
   TraversalViewDto,
+  ActivityQuery,
+  ActivityViewDto,
+  DuplicateCandidateDto,
+  DuplicateQuery,
+  MergeApplyCommand,
+  MergePreviewDto,
 } from '../features/library/types';
 
 const INVERSE_MAP: Record<string, string> = {
@@ -102,9 +108,43 @@ export class FakeDesktopTransport implements DesktopTransport {
     },
   };
   assets: AssetSummary[] = [];
+  activityEvents: ActivityViewDto[] = [];
 
   constructor(assets: AssetSummary[] = []) {
-    this.assets = assets;
+    this.assets = [...assets];
+    for (const a of assets) {
+      const mod = a.kind.split('.')[0] || 'asset';
+      this.activityEvents.push({
+        id: 'act-' + (this.activityEvents.length + 1),
+        event_type: `${mod}.created`,
+        module: mod,
+        occurred_at: a.updated_at || new Date().toISOString(),
+        actor: 'user',
+        asset_id: a.id,
+        asset_name: a.name,
+        payload: { summary: a.subtitle },
+      });
+    }
+  }
+
+  recordActivity(
+    event_type: string,
+    asset_id?: string,
+    asset_name?: string,
+    payload: Record<string, unknown> = {},
+    module?: string
+  ): void {
+    const event: ActivityViewDto = {
+      id: 'act-' + (this.activityEvents.length + 1),
+      event_type,
+      module: module ?? (event_type.split('.')[0] || null),
+      occurred_at: new Date().toISOString(),
+      actor: 'user',
+      asset_id: asset_id ?? null,
+      asset_name: asset_name ?? null,
+      payload,
+    };
+    this.activityEvents.unshift(event);
   }
 
   async getCapabilities(): Promise<AppCapabilities> {
@@ -1423,6 +1463,313 @@ export class FakeDesktopTransport implements DesktopTransport {
       operation: 'relation.remove',
       asset_ids: [],
       revision: null,
+      changed: true,
+      warnings: [],
+    };
+  }
+
+  async activityQuery(query?: ActivityQuery): Promise<Page<ActivityViewDto>> {
+    let filtered = [...this.activityEvents];
+
+    if (query?.asset_id) {
+      filtered = filtered.filter((e) => e.asset_id === query.asset_id);
+    }
+    if (query?.modules && query.modules.length > 0) {
+      filtered = filtered.filter((e) => e.module && query.modules!.includes(e.module));
+    }
+    if (query?.event_types && query.event_types.length > 0) {
+      filtered = filtered.filter((e) => query.event_types!.includes(e.event_type));
+    }
+    if (query?.actors && query.actors.length > 0) {
+      filtered = filtered.filter((e) => query.actors!.includes(e.actor));
+    }
+    if (query?.since) {
+      filtered = filtered.filter((e) => e.occurred_at >= query.since!);
+    }
+    if (query?.until) {
+      filtered = filtered.filter((e) => e.occurred_at <= query.until!);
+    }
+
+    filtered.sort((a, b) => b.occurred_at.localeCompare(a.occurred_at) || b.id.localeCompare(a.id));
+
+    const total = filtered.length;
+    const offset = query?.offset ?? 0;
+    const limit = query?.limit ?? 20;
+    const items = filtered.slice(offset, offset + limit);
+
+    return {
+      items,
+      offset,
+      limit,
+      total,
+    };
+  }
+
+  async duplicateCandidates(query?: DuplicateQuery): Promise<Page<DuplicateCandidateDto>> {
+    let eligible = [...this.assets];
+    if (query?.include_archived === false) {
+      eligible = eligible.filter((a) => a.lifecycle === 'active');
+    } else {
+      eligible = eligible.filter((a) => a.lifecycle === 'active' || a.lifecycle === 'archived');
+    }
+
+    if (query?.kinds && query.kinds.length > 0) {
+      eligible = eligible.filter((a) => query.kinds!.includes(a.kind));
+    }
+
+    const candidates: DuplicateCandidateDto[] = [];
+    for (let i = 0; i < eligible.length; i++) {
+      for (let j = i + 1; j < eligible.length; j++) {
+        const a = eligible[i];
+        const b = eligible[j];
+        if (a.kind !== b.kind) continue;
+
+        const left = a.id < b.id ? a : b;
+        const right = a.id < b.id ? b : a;
+
+        const evidence: Array<Record<string, unknown>> = [];
+        const evidence_labels: string[] = [];
+
+        const normA = a.name.toLowerCase().trim();
+        const normB = b.name.toLowerCase().trim();
+        if (normA === normB) {
+          evidence.push({
+            evidence: 'same_normalized_name',
+            normalized_name: normA,
+            kind: a.kind,
+          });
+          evidence_labels.push(`same normalized name (${normA})`);
+        }
+
+        const detA = this.details.get(a.id);
+        const detB = this.details.get(b.id);
+        if (detA && detB) {
+          if (a.kind.startsWith('software')) {
+            const swA = detA.details as SoftwareRecordDto;
+            const swB = detB.details as SoftwareRecordDto;
+            if (swA?.install_location && swB?.install_location && swA.install_location === swB.install_location) {
+              evidence.push({
+                evidence: 'same_install_location',
+                location: swA.install_location,
+              });
+              evidence_labels.push(`same install location (${swA.install_location})`);
+            }
+          } else if (a.kind.startsWith('service')) {
+            const sA = detA.details as ServiceRecordDto;
+            const sB = detB.details as ServiceRecordDto;
+            if (sA?.provider && sB?.provider && sA.provider === sB.provider) {
+              evidence.push({
+                evidence: 'same_provider',
+                provider: sA.provider,
+              });
+              evidence_labels.push(`same provider (${sA.provider})`);
+            }
+            if (sA?.domain_name && sB?.domain_name && sA.domain_name === sB.domain_name) {
+              evidence.push({
+                evidence: 'same_domain',
+                domain: sA.domain_name,
+              });
+              evidence_labels.push(`same domain (${sA.domain_name})`);
+            }
+          }
+        }
+
+        if (evidence.length > 0) {
+          candidates.push({
+            left,
+            right,
+            evidence,
+            evidence_labels,
+          });
+        }
+      }
+    }
+
+    const total = candidates.length;
+    const offset = query?.offset ?? 0;
+    const limit = query?.limit ?? 20;
+    const items = candidates.slice(offset, offset + limit);
+
+    return {
+      items,
+      offset,
+      limit,
+      total,
+    };
+  }
+
+  async mergePreview(winner_id: string, loser_id: string): Promise<MergePreviewDto> {
+    if (winner_id === loser_id) {
+      const err = new Error('cannot merge an asset into itself') as Error & { category?: string };
+      err.category = 'conflict';
+      throw err;
+    }
+
+    const winner = this.assets.find((a) => a.id === winner_id);
+    if (!winner) {
+      const err = new Error(`winner asset not found: ${winner_id}`) as Error & { category?: string };
+      err.category = 'not_found';
+      throw err;
+    }
+
+    const loser = this.assets.find((a) => a.id === loser_id);
+    if (!loser) {
+      const err = new Error(`loser asset not found: ${loser_id}`) as Error & { category?: string };
+      err.category = 'not_found';
+      throw err;
+    }
+
+    const conflicts: string[] = [];
+    const notes: string[] = [];
+
+    if (loser.lifecycle === 'merged') {
+      conflicts.push('Loser is already merged into another asset');
+    }
+    if (winner.lifecycle !== 'active') {
+      conflicts.push('Winner must be active to receive a merge');
+    }
+    if (loser.kind !== winner.kind) {
+      conflicts.push(`Cannot merge assets of different kinds: '${loser.kind}' vs '${winner.kind}'`);
+    }
+
+    const transferred_tags = (loser.tags || []).filter((t) => !(winner.tags || []).includes(t));
+
+    const loser_relations = this.storedRelations.filter(
+      (r) => r.source === loser_id || r.target === loser_id
+    );
+    const winner_relations = this.storedRelations.filter(
+      (r) => r.source === winner_id || r.target === winner_id
+    );
+
+    let transferred_relations_count = 0;
+    let redundant_relations_count = 0;
+
+    for (const rel of loser_relations) {
+      const other = rel.source === loser_id ? rel.target : rel.source;
+      if (other === winner_id) {
+        redundant_relations_count++;
+        continue;
+      }
+      const norm = normalizeRelationFact(
+        rel.source === loser_id ? winner_id : rel.source,
+        rel.type,
+        rel.target === loser_id ? winner_id : rel.target
+      );
+      const isDup = winner_relations.some((wr) => {
+        const wNorm = normalizeRelationFact(wr.source, wr.type, wr.target);
+        return wNorm.source === norm.source && wNorm.target === norm.target && wNorm.type === norm.type;
+      });
+      if (isDup) {
+        redundant_relations_count++;
+      } else {
+        transferred_relations_count++;
+      }
+    }
+
+    const detWinner = this.details.get(winner_id);
+    const detLoser = this.details.get(loser_id);
+    if (detWinner && detLoser && winner.kind.startsWith('service')) {
+      const sW = detWinner.details as ServiceRecordDto;
+      const sL = detLoser.details as ServiceRecordDto;
+      const fieldConflicts: string[] = [];
+      const checkF = (name: string, a?: string | null, b?: string | null) => {
+        if (a && b && a !== b) {
+          fieldConflicts.push(`${name}: '${a}' vs '${b}'`);
+        }
+      };
+      checkF('plan', sW.plan, sL.plan);
+      checkF('provider', sW.provider, sL.provider);
+      checkF('domain_name', sW.domain_name, sL.domain_name);
+      checkF('notes', sW.notes, sL.notes);
+      if (sW.cost_minor != null && sL.cost_minor != null && sW.cost_minor !== sL.cost_minor) {
+        fieldConflicts.push(`cost: ${sW.cost_minor} vs ${sL.cost_minor}`);
+      }
+      if (fieldConflicts.length > 0) {
+        conflicts.push(`Service details conflict on: ${fieldConflicts.join(', ')}`);
+      }
+    }
+
+    if (winner.kind.startsWith('media') && loser.kind.startsWith('media')) {
+      notes.push("Winner's media metadata is kept. Loser's media record is preserved in the audit log.");
+    }
+    if (winner.kind.startsWith('software') && loser.kind.startsWith('software')) {
+      notes.push("Winner's software metadata is kept. Loser's software record is preserved in the audit log.");
+    }
+
+    return {
+      winner,
+      loser,
+      can_merge: conflicts.length === 0,
+      conflicts,
+      transferred_tags,
+      transferred_external_refs: [],
+      redundant_external_refs: [],
+      transferred_relations_count,
+      redundant_relations_count,
+      notes,
+    };
+  }
+
+  async mergeApply(command: MergeApplyCommand): Promise<MutationReceiptDto> {
+    const preview = await this.mergePreview(command.winner_id, command.loser_id);
+    if (!preview.can_merge) {
+      const err = new Error(
+        `cannot merge assets: ${preview.conflicts.join('; ')}`
+      ) as Error & { category?: string };
+      err.category = 'conflict';
+      throw err;
+    }
+
+    const winner = this.assets.find((a) => a.id === command.winner_id)!;
+    const loser = this.assets.find((a) => a.id === command.loser_id)!;
+
+    // Tombstone the loser
+    loser.lifecycle = 'merged';
+    const loserDetail = this.details.get(command.loser_id);
+    if (loserDetail) {
+      loserDetail.lifecycle = 'merged';
+      loserDetail.merged_into = command.winner_id;
+      loserDetail.details = {
+        module: 'merged_redirect',
+        surviving_asset_id: command.winner_id,
+      };
+    }
+
+    // Merge tags into winner
+    const mergedTags = Array.from(new Set([...(winner.tags || []), ...(loser.tags || [])]));
+    winner.tags = mergedTags;
+    const winnerDetail = this.details.get(command.winner_id);
+    if (winnerDetail) {
+      winnerDetail.tags = mergedTags;
+      winnerDetail.revision++;
+      winnerDetail.updated_at = new Date().toISOString();
+    }
+    winner.updated_at = new Date().toISOString();
+
+    // Re-point loser relations
+    for (const rel of this.storedRelations) {
+      if (rel.source === command.loser_id) {
+        if (rel.target === command.winner_id) continue;
+        rel.source = command.winner_id;
+      }
+      if (rel.target === command.loser_id) {
+        if (rel.source === command.winner_id) continue;
+        rel.target = command.winner_id;
+      }
+    }
+
+    this.recordActivity(
+      'asset.merged',
+      command.winner_id,
+      winner.name,
+      { loser_id: command.loser_id, loser_name: loser.name },
+      'asset'
+    );
+
+    return {
+      operation: 'asset.merge',
+      asset_ids: [command.winner_id, command.loser_id],
+      revision: winnerDetail ? winnerDetail.revision : null,
       changed: true,
       warnings: [],
     };

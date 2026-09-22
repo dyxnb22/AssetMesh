@@ -1,11 +1,15 @@
+pub mod activity;
 pub mod capabilities;
+pub mod duplicate;
 pub mod library;
 pub mod media;
 pub mod relation;
 pub mod service;
 pub mod software;
 
+pub use activity::*;
 pub use capabilities::*;
+pub use duplicate::*;
 pub use library::*;
 pub use media::*;
 pub use relation::*;
