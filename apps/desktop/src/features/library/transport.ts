@@ -10,9 +10,16 @@ import type {
   LibrarySearchQuery,
   MediaCommand,
   MutationReceiptDto,
+  NeighborViewDto,
   Page,
+  RelationAttachPayload,
+  RelationNeighborsQuery,
+  RelationRemovePayload,
+  RelationTraverseQuery,
+  RelationViewDto,
   ServiceCommand,
   SoftwareCommand,
+  TraversalViewDto,
 } from './types';
 
 export interface DesktopTransport {
@@ -26,6 +33,11 @@ export interface DesktopTransport {
   softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto>;
   mediaCommand(command: MediaCommand): Promise<MutationReceiptDto>;
   serviceCommand(command: ServiceCommand): Promise<MutationReceiptDto>;
+  relationList(assetId: string): Promise<RelationViewDto[]>;
+  relationNeighbors(query: RelationNeighborsQuery): Promise<NeighborViewDto[]>;
+  relationTraverse(query: RelationTraverseQuery): Promise<TraversalViewDto>;
+  relationAttach(payload: RelationAttachPayload): Promise<MutationReceiptDto>;
+  relationRemove(payload: RelationRemovePayload): Promise<MutationReceiptDto>;
 }
 
 export class TauriTransport implements DesktopTransport {
@@ -67,6 +79,26 @@ export class TauriTransport implements DesktopTransport {
 
   async serviceCommand(command: ServiceCommand): Promise<MutationReceiptDto> {
     return await invoke<MutationReceiptDto>('service_command', { command });
+  }
+
+  async relationList(assetId: string): Promise<RelationViewDto[]> {
+    return await invoke<RelationViewDto[]>('relation_list', { assetId });
+  }
+
+  async relationNeighbors(query: RelationNeighborsQuery): Promise<NeighborViewDto[]> {
+    return await invoke<NeighborViewDto[]>('relation_neighbors', { query });
+  }
+
+  async relationTraverse(query: RelationTraverseQuery): Promise<TraversalViewDto> {
+    return await invoke<TraversalViewDto>('relation_traverse', { query });
+  }
+
+  async relationAttach(payload: RelationAttachPayload): Promise<MutationReceiptDto> {
+    return await invoke<MutationReceiptDto>('relation_attach', { payload });
+  }
+
+  async relationRemove(payload: RelationRemovePayload): Promise<MutationReceiptDto> {
+    return await invoke<MutationReceiptDto>('relation_remove', { payload });
   }
 }
 

@@ -28,6 +28,11 @@ pub fn run() {
             commands::software_discover,
             commands::media_command,
             commands::service_command,
+            commands::relation_list,
+            commands::relation_neighbors,
+            commands::relation_traverse,
+            commands::relation_attach,
+            commands::relation_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

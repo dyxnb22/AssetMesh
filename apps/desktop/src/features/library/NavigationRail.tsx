@@ -145,6 +145,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         <button
           role="tab"
+          data-testid="nav-relations"
           aria-selected={currentSection === 'relations'}
           onClick={() => onSelectSection('relations')}
           style={{
@@ -165,6 +166,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         <button
           role="tab"
+          data-testid="nav-activity"
           aria-selected={currentSection === 'activity'}
           onClick={() => onSelectSection('activity')}
           style={{

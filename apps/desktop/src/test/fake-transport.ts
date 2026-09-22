@@ -11,12 +11,61 @@ import type {
   MediaCommand,
   MediaRecordDto,
   MutationReceiptDto,
+  NeighborViewDto,
   Page,
+  RelationAttachPayload,
+  RelationNeighborsQuery,
+  RelationPathHopDto,
+  RelationRemovePayload,
+  RelationTraverseQuery,
+  RelationViewDto,
   ServiceCommand,
   ServiceRecordDto,
   SoftwareCommand,
   SoftwareRecordDto,
+  TraversalNodeDto,
+  TraversalViewDto,
 } from '../features/library/types';
+
+const INVERSE_MAP: Record<string, string> = {
+  depends_on: 'dependency_of',
+  dependency_of: 'depends_on',
+  uses: 'used_by',
+  used_by: 'uses',
+  installed_via: 'installs',
+  installs: 'installed_via',
+  hosted_on: 'hosts',
+  hosts: 'hosted_on',
+  points_to: 'pointed_to_by',
+  pointed_to_by: 'points_to',
+  related_to: 'related_to',
+};
+
+const PRIMARY_MAP: Record<string, string> = {
+  dependency_of: 'depends_on',
+  used_by: 'uses',
+  installs: 'installed_via',
+  hosts: 'hosted_on',
+  pointed_to_by: 'points_to',
+};
+
+function normalizeRelationFact(
+  source: string,
+  type: string,
+  target: string
+): { source: string; type: string; target: string } {
+  if (PRIMARY_MAP[type]) {
+    return {
+      source: target,
+      type: PRIMARY_MAP[type],
+      target: source,
+    };
+  }
+  if (type === 'related_to' && source > target) {
+    return { source: target, type, target: source };
+  }
+  return { source, type, target };
+}
 
 export class FakeDesktopTransport implements DesktopTransport {
   status: AppStatus = { status: 'ready', db_path: ':memory:' };
@@ -24,8 +73,27 @@ export class FakeDesktopTransport implements DesktopTransport {
     version: '0.3.0',
     modules: ['media', 'software', 'services'],
     asset_kinds: ['media.anime', 'software.app', 'service.saas'],
-    relation_types: ['depends_on', 'uses'],
-    storable_relation_types: ['depends_on', 'uses'],
+    relation_types: [
+      'depends_on',
+      'dependency_of',
+      'uses',
+      'used_by',
+      'installed_via',
+      'installs',
+      'hosted_on',
+      'hosts',
+      'points_to',
+      'pointed_to_by',
+      'related_to',
+    ],
+    storable_relation_types: [
+      'depends_on',
+      'uses',
+      'installed_via',
+      'hosted_on',
+      'points_to',
+      'related_to',
+    ],
     features: {
       runtime_enrichment: false,
       projects: false,
@@ -1068,5 +1136,295 @@ export class FakeDesktopTransport implements DesktopTransport {
     }
 
     throw new Error('Unsupported service command action');
+  }
+
+  storedRelations: Array<{
+    id: string;
+    source: string;
+    target: string;
+    type: string;
+    note?: string | null;
+    provenance: string;
+    created_at: string;
+  }> = [];
+
+  async relationList(assetId: string): Promise<RelationViewDto[]> {
+    const asset = this.assets.find((a) => a.id === assetId);
+    if (!asset) {
+      const err = new Error(`Asset not found: ${assetId}`) as Error & { category?: string };
+      err.category = 'not_found';
+      throw err;
+    }
+
+    const results: RelationViewDto[] = [];
+    for (const r of this.storedRelations) {
+      if (r.source === assetId) {
+        const other = this.assets.find((a) => a.id === r.target);
+        results.push({
+          relation_id: r.id,
+          other_asset_id: r.target,
+          other_asset_name: other ? other.name : r.target,
+          relation_type: r.type,
+          outgoing: true,
+          note: r.note,
+          provenance: r.provenance,
+          created_at: r.created_at,
+        });
+      } else if (r.target === assetId) {
+        const other = this.assets.find((a) => a.id === r.source);
+        const effectiveType = INVERSE_MAP[r.type] || r.type;
+        results.push({
+          relation_id: r.id,
+          other_asset_id: r.source,
+          other_asset_name: other ? other.name : r.source,
+          relation_type: effectiveType,
+          outgoing: false,
+          note: r.note,
+          provenance: r.provenance,
+          created_at: r.created_at,
+        });
+      }
+    }
+    return results;
+  }
+
+  async relationNeighbors(query: RelationNeighborsQuery): Promise<NeighborViewDto[]> {
+    const asset = this.assets.find((a) => a.id === query.asset_id);
+    if (!asset) {
+      const err = new Error(`Asset not found: ${query.asset_id}`) as Error & { category?: string };
+      err.category = 'not_found';
+      throw err;
+    }
+
+    if (asset.lifecycle === 'merged') {
+      const err = new Error(
+        `asset ${asset.id} was merged into another; request the surviving asset instead`
+      ) as Error & { category?: string };
+      err.category = 'conflict';
+      throw err;
+    }
+
+    const allViews = await this.relationList(query.asset_id);
+    const direction = query.direction || 'both';
+    let filtered = allViews;
+
+    if (direction === 'outgoing') {
+      filtered = filtered.filter((v) => v.outgoing);
+    } else if (direction === 'incoming') {
+      filtered = filtered.filter((v) => !v.outgoing);
+    }
+
+    if (query.relation_types && query.relation_types.length > 0) {
+      const allowed = new Set(query.relation_types);
+      filtered = filtered.filter(
+        (v) => allowed.has(v.relation_type) || allowed.has(INVERSE_MAP[v.relation_type])
+      );
+    }
+
+    const neighbors: NeighborViewDto[] = [];
+    for (const edge of filtered) {
+      const otherAsset = this.assets.find((a) => a.id === edge.other_asset_id);
+      if (!otherAsset) continue;
+      if (!query.include_archived && otherAsset.lifecycle === 'archived') continue;
+      if (otherAsset.lifecycle === 'merged') continue;
+      neighbors.push({
+        asset: otherAsset,
+        edge,
+      });
+    }
+
+    return neighbors;
+  }
+
+  async relationTraverse(query: RelationTraverseQuery): Promise<TraversalViewDto> {
+    const root = this.assets.find((a) => a.id === query.asset_id);
+    if (!root) {
+      const err = new Error(`Asset not found: ${query.asset_id}`) as Error & { category?: string };
+      err.category = 'not_found';
+      throw err;
+    }
+
+    if (root.lifecycle === 'merged') {
+      const err = new Error(
+        `asset ${root.id} was merged into another; request the surviving asset instead`
+      ) as Error & { category?: string };
+      err.category = 'conflict';
+      throw err;
+    }
+
+    const maxDepth = Math.min(query.max_depth ?? 8, 32);
+    const mode = query.mode || 'traverse';
+    let direction: 'outgoing' | 'incoming' | 'both' = query.direction || 'outgoing';
+    let allowedTypes: Set<string> | null = null;
+
+    if (mode === 'dependencies') {
+      direction = 'outgoing';
+      allowedTypes = new Set(['depends_on', 'installed_via', 'hosted_on']);
+    } else if (mode === 'dependents' || mode === 'impact') {
+      direction = 'incoming';
+      allowedTypes = new Set([
+        'depends_on',
+        'installed_via',
+        'hosted_on',
+        'dependency_of',
+        'installs',
+        'hosts',
+      ]);
+    } else if (query.relation_types && query.relation_types.length > 0) {
+      allowedTypes = new Set(query.relation_types);
+    }
+
+    const visited = new Set<string>([root.id]);
+    const paths = new Map<string, RelationPathHopDto[]>();
+    paths.set(root.id, []);
+
+    let frontier: string[] = [root.id];
+    const nodes: TraversalNodeDto[] = [];
+    let stoppedAtBound = false;
+
+    for (let depth = 1; depth <= maxDepth; depth++) {
+      if (frontier.length === 0) break;
+      const nextFrontier: string[] = [];
+
+      for (const currentId of frontier) {
+        const edges = await this.relationList(currentId);
+        for (const edge of edges) {
+          if (direction === 'outgoing' && !edge.outgoing) continue;
+          if (direction === 'incoming' && edge.outgoing) continue;
+          if (allowedTypes && !allowedTypes.has(edge.relation_type)) continue;
+
+          const otherId = edge.other_asset_id;
+          if (visited.has(otherId)) continue;
+
+          const otherAsset = this.assets.find((a) => a.id === otherId);
+          if (!otherAsset) continue;
+          if (!query.include_archived && otherAsset.lifecycle === 'archived') continue;
+          if (otherAsset.lifecycle === 'merged') continue;
+
+          visited.add(otherId);
+          const currentPath = paths.get(currentId) || [];
+          const newPath: RelationPathHopDto[] = [
+            ...currentPath,
+            {
+              from_asset_id: currentId,
+              to_asset_id: otherId,
+              relation_type: edge.relation_type,
+            },
+          ];
+          paths.set(otherId, newPath);
+          nextFrontier.push(otherId);
+
+          nodes.push({
+            asset: otherAsset,
+            depth,
+            path: newPath,
+          });
+        }
+      }
+
+      if (depth === maxDepth) {
+        stoppedAtBound = true;
+      }
+      frontier = nextFrontier;
+    }
+
+    let truncated = false;
+    if (stoppedAtBound && frontier.length > 0) {
+      for (const lastId of frontier) {
+        const edges = await this.relationList(lastId);
+        for (const edge of edges) {
+          if (direction === 'outgoing' && !edge.outgoing) continue;
+          if (direction === 'incoming' && edge.outgoing) continue;
+          if (allowedTypes && !allowedTypes.has(edge.relation_type)) continue;
+          if (!visited.has(edge.other_asset_id)) {
+            const nextAsset = this.assets.find((a) => a.id === edge.other_asset_id);
+            if (nextAsset && (query.include_archived || nextAsset.lifecycle !== 'archived')) {
+              truncated = true;
+              break;
+            }
+          }
+        }
+        if (truncated) break;
+      }
+    }
+
+    return {
+      root,
+      nodes,
+      truncated,
+    };
+  }
+
+  async relationAttach(payload: RelationAttachPayload): Promise<MutationReceiptDto> {
+    const source = this.assets.find((a) => a.id === payload.source_asset_id);
+    const target = this.assets.find((a) => a.id === payload.target_asset_id);
+
+    if (!source || !target) {
+      const err = new Error('source or target asset not found') as Error & { category?: string };
+      err.category = 'not_found';
+      throw err;
+    }
+
+    if (source.lifecycle !== 'active' || target.lifecycle !== 'active') {
+      const err = new Error('both assets must be active') as Error & { category?: string };
+      err.category = 'conflict';
+      throw err;
+    }
+
+    const norm = normalizeRelationFact(
+      payload.source_asset_id,
+      payload.relation_type,
+      payload.target_asset_id
+    );
+
+    const existing = this.storedRelations.find(
+      (r) => r.source === norm.source && r.target === norm.target && r.type === norm.type
+    );
+    if (existing) {
+      const err = new Error(
+        `relation ${norm.type} between ${norm.source} and ${norm.target} already exists`
+      ) as Error & { category?: string };
+      err.category = 'conflict';
+      throw err;
+    }
+
+    const id = 'rel-' + (this.storedRelations.length + 1);
+    this.storedRelations.push({
+      id,
+      source: norm.source,
+      target: norm.target,
+      type: norm.type,
+      note: payload.note ?? null,
+      provenance: 'manual',
+      created_at: new Date().toISOString(),
+    });
+
+    return {
+      operation: 'relation.attach',
+      asset_ids: [payload.source_asset_id, payload.target_asset_id],
+      revision: null,
+      changed: true,
+      warnings: [],
+    };
+  }
+
+  async relationRemove(payload: RelationRemovePayload): Promise<MutationReceiptDto> {
+    const idx = this.storedRelations.findIndex((r) => r.id === payload.relation_id);
+    if (idx === -1) {
+      const err = new Error(`Relation not found: ${payload.relation_id}`) as Error & {
+        category?: string;
+      };
+      err.category = 'not_found';
+      throw err;
+    }
+
+    this.storedRelations.splice(idx, 1);
+    return {
+      operation: 'relation.remove',
+      asset_ids: [],
+      revision: null,
+      changed: true,
+      warnings: [],
+    };
   }
 }

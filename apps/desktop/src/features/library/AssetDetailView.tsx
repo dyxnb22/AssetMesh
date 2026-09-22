@@ -6,8 +6,10 @@ import { MergedRedirectPanel } from './panels/MergedRedirectPanel';
 import { ServicePanel } from './panels/ServicePanel';
 import { SoftwarePanel } from './panels/SoftwarePanel';
 import { UnknownPanel } from './panels/UnknownPanel';
+import { RelationExplorer } from './RelationExplorer';
 import { getTransport, normalizeDesktopError } from './transport';
 import type {
+  AppCapabilities,
   AssetDetailDto,
   DesktopError,
   MediaRecordDto,
@@ -23,6 +25,8 @@ interface AssetDetailViewProps {
   onFollowRedirect?: (survivingAssetId: string) => void;
   onSelectTag?: (tag: string) => void;
   onAssetUpdated?: (receipt: MutationReceiptDto) => void;
+  capabilities?: AppCapabilities | null;
+  onOpenAssetDetail?: (assetId: string) => void;
 }
 
 export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
@@ -31,6 +35,8 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
   onFollowRedirect,
   onSelectTag,
   onAssetUpdated,
+  capabilities = null,
+  onOpenAssetDetail,
 }) => {
   const [detail, setDetail] = useState<AssetDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1834,6 +1840,24 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
             ))}
           </div>
         </div>
+      )}
+
+      {/* Relations & Impact Explorer */}
+      {detail.lifecycle !== 'merged' && (
+        <RelationExplorer
+          rootAsset={detail}
+          capabilities={capabilities}
+          onOpenAssetDetail={onOpenAssetDetail}
+          onAssetUpdated={() => {
+            onAssetUpdated?.({
+              operation: 'relation.update',
+              asset_ids: [detail.id],
+              revision: null,
+              changed: true,
+              warnings: [],
+            });
+          }}
+        />
       )}
 
       {/* External References */}

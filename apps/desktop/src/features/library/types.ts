@@ -345,4 +345,66 @@ export type ServiceCommand =
       asset_id: string;
     };
 
+export interface RelationViewDto {
+  relation_id: string;
+  other_asset_id: string;
+  other_asset_name: string;
+  relation_type: string;
+  outgoing: boolean;
+  note?: string | null;
+  provenance: string;
+  created_at: string;
+}
+
+export interface NeighborViewDto {
+  asset: AssetSummary;
+  edge: RelationViewDto;
+}
+
+export interface RelationPathHopDto {
+  from_asset_id: string;
+  to_asset_id: string;
+  relation_type: string;
+}
+
+export interface TraversalNodeDto {
+  asset: AssetSummary;
+  depth: number;
+  path: RelationPathHopDto[];
+}
+
+export interface TraversalViewDto {
+  root: AssetSummary;
+  nodes: TraversalNodeDto[];
+  truncated: boolean;
+}
+
+export interface RelationNeighborsQuery {
+  asset_id: string;
+  direction?: 'outgoing' | 'incoming' | 'both';
+  relation_types?: string[];
+  include_archived?: boolean;
+}
+
+export interface RelationTraverseQuery {
+  asset_id: string;
+  mode?: 'dependencies' | 'dependents' | 'impact' | 'traverse';
+  direction?: 'outgoing' | 'incoming' | 'both';
+  relation_types?: string[];
+  max_depth?: number;
+  include_archived?: boolean;
+}
+
+export interface RelationAttachPayload {
+  source_asset_id: string;
+  relation_type: string;
+  target_asset_id: string;
+  note?: string;
+}
+
+export interface RelationRemovePayload {
+  relation_id: string;
+}
+
+
 

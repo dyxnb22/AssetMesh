@@ -606,3 +606,142 @@ pub enum ServiceCommandDto {
         asset_id: String,
     },
 }
+
+// ---------------------------------------------------------------------------
+// Relation DTOs (P5-07)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationViewDto {
+    pub relation_id: String,
+    pub other_asset_id: String,
+    pub other_asset_name: String,
+    pub relation_type: String,
+    pub outgoing: bool,
+    pub note: Option<String>,
+    pub provenance: String,
+    pub created_at: String,
+}
+
+impl From<assetmesh_core::application::relation_service::RelationView> for RelationViewDto {
+    fn from(v: assetmesh_core::application::relation_service::RelationView) -> Self {
+        Self {
+            relation_id: v.relation_id.to_string(),
+            other_asset_id: v.other_asset_id.to_string(),
+            other_asset_name: v.other_asset_name,
+            relation_type: v.relation_type.as_str().to_string(),
+            outgoing: v.outgoing,
+            note: v.note,
+            provenance: v.provenance.as_str().to_string(),
+            created_at: v.created_at.to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NeighborViewDto {
+    pub asset: AssetSummaryDto,
+    pub edge: RelationViewDto,
+}
+
+impl From<assetmesh_core::application::relation_query_service::NeighborView> for NeighborViewDto {
+    fn from(v: assetmesh_core::application::relation_query_service::NeighborView) -> Self {
+        Self {
+            asset: AssetSummaryDto::from(v.asset),
+            edge: RelationViewDto::from(v.edge),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationPathHopDto {
+    pub from_asset_id: String,
+    pub to_asset_id: String,
+    pub relation_type: String,
+}
+
+impl From<assetmesh_core::application::relation_query_service::RelationPathHop>
+    for RelationPathHopDto
+{
+    fn from(h: assetmesh_core::application::relation_query_service::RelationPathHop) -> Self {
+        Self {
+            from_asset_id: h.from_asset_id.to_string(),
+            to_asset_id: h.to_asset_id.to_string(),
+            relation_type: h.relation_type.as_str().to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraversalNodeDto {
+    pub asset: AssetSummaryDto,
+    pub depth: usize,
+    pub path: Vec<RelationPathHopDto>,
+}
+
+impl From<assetmesh_core::application::relation_query_service::TraversalNode> for TraversalNodeDto {
+    fn from(n: assetmesh_core::application::relation_query_service::TraversalNode) -> Self {
+        Self {
+            asset: AssetSummaryDto::from(n.asset),
+            depth: n.depth,
+            path: n.path.into_iter().map(RelationPathHopDto::from).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraversalViewDto {
+    pub root: AssetSummaryDto,
+    pub nodes: Vec<TraversalNodeDto>,
+    pub truncated: bool,
+}
+
+impl From<assetmesh_core::application::relation_query_service::TraversalView> for TraversalViewDto {
+    fn from(v: assetmesh_core::application::relation_query_service::TraversalView) -> Self {
+        Self {
+            root: AssetSummaryDto::from(v.root),
+            nodes: v.nodes.into_iter().map(TraversalNodeDto::from).collect(),
+            truncated: v.truncated,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RelationNeighborsQueryDto {
+    pub asset_id: String,
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub relation_types: Option<Vec<String>>,
+    #[serde(default)]
+    pub include_archived: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RelationTraverseQueryDto {
+    pub asset_id: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub relation_types: Option<Vec<String>>,
+    #[serde(default)]
+    pub max_depth: Option<usize>,
+    #[serde(default)]
+    pub include_archived: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RelationAttachDto {
+    pub source_asset_id: String,
+    pub relation_type: String,
+    pub target_asset_id: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RelationRemoveDto {
+    pub relation_id: String,
+}

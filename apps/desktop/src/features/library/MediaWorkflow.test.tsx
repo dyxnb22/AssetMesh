@@ -151,11 +151,11 @@ describe('Media Workflow UI (P5-06)', () => {
     // Verify read-back closed form and updated presentation
     await waitFor(() => {
       expect(screen.queryByTestId('media-edit-form')).not.toBeInTheDocument();
-      expect(screen.getByText('Steins;Gate (Elite)')).toBeInTheDocument();
-      expect(screen.getByText('Remastered visual VN & anime')).toBeInTheDocument();
-      expect(screen.getByText('2018')).toBeInTheDocument();
-      expect(screen.getByText('rev 2')).toBeInTheDocument();
     });
+    expect(screen.getByRole('heading', { level: 2, name: 'Steins;Gate (Elite)' })).toBeInTheDocument();
+    expect(screen.getByText('Remastered visual VN & anime')).toBeInTheDocument();
+    expect(screen.getByText('2018')).toBeInTheDocument();
+    expect(screen.getByText('rev 2')).toBeInTheDocument();
 
     expect(onUpdated).toHaveBeenCalled();
   });

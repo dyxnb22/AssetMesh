@@ -7,6 +7,7 @@ import { CreateSoftwareModal } from '../features/library/CreateSoftwareModal';
 import { SoftwareDiscoveryModal } from '../features/library/SoftwareDiscoveryModal';
 import { CreateServiceModal } from '../features/library/CreateServiceModal';
 import { NavigationRail } from '../features/library/NavigationRail';
+import { RelationExplorer } from '../features/library/RelationExplorer';
 import { getTransport } from '../features/library/transport';
 import type {
   AppCapabilities,
@@ -339,54 +340,88 @@ export const App: React.FC = () => {
         onSelectSection={setSection}
       />
 
-      {/* 2. Collection Workspace (Ledger Rows) */}
-      <AssetLedger
-        module={nav.module}
-        lifecycle={nav.lifecycle}
-        sort={nav.sort}
-        selectedKind={nav.kind}
-        selectedTag={nav.tag}
-        searchQuery={searchInput}
-        page={nav.page}
-        pageSize={nav.pageSize}
-        data={pageData}
-        error={error}
-        loading={loadingAssets}
-        selectedAssetId={selectedAsset?.id || null}
-        capabilities={capabilities}
-        onNewAsset={() => {
-          if (nav.module === 'software') {
-            setCreateSoftwareOpen(true);
-          } else if (nav.module === 'services') {
-            setCreateServiceOpen(true);
-          } else {
-            setCreateMediaOpen(true);
-          }
-        }}
-        onDiscoverSoftware={() => setSoftwareDiscoveryOpen(true)}
-        onSelectAsset={(id) => {
-          setSelectedAssetId(id);
-          setMobileInspectorOpen(true);
-        }}
-        onOpenDetail={(id) => setActiveDetailId(id)}
-        onSelectLifecycle={setLifecycle}
-        onSelectSort={setSort}
-        onSelectKind={setKind}
-        onSelectTag={setTag}
-        onSearchChange={setSearchInput}
-        onSelectPage={setPage}
-        onResetFilters={resetFilters}
-        onRetry={loadAssets}
-      />
+      {/* Main Workspace Area */}
+      {nav.section === 'relations' ? (
+        <main
+          data-testid="relations-workspace"
+          style={{
+            flex: 1,
+            padding: '24px',
+            overflowY: 'auto',
+            backgroundColor: 'var(--color-canvas)',
+          }}
+        >
+          {selectedAsset ? (
+            <RelationExplorer
+              rootAsset={selectedAsset}
+              capabilities={capabilities}
+              onOpenAssetDetail={(id) => setActiveDetailId(id)}
+              onAssetUpdated={() => loadAssets()}
+            />
+          ) : (
+            <div
+              style={{
+                padding: '40px',
+                textAlign: 'center',
+                color: 'var(--color-muted)',
+              }}
+            >
+              No asset selected. Select an asset from the library to explore relations and impact.
+            </div>
+          )}
+        </main>
+      ) : (
+        <>
+          {/* 2. Collection Workspace (Ledger Rows) */}
+          <AssetLedger
+            module={nav.module}
+            lifecycle={nav.lifecycle}
+            sort={nav.sort}
+            selectedKind={nav.kind}
+            selectedTag={nav.tag}
+            searchQuery={searchInput}
+            page={nav.page}
+            pageSize={nav.pageSize}
+            data={pageData}
+            error={error}
+            loading={loadingAssets}
+            selectedAssetId={selectedAsset?.id || null}
+            capabilities={capabilities}
+            onNewAsset={() => {
+              if (nav.module === 'software') {
+                setCreateSoftwareOpen(true);
+              } else if (nav.module === 'services') {
+                setCreateServiceOpen(true);
+              } else {
+                setCreateMediaOpen(true);
+              }
+            }}
+            onDiscoverSoftware={() => setSoftwareDiscoveryOpen(true)}
+            onSelectAsset={(id) => {
+              setSelectedAssetId(id);
+              setMobileInspectorOpen(true);
+            }}
+            onOpenDetail={(id) => setActiveDetailId(id)}
+            onSelectLifecycle={setLifecycle}
+            onSelectSort={setSort}
+            onSelectKind={setKind}
+            onSelectTag={setTag}
+            onSearchChange={setSearchInput}
+            onSelectPage={setPage}
+            onResetFilters={resetFilters}
+            onRetry={loadAssets}
+          />
 
-      {/* 3. Asset Inspector (Desktop column / responsive sheet) */}
-      {(selectedAsset || mobileInspectorOpen) && (
-        <AssetInspector
-          asset={selectedAsset}
-          onClose={() => setMobileInspectorOpen(false)}
-          onSelectTag={(tag) => setTag(tag)}
-          onOpenDetail={(id) => setActiveDetailId(id)}
-        />
+          {/* 3. Asset Inspector (Desktop column / responsive sheet) */}
+          {(selectedAsset || mobileInspectorOpen) && (
+            <AssetInspector
+              asset={selectedAsset}
+              onClose={() => setMobileInspectorOpen(false)}
+              onSelectTag={(tag) => setTag(tag)}
+              onOpenDetail={(id) => setActiveDetailId(id)}
+            />
+          )}
+        </>
       )}
 
       {/* 4. Full Unified Asset Detail View */}
@@ -428,6 +463,8 @@ export const App: React.FC = () => {
           >
             <AssetDetailView
               assetId={activeDetailId}
+              capabilities={capabilities}
+              onOpenAssetDetail={(id) => setActiveDetailId(id)}
               onClose={() => setActiveDetailId(null)}
               onFollowRedirect={(survivorId) => {
                 setSelectedAssetId(survivorId);
