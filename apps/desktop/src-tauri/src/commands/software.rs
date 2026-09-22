@@ -1,8 +1,7 @@
 //! Software module write commands, discovery preview, and mutation receipts (P5-06).
 
-use assetmesh_core::application::asset_service::AssetService;
 use assetmesh_core::application::software_service::{
-    AdoptOverrides, AdoptTarget, CreateSoftware, SoftwareService, UpdateSoftwareMetadata,
+    AdoptOverrides, AdoptTarget, CreateSoftware, UpdateSoftwareMetadata,
 };
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::software::{InstallSource, SoftwareCategory};
@@ -32,8 +31,8 @@ pub fn software_discover(
 pub fn software_discover_impl(
     state: &DesktopState,
 ) -> Result<Vec<ClassifiedCandidateDto>, DesktopError> {
-    state.with_factory(|factory| {
-        let mut svc = SoftwareService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.software();
 
         let mut all_classified = Vec::new();
         if let Ok(macos_prov) = MacosApplicationsProvider::system_default() {
@@ -115,9 +114,8 @@ pub fn software_command_impl(
                 external_refs: Vec::new(),
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    SoftwareService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.software();
                 let view = svc.create_software(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "software.create".into(),
@@ -175,9 +173,8 @@ pub fn software_command_impl(
                 expected_revision,
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    SoftwareService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.software();
                 let view = svc.update_metadata(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "software.update_metadata".into(),
@@ -224,9 +221,8 @@ pub fn software_command_impl(
                 tags,
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    SoftwareService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.software();
                 let outcome = svc.adopt_candidate(candidate, overrides)?;
                 Ok(MutationReceiptDto {
                     operation: "software.adopt".into(),
@@ -245,9 +241,8 @@ pub fn software_command_impl(
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    AssetService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.asset();
                 let asset = svc.archive_asset_with_revision(id, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "asset.archive".into(),

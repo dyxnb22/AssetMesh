@@ -191,6 +191,7 @@ pub struct AssetSummary {
     pub kind: AssetKind,
     pub name: String,
     pub lifecycle: LifecycleState,
+    pub revision: i64,
     /// Concise module-aware summary, produced by the same helper the module's
     /// search projection uses.
     pub subtitle: Option<String>,
@@ -230,6 +231,54 @@ pub struct AssetDetailView {
     pub tags: Vec<String>,
     /// External references, sorted by `(namespace, external_id)`.
     pub external_refs: Vec<AssetExternalRef>,
+}
+
+/// The remains of an asset that lost a merge (ADR 0005).
+///
+/// A tombstone is a redirect, not a library entry: it carries no module
+/// details, only the identity the UI needs to name what went away and point at
+/// the survivor. This view exists so an adapter never has to reach into
+/// repositories to render one — the same rule as [`AssetDetailView`].
+///
+/// `tags` and `external_refs` are usually empty on purpose: a canonical merge
+/// ([`AssetService::merge_assets`]) moves both onto the survivor and detaches
+/// them from the loser. They are still part of the view so a tombstone created
+/// by any other path renders through the same code without a special case.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct MergedTombstoneView {
+    pub asset: Asset,
+    /// Tag names, sorted by name.
+    pub tags: Vec<String>,
+    /// External references, sorted by `(namespace, external_id)`.
+    pub external_refs: Vec<AssetExternalRef>,
+}
+
+/// The typed outcome of requesting an asset's details from the unified library.
+///
+/// An asset in the library is either live (active or archived, with typed
+/// module details) or a tombstone redirect (merged into a survivor, with no
+/// module details of its own).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub enum AssetDetailOutcome {
+    Live(AssetDetailView),
+    MergedRedirect(MergedTombstoneView),
+}
+
+impl AssetDetailOutcome {
+    pub fn is_live(&self) -> bool {
+        matches!(self, Self::Live(_))
+    }
+
+    pub fn is_merged_redirect(&self) -> bool {
+        matches!(self, Self::MergedRedirect(_))
+    }
+
+    pub fn asset(&self) -> &Asset {
+        match self {
+            Self::Live(view) => &view.asset,
+            Self::MergedRedirect(tombstone) => &tombstone.asset,
+        }
+    }
 }
 
 /// A unified library list query over shared fields only.
@@ -345,6 +394,15 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
         AppCapabilities::current()
     }
 
+    /// Returns the typed detail outcome for an asset: [`AssetDetailOutcome::Live`]
+    /// for an active or archived asset with module details, or
+    /// [`AssetDetailOutcome::MergedRedirect`] for a tombstone naming the survivor.
+    ///
+    /// Unknown ids return `AppError::NotFound`.
+    pub fn get_detail(&mut self, asset_id: AssetId) -> AppResult<AssetDetailOutcome> {
+        self.factory.read(&mut |q| load_detail_outcome(q, asset_id))
+    }
+
     /// Opens one asset's complete typed detail view from a single read
     /// snapshot.
     ///
@@ -359,6 +417,24 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
     /// Archived assets are readable: archiving only blocks mutation.
     pub fn get_asset(&mut self, asset_id: AssetId) -> AppResult<AssetDetailView> {
         self.factory.read(&mut |q| load_detail(q, asset_id))
+    }
+
+    /// Loads the tombstone of an asset that lost a merge, so an adapter can
+    /// render the redirect to the survivor instead of hand-rolling repository
+    /// reads.
+    ///
+    /// Errors:
+    /// - unknown id → `not_found`;
+    /// - an asset that is NOT a tombstone → `conflict`, because this method
+    ///   is only meaningful for merged losers — call `get_asset` for a live
+    ///   asset. The distinction matters: `not_found` would let a caller mistake
+    ///   a programming error for a missing row.
+    ///
+    /// [`get_asset`](Self::get_asset) reports a tombstone as a `conflict`
+    /// naming the survivor, so the pair "try the detail, fall back to the
+    /// tombstone" is the intended calling pattern.
+    pub fn get_merged_tombstone(&mut self, asset_id: AssetId) -> AppResult<MergedTombstoneView> {
+        self.factory.read(&mut |q| load_tombstone(q, asset_id))
     }
 
     /// Follows an explicit merge redirect to the surviving asset (ADR 0005).
@@ -527,8 +603,10 @@ fn dedupe<T: PartialEq + Copy>(values: &[T]) -> Vec<T> {
 ///
 /// This is the composition that keeps the unified query free of N+1 access:
 /// each module reader is called exactly once, and module list rows already
-/// carry their tags (the repository pre-joins them), so no per-asset tag,
-/// detail, or asset lookup is issued. See `DEVELOPMENT.md` for the documented
+/// carry their tags — the repository resolves a whole page's tags in one query
+/// rather than one per row, so no per-asset tag, detail, or asset lookup is
+/// issued. Pinned by `module_lists_load_tags_for_the_whole_page_in_one_query`
+/// in the SQLite contract tests. See `DEVELOPMENT.md` for the documented
 /// trade-off against a SQL-side paged query.
 ///
 /// Shared with the Phase 4B graph queries, so graph nodes hydrate through the
@@ -676,6 +754,7 @@ pub(crate) fn summarize_row(row: &LibraryRow) -> AssetSummary {
         kind: row.asset.kind,
         name: row.asset.name.clone(),
         lifecycle: row.asset.lifecycle_state,
+        revision: row.asset.revision,
         subtitle: subtitle_of(&row.details),
         tags: row.tags.clone(),
         updated_at: row.asset.updated_at,
@@ -706,6 +785,44 @@ pub(crate) fn merged_redirect_error(asset: &Asset) -> AppError {
     ))
 }
 
+/// Loads one typed detail outcome (Live or MergedRedirect) inside the caller's read scope.
+fn load_detail_outcome(
+    q: &mut dyn QueryUnitOfWork,
+    asset_id: AssetId,
+) -> AppResult<AssetDetailOutcome> {
+    let asset = q
+        .assets()
+        .get(asset_id)?
+        .ok_or_else(|| AppError::not_found("asset", asset_id))?;
+
+    let mut tags: Vec<String> = q
+        .tags()
+        .list_for_asset(asset_id)?
+        .into_iter()
+        .map(|tag| tag.name)
+        .collect();
+    tags.sort();
+    let mut external_refs = q.external_refs().list_for_asset(asset_id)?;
+    external_refs
+        .sort_by(|a, b| (&a.namespace, &a.external_id).cmp(&(&b.namespace, &b.external_id)));
+
+    if asset.lifecycle_state == LifecycleState::Merged {
+        Ok(AssetDetailOutcome::MergedRedirect(MergedTombstoneView {
+            asset,
+            tags,
+            external_refs,
+        }))
+    } else {
+        let details = load_details(q, &asset)?;
+        Ok(AssetDetailOutcome::Live(AssetDetailView {
+            asset,
+            details,
+            tags,
+            external_refs,
+        }))
+    }
+}
+
 /// Loads one complete detail view inside the caller's read scope.
 fn load_detail(q: &mut dyn QueryUnitOfWork, asset_id: AssetId) -> AppResult<AssetDetailView> {
     let asset = q
@@ -734,6 +851,42 @@ fn load_detail(q: &mut dyn QueryUnitOfWork, asset_id: AssetId) -> AppResult<Asse
     Ok(AssetDetailView {
         asset,
         details,
+        tags,
+        external_refs,
+    })
+}
+
+/// Loads a merged tombstone inside the caller's read scope. Mirrors
+/// [`load_detail`] field for field, minus the module details a tombstone no
+/// longer owns.
+fn load_tombstone(
+    q: &mut dyn QueryUnitOfWork,
+    asset_id: AssetId,
+) -> AppResult<MergedTombstoneView> {
+    let asset = q
+        .assets()
+        .get(asset_id)?
+        .ok_or_else(|| AppError::not_found("asset", asset_id))?;
+
+    if asset.lifecycle_state != LifecycleState::Merged {
+        return Err(AppError::conflict(format!(
+            "asset {asset_id} is not a merged tombstone; use the detail view for a live asset"
+        )));
+    }
+
+    let mut tags: Vec<String> = q
+        .tags()
+        .list_for_asset(asset_id)?
+        .into_iter()
+        .map(|tag| tag.name)
+        .collect();
+    tags.sort();
+    let mut external_refs = q.external_refs().list_for_asset(asset_id)?;
+    external_refs
+        .sort_by(|a, b| (&a.namespace, &a.external_id).cmp(&(&b.namespace, &b.external_id)));
+
+    Ok(MergedTombstoneView {
+        asset,
         tags,
         external_refs,
     })

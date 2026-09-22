@@ -5,9 +5,8 @@
 //! Follows the architectural invariant: Zero direct SQL / raw repository access.
 
 use assetmesh_core::application::relation_query_service::{
-    RelationQueryService, TraversalDirection, TraversalOptions, DEFAULT_MAX_DEPTH,
+    TraversalDirection, TraversalOptions, DEFAULT_MAX_DEPTH,
 };
-use assetmesh_core::application::relation_service::RelationService;
 use assetmesh_core::domain::ids::{AssetId, RelationId};
 use assetmesh_core::domain::relation::{RelationProvenance, RelationType};
 use tauri::State;
@@ -27,8 +26,8 @@ pub fn relation_list_impl(
         .map(AssetId::from_uuid)
         .map_err(|e| DesktopError::invalid_input(format!("invalid asset_id: {e}")))?;
 
-    state.with_factory(|factory| {
-        let mut svc = RelationService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.relation();
         let views = svc.list_for_asset(id)?;
         Ok(views.into_iter().map(RelationViewDto::from).collect())
     })
@@ -68,8 +67,8 @@ pub fn relation_neighbors_impl(
         include_archived: query.include_archived.unwrap_or(false),
     };
 
-    state.with_factory(|factory| {
-        let mut svc = RelationQueryService::new(factory.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.relation_query();
         let neighbors = match direction {
             TraversalDirection::Outgoing => svc.outgoing(asset_id, &options)?,
             TraversalDirection::Incoming => svc.incoming(asset_id, &options)?,
@@ -113,8 +112,8 @@ pub fn relation_traverse_impl(
         include_archived: query.include_archived.unwrap_or(false),
     };
 
-    state.with_factory(|factory| {
-        let mut svc = RelationQueryService::new(factory.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.relation_query();
         let view = match query.mode.as_deref() {
             Some("dependencies") => svc.dependencies(asset_id, &options)?,
             Some("dependents") => svc.dependents(asset_id, &options)?,
@@ -144,8 +143,8 @@ pub fn relation_attach_impl(
         DesktopError::invalid_input(format!("invalid relation type: {}", payload.relation_type))
     })?;
 
-    state.with_factory(|factory| {
-        let mut svc = RelationService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.relation();
         let relation = svc.attach_with_revisions(
             source,
             relation_type,
@@ -186,8 +185,8 @@ pub fn relation_remove_impl(
         None => None,
     };
 
-    state.with_factory(|factory| {
-        let mut svc = RelationService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.relation();
         svc.remove_with_revision(
             relation_id,
             context_asset_id,

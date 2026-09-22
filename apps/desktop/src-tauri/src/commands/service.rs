@@ -1,9 +1,7 @@
 //! Services module write commands, subscription updates, and renewals (P5-06).
 
-use assetmesh_core::application::asset_service::AssetService;
 use assetmesh_core::application::service_service::{
-    parse_money_pair, parse_money_patch, CreateService, Patch, RecordRenewal, ServiceService,
-    UpdateService,
+    parse_money_pair, parse_money_patch, CreateService, Patch, RecordRenewal, UpdateService,
 };
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::service::{BillingCadence, ServiceType};
@@ -109,9 +107,8 @@ pub fn service_command_impl(
                 external_refs: Vec::new(),
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    ServiceService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.service();
                 let view = svc.create_service(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "service.create".into(),
@@ -221,9 +218,8 @@ pub fn service_command_impl(
                 expected_revision,
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    ServiceService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.service();
                 let view = svc.update_service(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "service.update".into(),
@@ -274,9 +270,8 @@ pub fn service_command_impl(
                 expected_revision,
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    ServiceService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.service();
                 let view = svc.record_renewal(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "service.record_renewal".into(),
@@ -295,9 +290,8 @@ pub fn service_command_impl(
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    AssetService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.asset();
                 let asset = svc.archive_asset_with_revision(id, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "asset.archive".into(),

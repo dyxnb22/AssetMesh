@@ -1,7 +1,6 @@
 //! Media module write commands and mutation receipts (P5-06).
 
-use assetmesh_core::application::asset_service::AssetService;
-use assetmesh_core::application::media_service::{CreateMedia, MediaService, UpdateMediaMetadata};
+use assetmesh_core::application::media_service::{CreateMedia, UpdateMediaMetadata};
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::media::{MediaStatus, MediaType, Progress};
 use tauri::State;
@@ -49,10 +48,18 @@ pub fn media_command_impl(
                 None
             };
 
-            let progress = Progress {
-                current: progress_current,
-                total: progress_total,
-                unit: progress_unit,
+            let progress = match (progress_unit, progress_current, progress_total) {
+                (Some(unit), current, total) => Progress {
+                    unit: Some(unit),
+                    current,
+                    total,
+                },
+                (None, None, None) => Progress::default(),
+                _ => {
+                    return Err(DesktopError::invalid_input(
+                        "progress requires unit when current or total is supplied",
+                    ));
+                }
             };
 
             let cmd = CreateMedia {
@@ -71,9 +78,8 @@ pub fn media_command_impl(
                 completed_at: None,
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.media();
                 let view = svc.create_media(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "media.create".into(),
@@ -122,9 +128,8 @@ pub fn media_command_impl(
                 expected_revision,
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.media();
                 let view = svc.update_metadata(cmd)?;
                 Ok(MutationReceiptDto {
                     operation: "media.update_metadata".into(),
@@ -154,9 +159,8 @@ pub fn media_command_impl(
                 ));
             }
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.media();
                 let view =
                     svc.transition_status_with_revision(id, target_status, expected_revision)?;
                 Ok(MutationReceiptDto {
@@ -185,9 +189,8 @@ pub fn media_command_impl(
                 total,
             };
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.media();
                 let view = svc.update_progress_with_revision(id, progress, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "media.update_progress".into(),
@@ -207,9 +210,8 @@ pub fn media_command_impl(
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    MediaService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.media();
                 let view = svc.rate_media_with_revision(id, rating, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "media.rate".into(),
@@ -228,9 +230,8 @@ pub fn media_command_impl(
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
-            state.with_factory(|factory| {
-                let mut svc =
-                    AssetService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+            state.with_modules(|modules| {
+                let mut svc = modules.asset();
                 let asset = svc.archive_asset_with_revision(id, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "asset.archive".into(),

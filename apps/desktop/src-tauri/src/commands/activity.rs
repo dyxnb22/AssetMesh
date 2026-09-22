@@ -3,9 +3,10 @@
 //! Exposes read-only queries from `ActivityService` in `assetmesh-core`.
 //! Follows the architectural invariant: Zero direct SQL / raw repository access.
 
-use assetmesh_core::application::activity_service::{ActivityQuery, ActivityService};
+use assetmesh_core::application::activity_service::ActivityQuery;
 use assetmesh_core::application::library_service::PageRequest;
 use assetmesh_core::domain::activity::ActivityModule;
+use assetmesh_core::domain::asset::AssetKind;
 use assetmesh_core::domain::ids::AssetId;
 use tauri::State;
 
@@ -41,6 +42,17 @@ pub fn activity_query_impl(
         None => Vec::new(),
     };
 
+    let kinds = match query.kinds {
+        Some(ks) => ks
+            .into_iter()
+            .map(|k| {
+                AssetKind::parse(&k)
+                    .ok_or_else(|| DesktopError::invalid_input(format!("unknown asset kind '{k}'")))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        None => Vec::new(),
+    };
+
     let since = match query.since {
         Some(s) if !s.trim().is_empty() => {
             let dt = chrono::DateTime::parse_from_rfc3339(&s)
@@ -71,14 +83,15 @@ pub fn activity_query_impl(
         asset_id,
         event_types: query.event_types.unwrap_or_default(),
         modules,
+        kinds,
         actors: query.actors.unwrap_or_default(),
         since,
         until,
         page: page_request,
     };
 
-    state.with_factory(|factory| {
-        let mut svc = ActivityService::new(factory.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.activity();
         let page = svc.query(&core_query)?;
         Ok(PageDto::from(page))
     })

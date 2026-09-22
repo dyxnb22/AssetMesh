@@ -1,8 +1,8 @@
 //! Transport Data Transfer Objects for Tauri commands.
 
 use assetmesh_core::application::library_service::{
-    AssetDetailView, AssetSummary, LibraryModule, LibraryQuery, LibrarySearchQuery, LibrarySort,
-    MergedTombstoneView, Page, PageRequest,
+    AssetDetailOutcome, AssetDetailView, AssetSummary, LibraryModule, LibraryQuery,
+    LibrarySearchQuery, LibrarySort, MergedTombstoneView, Page, PageRequest,
 };
 use assetmesh_core::domain::asset::AssetKind;
 use assetmesh_core::ports::repos::LifecycleFilter;
@@ -110,12 +110,22 @@ impl From<MergedTombstoneView> for AssetDetailDto {
     }
 }
 
+impl From<AssetDetailOutcome> for AssetDetailDto {
+    fn from(outcome: AssetDetailOutcome) -> Self {
+        match outcome {
+            AssetDetailOutcome::Live(view) => Self::from(view),
+            AssetDetailOutcome::MergedRedirect(tombstone) => Self::from(tombstone),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssetSummaryDto {
     pub id: String,
     pub kind: String,
     pub name: String,
     pub lifecycle: String,
+    pub revision: i64,
     pub subtitle: Option<String>,
     pub tags: Vec<String>,
     pub updated_at: String,
@@ -128,6 +138,7 @@ impl From<AssetSummary> for AssetSummaryDto {
             kind: s.kind.as_str().to_string(),
             name: s.name,
             lifecycle: s.lifecycle.as_str().to_string(),
+            revision: s.revision,
             subtitle: s.subtitle,
             tags: s.tags,
             updated_at: s.updated_at.to_rfc3339(),
@@ -462,6 +473,8 @@ pub enum SoftwareCommandDto {
     },
     Archive {
         asset_id: String,
+        #[serde(default)]
+        expected_revision: Option<i64>,
     },
 }
 
@@ -510,6 +523,8 @@ pub enum MediaCommandDto {
     TransitionStatus {
         asset_id: String,
         status: String,
+        #[serde(default)]
+        expected_revision: Option<i64>,
     },
     UpdateProgress {
         asset_id: String,
@@ -519,13 +534,19 @@ pub enum MediaCommandDto {
         current: Option<f64>,
         #[serde(default)]
         total: Option<f64>,
+        #[serde(default)]
+        expected_revision: Option<i64>,
     },
     Rate {
         asset_id: String,
         rating: f64,
+        #[serde(default)]
+        expected_revision: Option<i64>,
     },
     Archive {
         asset_id: String,
+        #[serde(default)]
+        expected_revision: Option<i64>,
     },
 }
 
@@ -612,9 +633,13 @@ pub enum ServiceCommandDto {
         next_renews_at: Option<String>,
         #[serde(default)]
         next_expires_at: Option<String>,
+        #[serde(default)]
+        expected_revision: Option<i64>,
     },
     Archive {
         asset_id: String,
+        #[serde(default)]
+        expected_revision: Option<i64>,
     },
 }
 
@@ -750,11 +775,19 @@ pub struct RelationAttachDto {
     pub target_asset_id: String,
     #[serde(default)]
     pub note: Option<String>,
+    #[serde(default)]
+    pub expected_source_revision: Option<i64>,
+    #[serde(default)]
+    pub expected_target_revision: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RelationRemoveDto {
     pub relation_id: String,
+    #[serde(default)]
+    pub context_asset_id: Option<String>,
+    #[serde(default)]
+    pub expected_context_revision: Option<i64>,
 }
 
 // =========================================================================
@@ -864,6 +897,8 @@ pub struct MergePreviewQueryDto {
 pub struct MergePreviewDto {
     pub winner: AssetSummaryDto,
     pub loser: AssetSummaryDto,
+    pub winner_revision: i64,
+    pub loser_revision: i64,
     pub can_merge: bool,
     pub conflicts: Vec<String>,
     pub transferred_tags: Vec<String>,
@@ -878,6 +913,10 @@ pub struct MergePreviewDto {
 pub struct MergeApplyDto {
     pub winner_id: String,
     pub loser_id: String,
+    #[serde(default)]
+    pub expected_winner_revision: Option<i64>,
+    #[serde(default)]
+    pub expected_loser_revision: Option<i64>,
 }
 
 /// The adapter shapes the domain preview for the wire; every field is a plain
@@ -895,9 +934,14 @@ impl From<assetmesh_core::application::merge_preview_service::MergePreviewView>
             }
         }
 
+        let winner_revision = v.winner.revision;
+        let loser_revision = v.loser.revision;
+
         Self {
             winner: AssetSummaryDto::from(v.winner),
             loser: AssetSummaryDto::from(v.loser),
+            winner_revision,
+            loser_revision,
             can_merge: v.can_merge,
             conflicts: v.conflicts,
             transferred_tags: v.transferred_tags,

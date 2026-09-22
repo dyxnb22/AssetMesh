@@ -4,8 +4,7 @@ use std::path::Path;
 
 use assetmesh_core::application::library_service::AppCapabilities;
 use assetmesh_core::application::portable::{
-    read_bundle_from_directory, write_bundle_to_directory, PortableExportService,
-    PortableImportService, EXPORT_FORMAT, EXPORT_VERSION,
+    read_bundle_from_directory, write_bundle_to_directory, EXPORT_FORMAT, EXPORT_VERSION,
 };
 use assetmesh_providers::{CommandRunner, MacosApplicationsProvider, SystemCommandRunner};
 use tauri::State;
@@ -75,8 +74,8 @@ pub fn portable_export_impl(
         ));
     }
 
-    state.with_factory(|factory| {
-        let mut service = PortableExportService::new(factory.clone(), state.clock.clone());
+    state.with_modules(|modules| {
+        let mut service = modules.portable_export();
         let bundle = service.export(env!("CARGO_PKG_VERSION"))?;
 
         let target_path = Path::new(target_dir);
@@ -171,8 +170,8 @@ pub fn portable_import_preview_impl(
         });
     }
 
-    state.with_factory(|factory| {
-        let mut service = PortableImportService::new(factory.clone());
+    state.with_modules(|dm| {
+        let mut service = dm.portable_import();
         match service.import_bundle(&bundle, true) {
             Ok(report) => Ok(ImportPreviewDto {
                 valid: true,
@@ -256,8 +255,8 @@ pub fn portable_import_apply_impl(
         )));
     }
 
-    state.with_factory(|factory| {
-        let mut service = PortableImportService::new(factory.clone());
+    state.with_modules(|modules| {
+        let mut service = modules.portable_import();
         let report = service.import_bundle(&bundle, false)?;
 
         Ok(ImportReceiptDto {

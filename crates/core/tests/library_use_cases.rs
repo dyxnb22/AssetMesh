@@ -13,7 +13,7 @@ use std::rc::Rc;
 use assetmesh_core::application::asset_service::AssetService;
 use assetmesh_core::application::library_service::{
     AssetDetails, AssetSummary, LibraryModule, LibraryQuery, LibrarySearchQuery, LibraryService,
-    LibrarySort, Page, PageRequest, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT,
+    LibrarySort, MergedTombstoneView, Page, PageRequest, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT,
 };
 use assetmesh_core::application::media_service::CreateMedia;
 use assetmesh_core::application::search_service::SearchService;
@@ -30,6 +30,7 @@ use assetmesh_core::ports::repos::{
 };
 use assetmesh_core::ports::search::SearchReader;
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
+use assetmesh_core::AppError;
 use support::{MemFactory, TestEnv};
 
 // ---------------------------------------------------------------------------
@@ -939,6 +940,59 @@ fn detail_view_of_a_merged_tombstone_names_the_survivor() {
 }
 
 #[test]
+fn merged_tombstone_view_names_the_survivor_without_reaching_into_repositories() {
+    // An adapter renders a tombstone through `get_merged_tombstone` alone —
+    // it must not read repositories itself (CONTRIBUTING). This pins what the
+    // use case returns and the two ways it refuses.
+    let seeded = seed();
+    let mut library = seeded.env.library_service();
+    let mut assets = AssetService::new(
+        seeded.env.factory.clone(),
+        seeded.env.clock.clone(),
+        seeded.env.ids.clone(),
+    );
+
+    let loser = seeded
+        .env
+        .media_service()
+        .create_media(media_cmd(
+            "Duplicate",
+            MediaType::Anime,
+            &["shared", "loser-only"],
+        ))
+        .unwrap();
+    assets
+        .merge_assets(loser.entry.asset.id, seeded.media)
+        .unwrap();
+
+    let tombstone: MergedTombstoneView = library
+        .get_merged_tombstone(loser.entry.asset.id)
+        .expect("a merged loser has a tombstone");
+
+    assert_eq!(tombstone.asset.id, loser.entry.asset.id);
+    assert_eq!(tombstone.asset.lifecycle_state, LifecycleState::Merged);
+    assert_eq!(tombstone.asset.merged_into, Some(seeded.media));
+
+    // A canonical merge moves tags onto the survivor, so the tombstone keeps
+    // none — the view exposes the columns anyway, and they must read empty
+    // rather than silently reappearing on both sides of the merge.
+    assert!(tombstone.tags.is_empty());
+    assert!(tombstone.external_refs.is_empty());
+    let _ = tombstone;
+
+    // A live asset is not a tombstone — that is a conflict, not a not-found,
+    // so the caller can tell "wrong method" from "no such asset".
+    let live = library.get_merged_tombstone(seeded.media).unwrap_err();
+    assert!(matches!(live, AppError::Conflict { .. }));
+
+    // An unknown asset is still a not-found.
+    let missing = library
+        .get_merged_tombstone(AssetId::generate())
+        .unwrap_err();
+    assert!(matches!(missing, AppError::NotFound { .. }));
+}
+
+#[test]
 fn merge_redirects_resolve_to_the_surviving_asset() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
@@ -1411,3 +1465,55 @@ fn optimistic_concurrency_stale_revision_rejected() {
         .unwrap_err();
     assert_eq!(stale_err.category(), "stale_revision");
 }
+
+#[test]
+fn asset_detail_outcome_covers_live_merged_redirect_and_not_found() {
+    use assetmesh_core::application::library_service::AssetDetailOutcome;
+
+    let seeded = seed();
+    let mut library = seeded.env.library_service();
+    let mut assets = seeded.env.asset_service();
+
+    // 1. Live asset
+    let live_outcome = library.get_detail(seeded.media).unwrap();
+    assert!(live_outcome.is_live());
+    assert!(!live_outcome.is_merged_redirect());
+    assert_eq!(live_outcome.asset().id, seeded.media);
+    match live_outcome {
+        AssetDetailOutcome::Live(view) => {
+            assert_eq!(view.asset.name, "Sousou no Frieren");
+            assert_eq!(view.tags, vec!["healing".to_string()]);
+        }
+        AssetDetailOutcome::MergedRedirect(_) => panic!("expected Live outcome"),
+    }
+
+    // 2. Merged redirect asset
+    let loser = seeded
+        .env
+        .media_service()
+        .create_media(media_cmd("Frieren Duplicate", MediaType::Anime, &["dup"]))
+        .unwrap();
+    assets
+        .merge_assets(loser.entry.asset.id, seeded.media)
+        .unwrap();
+
+    let merged_outcome = library.get_detail(loser.entry.asset.id).unwrap();
+    assert!(!merged_outcome.is_live());
+    assert!(merged_outcome.is_merged_redirect());
+    assert_eq!(merged_outcome.asset().id, loser.entry.asset.id);
+    assert_eq!(merged_outcome.asset().merged_into, Some(seeded.media));
+    match merged_outcome {
+        AssetDetailOutcome::MergedRedirect(tombstone) => {
+            assert_eq!(tombstone.asset.id, loser.entry.asset.id);
+            assert_eq!(tombstone.asset.lifecycle_state, LifecycleState::Merged);
+            assert_eq!(tombstone.asset.merged_into, Some(seeded.media));
+        }
+        AssetDetailOutcome::Live(_) => panic!("expected MergedRedirect outcome"),
+    }
+
+    // 3. Not found
+    let non_existent_id = AssetId::generate();
+    let not_found_err = library.get_detail(non_existent_id).unwrap_err();
+    assert_eq!(not_found_err.category(), "not_found");
+}
+

@@ -4,12 +4,8 @@
 //! canonical merge from `AssetService` in `assetmesh-core`.
 //! Follows the architectural invariant: Zero direct SQL / raw repository access.
 
-use assetmesh_core::application::asset_service::AssetService;
-use assetmesh_core::application::duplicate_review_service::{
-    DuplicateQuery, DuplicateReviewService,
-};
+use assetmesh_core::application::duplicate_review_service::DuplicateQuery;
 use assetmesh_core::application::library_service::PageRequest;
-use assetmesh_core::application::merge_preview_service::MergePreviewService;
 use assetmesh_core::domain::asset::AssetKind;
 use assetmesh_core::domain::ids::AssetId;
 use tauri::State;
@@ -46,8 +42,8 @@ pub fn duplicate_candidates_impl(
         page: page_request,
     };
 
-    state.with_factory(|factory| {
-        let mut svc = DuplicateReviewService::new(factory.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.duplicate_review();
         let page = svc.candidates(&core_query)?;
         Ok(PageDto::from(page))
     })
@@ -67,8 +63,8 @@ pub fn merge_preview_impl(
     // No adapter-side rule: the self-merge and kind checks live in
     // `MergePreviewService` / `AssetService`, so preview and apply classify the
     // same request the same way.
-    state.with_factory(|factory| {
-        let mut svc = MergePreviewService::new(factory.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.merge_preview();
         let preview = svc.preview(winner_id, loser_id)?;
         Ok(preview.into())
     })
@@ -85,8 +81,8 @@ pub fn merge_apply_impl(
         .map(AssetId::from_uuid)
         .map_err(|e| DesktopError::invalid_input(format!("invalid loser_id: {e}")))?;
 
-    state.with_factory(|factory| {
-        let mut svc = AssetService::new(factory.clone(), state.clock.clone(), state.ids.clone());
+    state.with_modules(|modules| {
+        let mut svc = modules.asset();
         let outcome = svc.merge_assets_with_revisions(
             loser_id,
             winner_id,
