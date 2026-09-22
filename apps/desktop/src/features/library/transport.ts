@@ -5,6 +5,7 @@ import type {
   AssetDetailDto,
   AssetSummary,
   LibraryQuery,
+  LibrarySearchQuery,
   Page,
 } from './types';
 
@@ -13,6 +14,7 @@ export interface DesktopTransport {
   getStatus(): Promise<AppStatus>;
   init(dbPath: string): Promise<AppStatus>;
   listAssets(query?: LibraryQuery): Promise<Page<AssetSummary>>;
+  searchAssets(query: LibrarySearchQuery): Promise<Page<AssetSummary>>;
   getAsset(id: string): Promise<AssetDetailDto>;
 }
 
@@ -31,6 +33,10 @@ export class TauriTransport implements DesktopTransport {
 
   async listAssets(query?: LibraryQuery): Promise<Page<AssetSummary>> {
     return await invoke<Page<AssetSummary>>('library_list', { query });
+  }
+
+  async searchAssets(query: LibrarySearchQuery): Promise<Page<AssetSummary>> {
+    return await invoke<Page<AssetSummary>>('library_search', { query });
   }
 
   async getAsset(id: string): Promise<AssetDetailDto> {

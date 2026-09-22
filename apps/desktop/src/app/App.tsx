@@ -10,6 +10,7 @@ import type {
   AssetSummary,
   DesktopError,
   LibraryQuery,
+  LibrarySearchQuery,
   Page,
 } from '../features/library/types';
 import { useNavigation } from '../features/library/useNavigation';
@@ -33,10 +34,28 @@ export const App: React.FC = () => {
     setSort,
     setKind,
     setTag,
+    setSearch,
     setPage,
     setSelectedAssetId,
     resetFilters,
   } = useNavigation();
+
+  const [searchInput, setSearchInput] = useState(nav.search);
+
+  // Sync search input if nav.search changes externally (hash change / resetFilters)
+  useEffect(() => {
+    setSearchInput(nav.search);
+  }, [nav.search]);
+
+  // Debounce search input changes (300ms) to update navigation state
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== nav.search) {
+        setSearch(searchInput);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput, nav.search, setSearch]);
 
   const transport = getTransport();
 
@@ -65,25 +84,48 @@ export const App: React.FC = () => {
   const selectedAssetIdRef = React.useRef<string | null>(nav.selectedAssetId);
   selectedAssetIdRef.current = nav.selectedAssetId;
 
+  // Stale request guard: older responses never overwrite newer ones
+  const searchSeqRef = React.useRef(0);
+
   // Load library page according to navigation / filter state
   const loadAssets = useCallback(async () => {
     if (status.status !== 'ready') return;
 
+    const currentSeq = ++searchSeqRef.current;
     setLoadingAssets(true);
     setError(null);
 
-    const query: LibraryQuery = {
-      lifecycle: nav.lifecycle,
-      modules: nav.module === 'all' ? undefined : [nav.module],
-      kinds: nav.kind ? [nav.kind] : undefined,
-      tags: nav.tag ? [nav.tag] : undefined,
-      sort: nav.sort,
-      limit: nav.pageSize,
-      offset: (nav.page - 1) * nav.pageSize,
-    };
-
     try {
-      const result = await transport.listAssets(query);
+      let result: Page<AssetSummary>;
+      const trimmedSearch = nav.search.trim();
+
+      if (trimmedSearch) {
+        const query: LibrarySearchQuery = {
+          text: trimmedSearch,
+          lifecycle: nav.lifecycle,
+          modules: nav.module === 'all' ? undefined : [nav.module],
+          kinds: nav.kind ? [nav.kind] : undefined,
+          tags: nav.tag ? [nav.tag] : undefined,
+          limit: nav.pageSize,
+          offset: (nav.page - 1) * nav.pageSize,
+        };
+        result = await transport.searchAssets(query);
+      } else {
+        const query: LibraryQuery = {
+          lifecycle: nav.lifecycle,
+          modules: nav.module === 'all' ? undefined : [nav.module],
+          kinds: nav.kind ? [nav.kind] : undefined,
+          tags: nav.tag ? [nav.tag] : undefined,
+          sort: nav.sort,
+          limit: nav.pageSize,
+          offset: (nav.page - 1) * nav.pageSize,
+        };
+        result = await transport.listAssets(query);
+      }
+
+      // Discard stale response if a newer query has been dispatched
+      if (currentSeq !== searchSeqRef.current) return;
+
       setPageData(result);
 
       // Auto-select first asset if none selected or selected not in page
@@ -96,12 +138,15 @@ export const App: React.FC = () => {
         setSelectedAssetId(null);
       }
     } catch (err: unknown) {
+      if (currentSeq !== searchSeqRef.current) return;
       setError({
         category: 'LibraryQueryFailed',
         message: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      setLoadingAssets(false);
+      if (currentSeq === searchSeqRef.current) {
+        setLoadingAssets(false);
+      }
     }
   }, [
     status.status,
@@ -110,6 +155,7 @@ export const App: React.FC = () => {
     nav.kind,
     nav.tag,
     nav.sort,
+    nav.search,
     nav.pageSize,
     nav.page,
     transport,
@@ -292,6 +338,7 @@ export const App: React.FC = () => {
         sort={nav.sort}
         selectedKind={nav.kind}
         selectedTag={nav.tag}
+        searchQuery={searchInput}
         page={nav.page}
         pageSize={nav.pageSize}
         data={pageData}
@@ -308,6 +355,7 @@ export const App: React.FC = () => {
         onSelectSort={setSort}
         onSelectKind={setKind}
         onSelectTag={setTag}
+        onSearchChange={setSearchInput}
         onSelectPage={setPage}
         onResetFilters={resetFilters}
         onRetry={loadAssets}

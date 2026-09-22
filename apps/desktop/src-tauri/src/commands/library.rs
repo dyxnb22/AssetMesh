@@ -5,7 +5,10 @@ use assetmesh_core::ports::uow::UnitOfWorkFactory;
 use assetmesh_core::AppError;
 use tauri::State;
 
-use crate::dto::{AssetDetailDto, AssetSummaryDto, ExternalRefDto, LibraryQueryDto, PageDto};
+use crate::dto::{
+    AssetDetailDto, AssetSummaryDto, ExternalRefDto, LibraryQueryDto, LibrarySearchQueryDto,
+    PageDto,
+};
 use crate::error::DesktopError;
 use crate::state::DesktopState;
 
@@ -86,5 +89,25 @@ pub fn library_get_impl(
             }
             Err(err) => Err(err.into()),
         }
+    })
+}
+
+#[tauri::command]
+pub fn library_search(
+    query: LibrarySearchQueryDto,
+    state: State<'_, DesktopState>,
+) -> Result<PageDto<AssetSummaryDto>, DesktopError> {
+    library_search_impl(query, &state)
+}
+
+pub fn library_search_impl(
+    query: LibrarySearchQueryDto,
+    state: &DesktopState,
+) -> Result<PageDto<AssetSummaryDto>, DesktopError> {
+    let app_query = query.try_into()?;
+    state.with_factory(|factory| {
+        let mut svc = LibraryService::new(factory.clone());
+        let page = svc.search_assets(&app_query)?;
+        Ok(page.into())
     })
 }

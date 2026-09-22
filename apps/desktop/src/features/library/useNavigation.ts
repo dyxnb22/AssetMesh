@@ -14,6 +14,7 @@ const DEFAULT_STATE: NavigationState = {
   sort: 'updated_desc',
   kind: null,
   tag: null,
+  search: '',
   page: 1,
   pageSize: 25,
   selectedAssetId: null,
@@ -55,6 +56,7 @@ function parseHash(hash: string): NavigationState {
 
   const kind = params.get('kind') || null;
   const tag = params.get('tag') || null;
+  const search = params.get('q') || '';
   const page = Math.max(1, parseInt(params.get('page') || '1', 10) || 1);
   const selectedAssetId = params.get('asset') || null;
 
@@ -65,6 +67,7 @@ function parseHash(hash: string): NavigationState {
     sort,
     kind,
     tag,
+    search,
     page,
     pageSize: 25,
     selectedAssetId,
@@ -78,6 +81,7 @@ function serializeHash(state: NavigationState): string {
   if (state.sort !== 'updated_desc') params.set('sort', state.sort);
   if (state.kind) params.set('kind', state.kind);
   if (state.tag) params.set('tag', state.tag);
+  if (state.search.trim()) params.set('q', state.search.trim());
   if (state.page > 1) params.set('page', state.page.toString());
   if (state.selectedAssetId) params.set('asset', state.selectedAssetId);
 
@@ -112,6 +116,7 @@ export function useNavigation() {
         prev.sort === next.sort &&
         prev.kind === next.kind &&
         prev.tag === next.tag &&
+        prev.search === next.search &&
         prev.page === next.page &&
         prev.pageSize === next.pageSize &&
         prev.selectedAssetId === next.selectedAssetId
@@ -176,6 +181,14 @@ export function useNavigation() {
     }));
   }, [updateNav]);
 
+  const setSearch = useCallback((search: string) => {
+    updateNav((prev) => ({
+      ...prev,
+      search,
+      page: 1,
+    }));
+  }, [updateNav]);
+
   const setPage = useCallback((page: number) => {
     updateNav((prev) => ({
       ...prev,
@@ -198,6 +211,7 @@ export function useNavigation() {
       sort: 'updated_desc',
       kind: null,
       tag: null,
+      search: '',
       page: 1,
     }));
   }, [updateNav]);
@@ -210,6 +224,7 @@ export function useNavigation() {
     setSort,
     setKind,
     setTag,
+    setSearch,
     setPage,
     setSelectedAssetId,
     resetFilters,

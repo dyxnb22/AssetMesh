@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Badge } from '../../ui/Badge';
 import type {
   ActiveModule,
@@ -16,6 +16,7 @@ interface AssetLedgerProps {
   sort: SortOption;
   selectedKind: string | null;
   selectedTag: string | null;
+  searchQuery: string;
   page: number;
   pageSize: number;
   data: Page<AssetSummary> | null;
@@ -29,6 +30,7 @@ interface AssetLedgerProps {
   onSelectSort: (sort: SortOption) => void;
   onSelectKind: (kind: string | null) => void;
   onSelectTag: (tag: string | null) => void;
+  onSearchChange: (search: string) => void;
   onSelectPage: (page: number) => void;
   onResetFilters: () => void;
   onRetry: () => void;
@@ -40,6 +42,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   sort,
   selectedKind,
   selectedTag,
+  searchQuery,
   page,
   pageSize,
   data,
@@ -53,11 +56,33 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   onSelectSort,
   onSelectKind,
   onSelectTag,
+  onSearchChange,
   onSelectPage,
   onResetFilters,
   onRetry,
 }) => {
   const tableRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      } else if (
+        e.key === '/' &&
+        document.activeElement?.tagName !== 'INPUT' &&
+        document.activeElement?.tagName !== 'TEXTAREA' &&
+        document.activeElement?.tagName !== 'SELECT'
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   const title =
     module === 'all'
@@ -102,6 +127,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
     sort !== 'updated_desc' ||
     selectedKind !== null ||
     selectedTag !== null ||
+    Boolean(searchQuery.trim()) ||
     page > 1;
 
   return (
@@ -131,7 +157,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             flexWrap: 'wrap',
-            gap: '8px',
+            gap: '10px',
           }}
         >
           <div>
@@ -141,10 +167,112 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
               {loading
                 ? 'Loading assets...'
+                : searchQuery.trim()
+                ? `${totalItems} result${totalItems === 1 ? '' : 's'} for "${searchQuery.trim()}"`
                 : data
                 ? `${totalItems} asset${totalItems === 1 ? '' : 's'} recorded`
                 : 'No assets'}
             </div>
+          </div>
+
+          {/* Search Input Bar */}
+          <div
+            style={{
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              flex: '1 1 220px',
+              maxWidth: '360px',
+            }}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                left: '10px',
+                color: 'var(--color-muted)',
+                pointerEvents: 'none',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+              aria-hidden="true"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </span>
+            <input
+              ref={searchInputRef}
+              type="search"
+              aria-label="Search library assets"
+              placeholder="Search assets (Cmd+K)..."
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  if (searchQuery) {
+                    onSearchChange('');
+                  } else {
+                    searchInputRef.current?.blur();
+                  }
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '6px 32px 6px 30px',
+                fontSize: '12px',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--color-canvas)',
+                color: 'var(--color-ink)',
+                outline: 'none',
+              }}
+            />
+            {searchQuery ? (
+              <button
+                onClick={() => onSearchChange('')}
+                aria-label="Clear search"
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  border: 'none',
+                  background: 'none',
+                  color: 'var(--color-muted)',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  fontSize: '12px',
+                  lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            ) : (
+              <kbd
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  padding: '1px 5px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  color: 'var(--color-muted)',
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  pointerEvents: 'none',
+                }}
+              >
+                ⌘K
+              </kbd>
+            )}
           </div>
 
           {/* Quick Filter Controls */}
@@ -219,8 +347,40 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
         </div>
 
         {/* Active Filters Summary Chips */}
-        {(selectedTag || selectedKind || isFiltered) && (
+        {(selectedTag || selectedKind || Boolean(searchQuery.trim()) || isFiltered) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            {searchQuery.trim() && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: 'rgba(20, 125, 120, 0.1)',
+                  border: '1px solid var(--color-mesh)',
+                  padding: '2px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '11px',
+                  color: 'var(--color-mesh)',
+                  fontWeight: 500,
+                }}
+              >
+                query: &quot;{searchQuery.trim()}&quot;
+                <button
+                  onClick={() => onSearchChange('')}
+                  aria-label="Remove search filter"
+                  style={{
+                    border: 'none',
+                    background: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--color-mesh)',
+                    marginLeft: '2px',
+                    fontSize: '12px',
+                  }}
+                >
+                  ✕
+                </button>
+              </span>
+            )}
             {selectedTag && (
               <span
                 style={{
@@ -366,10 +526,12 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             }}
           >
             <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-ink)', marginBottom: '4px' }}>
-              No assets found
+              {searchQuery.trim() ? 'No matching assets found' : 'No assets found'}
             </div>
             <p style={{ fontSize: '12px', marginBottom: '16px' }}>
-              No assets match the current view and filter criteria.
+              {searchQuery.trim()
+                ? `No assets found matching "${searchQuery.trim()}". Try different keywords or reset filters.`
+                : 'No assets match the current view and filter criteria.'}
             </p>
             {isFiltered && (
               <button

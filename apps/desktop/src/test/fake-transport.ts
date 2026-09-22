@@ -6,6 +6,7 @@ import type {
   AssetDetailsDto,
   AssetSummary,
   LibraryQuery,
+  LibrarySearchQuery,
   Page,
 } from '../features/library/types';
 
@@ -90,6 +91,67 @@ export class FakeDesktopTransport implements DesktopTransport {
     const total = filtered.length;
     const limit = query?.limit ?? 50;
     const offset = query?.offset ?? 0;
+    const items = filtered.slice(offset, offset + limit);
+
+    return {
+      items,
+      offset,
+      limit,
+      total,
+    };
+  }
+
+  async searchAssets(query: LibrarySearchQuery): Promise<Page<AssetSummary>> {
+    const text = query.text.trim().toLowerCase();
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+
+    if (!text) {
+      return {
+        items: [],
+        offset,
+        limit,
+        total: 0,
+      };
+    }
+
+    let filtered = [...this.assets];
+
+    // Merged tombstones are never searchable
+    filtered = filtered.filter((a) => a.lifecycle !== 'merged');
+
+    // Lifecycle
+    const lifecycle = query.lifecycle ?? 'active';
+    if (lifecycle === 'active') {
+      filtered = filtered.filter((a) => a.lifecycle === 'active');
+    } else if (lifecycle === 'archived' || lifecycle === 'active_or_archived') {
+      filtered = filtered.filter((a) => a.lifecycle === 'active' || a.lifecycle === 'archived');
+    }
+
+    // Text matching (name, subtitle, or tags)
+    filtered = filtered.filter(
+      (a) =>
+        a.name.toLowerCase().includes(text) ||
+        (a.subtitle && a.subtitle.toLowerCase().includes(text)) ||
+        a.tags.some((t) => t.toLowerCase().includes(text))
+    );
+
+    // Module
+    if (query.modules && query.modules.length > 0) {
+      filtered = filtered.filter((a) => query.modules!.some((m) => a.kind.startsWith(m)));
+    }
+
+    // Kinds
+    if (query.kinds && query.kinds.length > 0) {
+      filtered = filtered.filter((a) => query.kinds!.includes(a.kind));
+    }
+
+    // Tags
+    if (query.tags && query.tags.length > 0) {
+      filtered = filtered.filter((a) => query.tags!.every((t) => a.tags.includes(t)));
+    }
+
+    const total = filtered.length;
     const items = filtered.slice(offset, offset + limit);
 
     return {

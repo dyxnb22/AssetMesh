@@ -25,6 +25,16 @@ export interface LibraryQuery {
   offset?: number;
 }
 
+export interface LibrarySearchQuery {
+  text: string;
+  lifecycle?: 'active' | 'archived' | 'active_or_archived' | 'all';
+  modules?: string[];
+  kinds?: string[];
+  tags?: string[];
+  limit?: number;
+  offset?: number;
+}
+
 export interface AppCapabilities {
   version: string;
   modules: string[];
@@ -62,6 +72,7 @@ export interface NavigationState {
   sort: SortOption;
   kind: string | null;
   tag: string | null;
+  search: string;
   page: number; // 1-indexed
   pageSize: number;
   selectedAssetId: string | null;
