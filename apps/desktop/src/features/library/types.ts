@@ -49,3 +49,20 @@ export interface DesktopError {
   category: string;
   message: string;
 }
+
+export type ActiveModule = 'all' | 'media' | 'software' | 'services';
+export type ActiveSection = 'library' | 'relations' | 'activity';
+export type SortOption = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'kind_asc';
+export type LifecycleOption = 'active' | 'active_or_archived' | 'all';
+
+export interface NavigationState {
+  section: ActiveSection;
+  module: ActiveModule;
+  lifecycle: LifecycleOption;
+  sort: SortOption;
+  kind: string | null;
+  tag: string | null;
+  page: number; // 1-indexed
+  pageSize: number;
+  selectedAssetId: string | null;
+}

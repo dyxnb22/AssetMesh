@@ -89,3 +89,81 @@ code, kbd, samp, pre {
     scroll-behavior: auto !important;
   }
 }
+
+/* Responsive Desktop Shell */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--color-canvas);
+  position: relative;
+}
+
+.nav-rail {
+  width: 200px;
+  flex-shrink: 0;
+}
+
+.collection-workspace {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.inspector-panel {
+  width: 360px;
+  flex-shrink: 0;
+}
+
+.asset-row:hover {
+  background-color: var(--color-surface-hover) !important;
+}
+
+.asset-row:focus-visible {
+  outline: 2px solid var(--color-mesh);
+  outline-offset: -2px;
+}
+
+/* 760px - 1179px: medium window, compact rail and sheet inspector */
+@media (max-width: 1179px) and (min-width: 760px) {
+  .nav-rail {
+    width: 140px;
+  }
+  .inspector-panel {
+    width: 320px;
+  }
+}
+
+/* < 760px: narrow window, single column with toggleable inspector */
+@media (max-width: 759px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  .nav-rail {
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    padding: 8px;
+  }
+  .nav-rail h1 {
+    display: inline-block;
+  }
+  .nav-rail [role="tablist"] {
+    flex-direction: row;
+    overflow-x: auto;
+    margin-top: 6px;
+  }
+  .inspector-panel {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 380px;
+    z-index: 50;
+    box-shadow: -4px 0 16px rgba(0,0,0,0.15);
+  }
+}

@@ -113,11 +113,11 @@ impl TryFrom<LibraryQueryDto> for LibraryQuery {
         }
 
         let sort = match dto.sort.as_deref() {
-            None | Some("updated_desc") => LibrarySort::UpdatedDesc,
-            Some("updated_asc") => LibrarySort::UpdatedAsc,
-            Some("name_asc") => LibrarySort::NameAsc,
-            Some("name_desc") => LibrarySort::NameDesc,
-            Some("kind_asc") => LibrarySort::KindAsc,
+            None | Some("updated_desc") | Some("updated") => LibrarySort::UpdatedDesc,
+            Some("updated_asc") | Some("updated-asc") => LibrarySort::UpdatedAsc,
+            Some("name_asc") | Some("name") => LibrarySort::NameAsc,
+            Some("name_desc") | Some("name-desc") => LibrarySort::NameDesc,
+            Some("kind_asc") | Some("kind") => LibrarySort::KindAsc,
             Some(other) => {
                 return Err(DesktopError::invalid_input(format!(
                     "Unknown sort order: {}",

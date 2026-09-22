@@ -1,0 +1,172 @@
+import React from 'react';
+import { Badge } from '../../ui/Badge';
+import type { AssetSummary } from './types';
+
+interface AssetInspectorProps {
+  asset: AssetSummary | null;
+  onClose?: () => void;
+  onSelectTag?: (tag: string) => void;
+}
+
+export const AssetInspector: React.FC<AssetInspectorProps> = ({
+  asset,
+  onClose,
+  onSelectTag,
+}) => {
+  return (
+    <aside
+      aria-label="Asset Inspector"
+      className="inspector-panel"
+      style={{
+        width: '360px',
+        borderLeft: '1px solid var(--color-border)',
+        backgroundColor: 'var(--color-canvas)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflowY: 'auto',
+        padding: '16px',
+        flexShrink: 0,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '12px',
+        }}
+      >
+        <span
+          style={{
+            fontSize: '11px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: 'var(--color-muted)',
+            fontWeight: 600,
+          }}
+        >
+          Inspector
+        </span>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="Close Inspector"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--color-muted)',
+              fontSize: '16px',
+              padding: '2px 6px',
+              borderRadius: 'var(--radius-sm)',
+            }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {asset ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Badge variant="mesh">{asset.kind}</Badge>
+              {asset.lifecycle !== 'active' && (
+                <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>
+                  {asset.lifecycle}
+                </Badge>
+              )}
+            </div>
+            <h3
+              style={{
+                fontSize: '17px',
+                fontWeight: 600,
+                color: 'var(--color-ink)',
+                marginTop: '8px',
+                lineHeight: 1.3,
+                wordBreak: 'break-word',
+              }}
+            >
+              {asset.name}
+            </h3>
+            {asset.subtitle && (
+              <p style={{ color: 'var(--color-muted)', fontSize: '13px', marginTop: '4px' }}>
+                {asset.subtitle}
+              </p>
+            )}
+          </div>
+
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              padding: '14px',
+              fontSize: '12px',
+            }}
+          >
+            <div style={{ color: 'var(--color-muted)', marginBottom: '4px' }}>Asset ID</div>
+            <code
+              style={{
+                fontSize: '11px',
+                wordBreak: 'break-all',
+                backgroundColor: 'var(--color-canvas)',
+                padding: '2px 4px',
+                borderRadius: 'var(--radius-sm)',
+                display: 'block',
+              }}
+            >
+              {asset.id}
+            </code>
+
+            <div style={{ color: 'var(--color-muted)', marginTop: '10px', marginBottom: '4px' }}>
+              Lifecycle Status
+            </div>
+            <div style={{ fontWeight: 500 }}>{asset.lifecycle}</div>
+
+            <div style={{ color: 'var(--color-muted)', marginTop: '10px', marginBottom: '4px' }}>
+              Last Updated
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+              {asset.updated_at}
+            </div>
+          </div>
+
+          {asset.tags.length > 0 && (
+            <div>
+              <div
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--color-ink)',
+                  marginBottom: '6px',
+                }}
+              >
+                Tags
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                {asset.tags.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => onSelectTag?.(t)}
+                    title={`Filter by tag #${t}`}
+                    style={{
+                      all: 'unset',
+                      cursor: onSelectTag ? 'pointer' : 'default',
+                    }}
+                  >
+                    <Badge variant="muted">#{t}</Badge>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ color: 'var(--color-muted)', textAlign: 'center', marginTop: '48px' }}>
+          Select an asset to view details.
+        </div>
+      )}
+    </aside>
+  );
+};
