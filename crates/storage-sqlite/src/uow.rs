@@ -16,7 +16,7 @@
 
 use assetmesh_core::ports::repos::{
     ActivityReader, ActivityRepository, AssetReader, AssetRepository, ExternalRefReader,
-    ExternalRefRepository, MediaReader, MediaRepository, RelationReader, RelationRepository,
+    ExternalRefRepository, LibraryReadPort, MediaReader, MediaRepository, RelationReader, RelationRepository,
     ServiceReader, ServiceRepository, SoftwareReader, SoftwareRepository, TagReader, TagRepository,
 };
 use assetmesh_core::ports::search::{SearchIndex, SearchReader};
@@ -26,7 +26,7 @@ use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
 use crate::repos::{
-    SqliteActivityRepo, SqliteAssetRepo, SqliteExternalRefRepo, SqliteMediaRepo,
+    SqliteActivityRepo, SqliteAssetRepo, SqliteExternalRefRepo, SqliteLibraryRepo, SqliteMediaRepo,
     SqliteRelationRepo, SqliteSearchIndex, SqliteServiceRepo, SqliteSoftwareRepo, SqliteTagRepo,
 };
 
@@ -38,6 +38,11 @@ pub struct SqliteFactory {
     writer: Mutex<Connection>,
     /// Pooled read connections for file databases.
     readers: Mutex<Vec<Connection>>,
+    /// Statement tracer installed by [`Self::set_tracer`], replayed onto every
+    /// connection this factory uses. Needed because a read scope on a file
+    /// database runs on a *pooled* connection, not the writer: tracing only the
+    /// writer would count nothing for exactly the reads under measurement.
+    tracer: Mutex<Option<fn(&str)>>,
 }
 
 impl SqliteFactory {
@@ -48,6 +53,7 @@ impl SqliteFactory {
             is_memory,
             writer: Mutex::new(conn),
             readers: Mutex::new(Vec::new()),
+            tracer: Mutex::new(None),
         }
     }
 
@@ -58,6 +64,57 @@ impl SqliteFactory {
             .lock()
             .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
         Ok(f(&conn))
+    }
+
+    /// Mutable raw connection access for tests and benchmarks.
+    pub fn with_raw_connection_mut<T>(&self, f: impl FnOnce(&mut Connection) -> T) -> Result<T, AppError> {
+        let mut conn = self
+            .writer
+            .lock()
+            .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
+        Ok(f(&mut conn))
+    }
+
+    /// Installs a statement tracer on every connection this factory uses.
+    ///
+    /// `rusqlite`'s `trace` needs `&mut`, which [`Self::with_raw_connection`]
+    /// cannot offer through a `&` closure — hence a separate entry point rather
+    /// than a weaker signature on the existing one. Used only by
+    /// [`crate::statement_accounting`] to prove a read is batched.
+    ///
+    /// The tracer is remembered so a connection pooled later reports too.
+    pub(crate) fn set_tracer(&self, tracer: Option<fn(&str)>) -> Result<(), AppError> {
+        {
+            let mut stored = self
+                .tracer
+                .lock()
+                .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
+            *stored = tracer;
+        }
+        self.install_tracer_on_all()
+    }
+
+    /// Applies the stored tracer to the writer and every pooled reader.
+    fn install_tracer_on_all(&self) -> Result<(), AppError> {
+        let tracer = *self
+            .tracer
+            .lock()
+            .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
+
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
+        writer.trace(tracer);
+
+        let mut readers = self
+            .readers
+            .lock()
+            .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
+        for reader in readers.iter_mut() {
+            reader.trace(tracer);
+        }
+        Ok(())
     }
 
     fn transact_impl<T>(
@@ -118,17 +175,28 @@ impl SqliteFactory {
     }
 
     fn acquire_reader(&self) -> Result<Connection, AppError> {
-        if let Some(conn) = self
+        let tracer = *self
+            .tracer
+            .lock()
+            .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
+        let connect = || {
+            let mut conn = crate::connection::connect(&self.path)?;
+            conn.trace(tracer);
+            Ok(conn)
+        };
+
+        if let Some(mut conn) = self
             .readers
             .lock()
             .map_err(|_| AppError::storage("sqlite lock poisoned"))?
             .pop()
         {
+            conn.trace(tracer);
             return Ok(conn);
         }
         // New connections share the same initialization policy and are
         // opened after `open()` has finished migrating.
-        crate::connection::connect(&self.path)
+        connect()
     }
 }
 
@@ -234,6 +302,7 @@ struct RepoBundle<'conn> {
     tags: SqliteTagRepo<'conn>,
     relations: SqliteRelationRepo<'conn>,
     search: SqliteSearchIndex<'conn>,
+    library: SqliteLibraryRepo<'conn>,
 }
 
 impl<'conn> RepoBundle<'conn> {
@@ -248,6 +317,7 @@ impl<'conn> RepoBundle<'conn> {
             tags: SqliteTagRepo { conn },
             relations: SqliteRelationRepo { conn },
             search: SqliteSearchIndex { conn },
+            library: SqliteLibraryRepo { conn },
         }
     }
 }
@@ -301,6 +371,10 @@ impl<'conn> UnitOfWork for SqliteUow<'conn> {
     fn search_index(&mut self) -> &mut dyn SearchIndex {
         &mut self.repos.search
     }
+
+    fn library(&mut self) -> &mut dyn LibraryReadPort {
+        &mut self.repos.library
+    }
 }
 
 /// Read scope: reader capabilities only — mutation methods are not
@@ -352,5 +426,9 @@ impl<'conn> QueryUnitOfWork for SqliteQueryUow<'conn> {
 
     fn search_index(&mut self) -> &mut dyn SearchReader {
         &mut self.repos.search
+    }
+
+    fn library(&mut self) -> &mut dyn LibraryReadPort {
+        &mut self.repos.library
     }
 }

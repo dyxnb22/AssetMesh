@@ -753,6 +753,7 @@ impl GraphHydration {
             kind: asset.kind,
             name: asset.name.clone(),
             lifecycle: asset.lifecycle_state,
+            revision: asset.revision,
             subtitle: None,
             tags: Vec::new(),
             updated_at: asset.updated_at,

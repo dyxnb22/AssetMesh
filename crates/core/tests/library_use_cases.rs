@@ -25,8 +25,8 @@ use assetmesh_core::domain::media::MediaType;
 use assetmesh_core::domain::service::ServiceType;
 use assetmesh_core::domain::software::{SoftwareCategory, SoftwareRecord};
 use assetmesh_core::ports::repos::{
-    ActivityReader, AssetReader, ExternalRefReader, LifecycleFilter, MediaReader, RelationReader,
-    ServiceReader, SoftwareReader, TagReader,
+    ActivityReader, AssetReader, ExternalRefReader, LifecycleFilter, LibraryReadPort, MediaReader,
+    RelationReader, ServiceReader, SoftwareReader, TagReader,
 };
 use assetmesh_core::ports::search::SearchReader;
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
@@ -240,6 +240,7 @@ impl QueryUnitOfWork for ProbeQuery<'_> {
     probe_capability!(tags, TagReader, "tags");
     probe_capability!(relations, RelationReader, "relations");
     probe_capability!(search_index, SearchReader, "search_index");
+    probe_capability!(library, LibraryReadPort, "library");
 }
 
 // ---------------------------------------------------------------------------

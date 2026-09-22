@@ -1096,6 +1096,11 @@ impl QueryUnitOfWork for ProbeQuery<'_> {
         "relations"
     );
     probe_capability!(
+        library,
+        assetmesh_core::ports::repos::LibraryReadPort,
+        "library"
+    );
+    probe_capability!(
         search_index,
         assetmesh_core::ports::search::SearchReader,
         "search_index"

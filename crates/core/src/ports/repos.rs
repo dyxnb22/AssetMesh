@@ -8,7 +8,7 @@
 //! application services never touch SQL.
 
 use crate::domain::activity::ActivityEvent;
-use crate::domain::asset::Asset;
+use crate::domain::asset::{Asset, AssetKind, LifecycleState};
 use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::{AssetId, ExternalRefId, RelationId, TagId};
 use crate::domain::media::{MediaEntry, MediaRecord, MediaStatus, MediaType};
@@ -16,7 +16,131 @@ use crate::domain::relation::Relation;
 use crate::domain::service::{ServiceEntry, ServiceRecord, ServiceType};
 use crate::domain::software::{InstallSource, SoftwareCategory, SoftwareEntry, SoftwareRecord};
 use crate::domain::tag::Tag;
+use crate::domain::Timestamp;
 use crate::{AppError, AppResult};
+use serde::{Deserialize, Serialize};
+
+pub const DEFAULT_PAGE_LIMIT: usize = 50;
+pub const MAX_PAGE_LIMIT: usize = 200;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryModule {
+    Media,
+    Software,
+    Services,
+}
+
+impl LibraryModule {
+    pub const ALL: [LibraryModule; 3] = [
+        LibraryModule::Media,
+        LibraryModule::Software,
+        LibraryModule::Services,
+    ];
+
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            LibraryModule::Media => "media",
+            LibraryModule::Software => "software",
+            LibraryModule::Services => "services",
+        }
+    }
+
+    pub fn of_kind(kind: AssetKind) -> Self {
+        match kind.module() {
+            "software" => LibraryModule::Software,
+            "services" => LibraryModule::Services,
+            _ => LibraryModule::Media,
+        }
+    }
+
+    pub fn matches(&self, kind: AssetKind) -> bool {
+        Self::of_kind(kind) == *self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LibrarySort {
+    #[default]
+    UpdatedDesc,
+    UpdatedAsc,
+    NameAsc,
+    NameDesc,
+    KindAsc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageRequest {
+    pub limit: usize,
+    pub offset: usize,
+}
+
+impl Default for PageRequest {
+    fn default() -> Self {
+        PageRequest {
+            limit: DEFAULT_PAGE_LIMIT,
+            offset: 0,
+        }
+    }
+}
+
+impl PageRequest {
+    pub fn new(limit: usize, offset: usize) -> Self {
+        PageRequest { limit, offset }
+    }
+
+    pub fn effective_limit(&self) -> usize {
+        match self.limit {
+            0 => DEFAULT_PAGE_LIMIT,
+            limit => limit.min(MAX_PAGE_LIMIT),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub offset: usize,
+    pub limit: usize,
+    pub total: Option<usize>,
+}
+
+impl<T> Page<T> {
+    pub fn empty(page: &PageRequest) -> Self {
+        Page {
+            items: Vec::new(),
+            offset: page.offset,
+            limit: page.effective_limit(),
+            total: Some(0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetSummary {
+    pub id: AssetId,
+    pub kind: AssetKind,
+    pub name: String,
+    pub lifecycle: LifecycleState,
+    pub revision: i64,
+    pub subtitle: Option<String>,
+    pub tags: Vec<String>,
+    pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LibraryQuery {
+    pub lifecycle: LifecycleFilter,
+    pub modules: Vec<LibraryModule>,
+    pub kinds: Vec<AssetKind>,
+    pub tags: Vec<String>,
+    pub sort: LibrarySort,
+    pub page: PageRequest,
+}
+
+pub trait LibraryReadPort {
+    fn query_library(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>>;
+}
 
 /// Filter for base-asset listing.
 #[derive(Debug, Clone, Default)]
@@ -67,8 +191,9 @@ pub struct MediaFilter {
     pub sort: MediaSort,
 }
 
-/// Media list rows are pre-joined with their tags so list views avoid N+1
-/// lookups at the application layer.
+/// Media list rows carry their tags so list views avoid N+1 lookups at the
+/// application layer: the repository resolves a whole page's tags in one query
+/// (see `TagReader::list_for_assets`), not one per row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MediaListRow {
     pub entry: MediaEntry,
@@ -106,8 +231,9 @@ pub struct SoftwareFilter {
     pub sort: SoftwareSort,
 }
 
-/// Software list rows are pre-joined with their tags so list views avoid N+1
-/// lookups at the application layer.
+/// Software list rows carry their tags so list views avoid N+1 lookups at the
+/// application layer: the repository resolves a whole page's tags in one query
+/// (see `TagReader::list_for_assets`), not one per row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SoftwareListRow {
     pub entry: SoftwareEntry,
@@ -148,8 +274,9 @@ pub struct ServiceFilter {
     pub sort: ServiceSort,
 }
 
-/// Service list rows are pre-joined with their tags so list views avoid N+1
-/// lookups at the application layer.
+/// Service list rows carry their tags so list views avoid N+1 lookups at the
+/// application layer: the repository resolves a whole page's tags in one query
+/// (see `TagReader::list_for_assets`), not one per row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServiceListRow {
     pub entry: ServiceEntry,
@@ -232,6 +359,16 @@ pub trait TagReader {
     fn find_by_name(&mut self, name: &str) -> AppResult<Option<Tag>>;
     fn get(&mut self, id: TagId) -> AppResult<Option<Tag>>;
     fn list_for_asset(&mut self, asset_id: AssetId) -> AppResult<Vec<Tag>>;
+    /// Every tag attached to any of these assets, as `(asset_id, tag)` pairs.
+    ///
+    /// The batch form the module list queries need: rendering a page of rows
+    /// with their tags is one query instead of one per row, which is the
+    /// difference between a constant and a linear number of round-trips. An
+    /// empty slice yields no rows rather than an error.
+    ///
+    /// Ordered by `(asset_id, name)` so a caller can group the result by
+    /// walking it in order, and so the grouping is stable across adapters.
+    fn list_for_assets(&mut self, asset_ids: &[AssetId]) -> AppResult<Vec<(AssetId, Tag)>>;
     fn list_all(&mut self) -> AppResult<Vec<Tag>>;
     /// `(asset_id, tag_id)` membership pairs — used by export and merge.
     fn list_memberships(&mut self) -> AppResult<Vec<(AssetId, TagId)>>;

@@ -19,10 +19,20 @@ fn parse_tag(row: &rusqlite::Row) -> rusqlite::Result<Tag> {
     crate::repos::app_row(parse_tag_inner(row))
 }
 
+/// [`parse_tag`] for a row whose tag columns do not start at index 0 — the
+/// batch query selects the `asset_id` first so it can group by it.
+fn parse_tag_from(row: &rusqlite::Row, offset: usize) -> rusqlite::Result<Tag> {
+    crate::repos::app_row(parse_tag_inner_from(row, offset))
+}
+
 fn parse_tag_inner(row: &rusqlite::Row) -> AppResult<Tag> {
-    let id: String = col(row, 0)?;
-    let name: String = col(row, 1)?;
-    let created_at: String = col(row, 2)?;
+    parse_tag_inner_from(row, 0)
+}
+
+fn parse_tag_inner_from(row: &rusqlite::Row, offset: usize) -> AppResult<Tag> {
+    let id: String = col(row, offset)?;
+    let name: String = col(row, offset + 1)?;
+    let created_at: String = col(row, offset + 2)?;
     Ok(Tag {
         id: TagId::from_uuid(uuid_from_string(&id)?),
         name,
@@ -73,6 +83,44 @@ impl TagReader for SqliteTagRepo<'_> {
             tags.push(row_result(row)?);
         }
         Ok(tags)
+    }
+    fn list_for_assets(&mut self, asset_ids: &[AssetId]) -> AppResult<Vec<(AssetId, Tag)>> {
+        if asset_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // One query for a whole page of rows instead of one per row.
+        // Chunked into batches of at most 500 to prevent exceeding SQLite parameter limits.
+        const CHUNK_SIZE: usize = 500;
+        let mut out = Vec::new();
+
+        for chunk in asset_ids.chunks(CHUNK_SIZE) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = format!(
+                "SELECT at.asset_id, t.id, t.name, t.created_at FROM asset_tags at \
+                 JOIN tags t ON t.id = at.tag_id \
+                 WHERE at.asset_id IN ({placeholders}) \
+                 ORDER BY at.asset_id, t.name"
+            );
+            let params: Vec<String> = chunk
+                .iter()
+                .map(|id| uuid_to_string(id.as_uuid()))
+                .collect();
+            let mut stmt = self.conn.prepare(&sql).map_err(crate::map_error)?;
+            let refs: Vec<&dyn rusqlite::ToSql> =
+                params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+            let rows = stmt
+                .query_map(refs.as_slice(), |row| {
+                    let asset: String = row.get(0)?;
+                    let tag = parse_tag_from(row, 1)?;
+                    Ok((asset, tag))
+                })
+                .map_err(crate::map_error)?;
+            for row in rows {
+                let (asset, tag) = row_result(row)?;
+                out.push((AssetId::from_uuid(uuid_from_string(&asset)?), tag));
+            }
+        }
+        Ok(out)
     }
     fn list_all(&mut self) -> AppResult<Vec<Tag>> {
         let mut stmt = self

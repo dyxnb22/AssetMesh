@@ -29,17 +29,14 @@ use crate::domain::ids::AssetId;
 use crate::domain::media::MediaRecord;
 use crate::domain::service::ServiceRecord;
 use crate::domain::software::SoftwareRecord;
-use crate::domain::Timestamp;
 use crate::ports::repos::{LifecycleFilter, MediaFilter, ServiceFilter, SoftwareFilter};
 use crate::ports::uow::{QueryUnitOfWork, UnitOfWorkFactory};
 use crate::{AppError, AppResult};
 
-/// Page size used when a caller does not ask for one.
-pub const DEFAULT_PAGE_LIMIT: usize = 50;
-
-/// Upper bound on a page size. Adapters cannot ask the library for an
-/// unbounded result set; a larger window is fetched as several pages.
-pub const MAX_PAGE_LIMIT: usize = 200;
+pub use crate::ports::repos::{
+    AssetSummary, LibraryModule, LibraryQuery, LibraryReadPort, LibrarySort, Page, PageRequest,
+    DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT,
+};
 
 /// Upper bound on the projection window one search page hydrates.
 ///
@@ -48,157 +45,6 @@ pub const MAX_PAGE_LIMIT: usize = 200;
 /// unbounded number of rows (and overflow the limit the search port takes).
 /// Past this bound a search page is simply empty rather than expensive.
 const MAX_SEARCH_WINDOW: usize = 10_000;
-
-/// The coarse module grouping of an asset kind, derived from
-/// [`AssetKind::module`]. It is a filter over kinds, not a second identity
-/// system: every kind belongs to exactly one module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LibraryModule {
-    Media,
-    Software,
-    Services,
-}
-
-impl LibraryModule {
-    /// All modules the unified library can dispatch to.
-    pub const ALL: [LibraryModule; 3] = [
-        LibraryModule::Media,
-        LibraryModule::Software,
-        LibraryModule::Services,
-    ];
-
-    /// The module string used by [`AssetKind::module`].
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            LibraryModule::Media => "media",
-            LibraryModule::Software => "software",
-            LibraryModule::Services => "services",
-        }
-    }
-
-    /// The module that owns `kind`'s typed details.
-    ///
-    /// Total over the three shipped modules. The wildcard arm is unreachable
-    /// today — `AssetKind::module()` returns only these three strings — and is
-    /// pinned by a test over every kind so that adding a fourth module fails a
-    /// test here rather than silently folding its kinds into Media.
-    pub fn of_kind(kind: AssetKind) -> Self {
-        match kind.module() {
-            "software" => LibraryModule::Software,
-            "services" => LibraryModule::Services,
-            _ => LibraryModule::Media,
-        }
-    }
-
-    /// True when this module owns `kind`'s typed details.
-    pub fn matches(&self, kind: AssetKind) -> bool {
-        Self::of_kind(kind) == *self
-    }
-}
-
-/// Sort order for a unified library page. Every variant uses [`AssetId`]
-/// ascending as its deterministic tie-breaker, so a page boundary can never
-/// repeat or skip a row whose primary sort key is equal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LibrarySort {
-    /// Most recently updated first (default).
-    #[default]
-    UpdatedDesc,
-    /// Least recently updated first.
-    UpdatedAsc,
-    /// Name ascending, case-insensitive.
-    NameAsc,
-    /// Name descending, case-insensitive.
-    NameDesc,
-    /// Asset kind ascending, then name.
-    KindAsc,
-}
-
-/// One page request: a bounded size plus an offset into the sorted result set.
-///
-/// Offset pagination is used because the unified list is composed in the
-/// application layer from the module readers; ordering is fully determined by
-/// [`LibrarySort`] plus the `AssetId` tie-breaker, so offsets are stable
-/// against a static library.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PageRequest {
-    /// Rows per page. `0` selects [`DEFAULT_PAGE_LIMIT`]; anything above
-    /// [`MAX_PAGE_LIMIT`] is clamped to it.
-    pub limit: usize,
-    /// Rows to skip before the page starts.
-    pub offset: usize,
-}
-
-impl Default for PageRequest {
-    fn default() -> Self {
-        PageRequest {
-            limit: DEFAULT_PAGE_LIMIT,
-            offset: 0,
-        }
-    }
-}
-
-impl PageRequest {
-    pub fn new(limit: usize, offset: usize) -> Self {
-        PageRequest { limit, offset }
-    }
-
-    /// The page size actually used after defaults and clamping. Adapters can
-    /// read back what a request resolved to instead of re-deriving the rule.
-    pub fn effective_limit(&self) -> usize {
-        match self.limit {
-            0 => DEFAULT_PAGE_LIMIT,
-            limit => limit.min(MAX_PAGE_LIMIT),
-        }
-    }
-}
-
-/// One page of unified results.
-///
-/// `total` is the exact number of matching rows whenever the query can count
-/// them: always for the library list, and for a library search whose index was
-/// exhausted (the common case). It is `None` only when a search stopped at the
-/// projection window bound, where more hits may exist beyond it. Adapters can
-/// therefore treat `items.len() < limit` as "no more pages" whenever `total` is
-/// `Some`.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct Page<T> {
-    pub items: Vec<T>,
-    pub offset: usize,
-    pub limit: usize,
-    pub total: Option<usize>,
-}
-
-impl<T> Page<T> {
-    fn empty(page: &PageRequest) -> Self {
-        Page {
-            items: Vec::new(),
-            offset: page.offset,
-            limit: page.effective_limit(),
-            total: Some(0),
-        }
-    }
-}
-
-/// One library row: shared identity, typed module details, and tags.
-///
-/// This is the vocabulary shared by the unified list and the unified search:
-/// both return `AssetSummary`, so an adapter never has to reconcile two
-/// competing shapes.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct AssetSummary {
-    pub id: AssetId,
-    pub kind: AssetKind,
-    pub name: String,
-    pub lifecycle: LifecycleState,
-    pub revision: i64,
-    /// Concise module-aware summary, produced by the same helper the module's
-    /// search projection uses.
-    pub subtitle: Option<String>,
-    /// Tag names, sorted by name.
-    pub tags: Vec<String>,
-    pub updated_at: Timestamp,
-}
 
 /// Typed module details of one asset (docs/11).
 ///
@@ -281,28 +127,6 @@ impl AssetDetailOutcome {
     }
 }
 
-/// A unified library list query over shared fields only.
-///
-/// Module-specific advanced filters (media rating, software install source,
-/// service renewal date, ...) stay in the module services; forcing them into
-/// one generic filter would be a second, weaker copy of each module's API.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct LibraryQuery {
-    /// Which lifecycle states are visible. Defaults to
-    /// [`LifecycleFilter::Active`]: merged tombstones are redirects and
-    /// archived assets are opt-in.
-    pub lifecycle: LifecycleFilter,
-    /// Restrict to these modules. Empty means every module.
-    pub modules: Vec<LibraryModule>,
-    /// Restrict to these asset kinds. Empty means every kind. Combined with
-    /// `modules`, both must match.
-    pub kinds: Vec<AssetKind>,
-    /// Require every one of these tags (case-insensitive). Empty means no tag
-    /// filter.
-    pub tags: Vec<String>,
-    pub sort: LibrarySort,
-    pub page: PageRequest,
-}
 
 /// A unified library search query.
 ///
@@ -448,34 +272,7 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
 
     /// Lists the whole library as one page of [`AssetSummary`].
     pub fn list_assets(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>> {
-        let modules = selected_modules(&query.modules, &query.kinds);
-        let limit = query.page.effective_limit();
-        if modules.is_empty() {
-            // Contradictory module/kind filters: nothing can match, so the
-            // storage is not touched at all.
-            return Ok(Page::empty(&query.page));
-        }
-
-        self.factory.read(&mut |q| {
-            let mut rows = load_library_rows(q, &modules)?;
-            rows.retain(|row| matches_lifecycle(query.lifecycle, row));
-            rows.retain(|row| matches_kinds(&query.kinds, row));
-            rows.retain(|row| matches_tags(&query.tags, row));
-            sort_rows(&mut rows, query.sort);
-            let total = rows.len();
-            let items = rows
-                .into_iter()
-                .skip(query.page.offset)
-                .take(limit)
-                .map(|row| summarize_row(&row))
-                .collect();
-            Ok(Page {
-                items,
-                offset: query.page.offset,
-                limit,
-                total: Some(total),
-            })
-        })
+        self.factory.read(&mut |q| q.library().query_library(query))
     }
 
     /// Searches the whole library through the existing projection and returns
@@ -559,10 +356,10 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
 
 /// One asset plus its typed module details and tags, as loaded from a module
 /// reader.
-pub(crate) struct LibraryRow {
-    pub(crate) asset: Asset,
-    pub(crate) details: AssetDetails,
-    pub(crate) tags: Vec<String>,
+pub struct LibraryRow {
+    pub asset: Asset,
+    pub details: AssetDetails,
+    pub tags: Vec<String>,
 }
 
 /// Resolves the modules a query needs to read.
@@ -570,7 +367,7 @@ pub(crate) struct LibraryRow {
 /// Empty filters mean "every module". Contradictory filters (a module and a
 /// kind that module does not own) resolve to no modules, which lets the
 /// caller short-circuit without reading storage.
-fn selected_modules(modules: &[LibraryModule], kinds: &[AssetKind]) -> Vec<LibraryModule> {
+pub fn selected_modules(modules: &[LibraryModule], kinds: &[AssetKind]) -> Vec<LibraryModule> {
     let wanted_modules: Vec<LibraryModule> = dedupe(modules);
     let wanted_from_kinds: Vec<LibraryModule> = dedupe(
         &kinds
@@ -611,7 +408,7 @@ fn dedupe<T: PartialEq + Copy>(values: &[T]) -> Vec<T> {
 ///
 /// Shared with the Phase 4B graph queries, so graph nodes hydrate through the
 /// same readers the library list uses.
-pub(crate) fn load_library_rows(
+pub fn load_library_rows(
     q: &mut dyn QueryUnitOfWork,
     modules: &[LibraryModule],
 ) -> AppResult<Vec<LibraryRow>> {
@@ -690,7 +487,7 @@ fn push_row(
 /// or partially-migrated database cannot surface a tombstone as an inventory
 /// entry. `LifecycleFilter::All` therefore means "every non-tombstone
 /// lifecycle", which for a library is the same set as `ActiveOrArchived`.
-fn matches_lifecycle(lifecycle: LifecycleFilter, row: &LibraryRow) -> bool {
+pub fn matches_lifecycle(lifecycle: LifecycleFilter, row: &LibraryRow) -> bool {
     if row.asset.lifecycle_state == LifecycleState::Merged {
         return false;
     }
@@ -700,13 +497,13 @@ fn matches_lifecycle(lifecycle: LifecycleFilter, row: &LibraryRow) -> bool {
     }
 }
 
-fn matches_kinds(kinds: &[AssetKind], row: &LibraryRow) -> bool {
+pub fn matches_kinds(kinds: &[AssetKind], row: &LibraryRow) -> bool {
     kinds.is_empty() || kinds.contains(&row.asset.kind)
 }
 
 /// Tag filtering requires every requested tag, compared case-insensitively —
 /// the same tag semantics the module filters use.
-fn matches_tags(tags: &[String], row: &LibraryRow) -> bool {
+pub fn matches_tags(tags: &[String], row: &LibraryRow) -> bool {
     tags.iter().all(|wanted| {
         let wanted = wanted.trim();
         row.tags.iter().any(|tag| tag.eq_ignore_ascii_case(wanted))
@@ -715,7 +512,7 @@ fn matches_tags(tags: &[String], row: &LibraryRow) -> bool {
 
 /// Sorts by the requested key, then by `AssetId` ascending so equal keys still
 /// have one deterministic order.
-fn sort_rows(rows: &mut [LibraryRow], sort: LibrarySort) {
+pub fn sort_rows(rows: &mut [LibraryRow], sort: LibrarySort) {
     rows.sort_by(|a, b| {
         let primary = match sort {
             LibrarySort::UpdatedDesc => b.asset.updated_at.cmp(&a.asset.updated_at),
@@ -748,7 +545,7 @@ fn sort_rows(rows: &mut [LibraryRow], sort: LibrarySort) {
 }
 
 /// Builds the unified summary of one loaded library row.
-pub(crate) fn summarize_row(row: &LibraryRow) -> AssetSummary {
+pub fn summarize_row(row: &LibraryRow) -> AssetSummary {
     AssetSummary {
         id: row.asset.id,
         kind: row.asset.kind,

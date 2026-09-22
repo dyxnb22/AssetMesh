@@ -16,7 +16,7 @@ pub struct SqliteMediaRepo<'conn> {
 const ASSET_COLS: &str =
     "a.id, a.kind, a.name, a.summary, a.lifecycle_state, a.revision, a.created_at, \
      a.updated_at, a.archived_at, a.merged_into_asset_id";
-const MEDIA_COLS: &str = "m.media_type, m.status, m.rating, m.year, m.platform, \
+pub(crate) const MEDIA_COLS: &str = "m.media_type, m.status, m.rating, m.year, m.platform, \
                           m.progress_current, m.progress_total, m.progress_unit, m.notes, \
                           m.started_at, m.completed_at";
 
@@ -24,7 +24,7 @@ fn col<T: rusqlite::types::FromSql>(row: &rusqlite::Row, idx: usize) -> AppResul
     row.get(idx).map_err(crate::map_error)
 }
 
-fn parse_record(asset_id: AssetId, row: &rusqlite::Row, offset: usize) -> AppResult<MediaRecord> {
+pub(crate) fn parse_record(asset_id: AssetId, row: &rusqlite::Row, offset: usize) -> AppResult<MediaRecord> {
     let media_type: String = col(row, offset)?;
     let status: String = col(row, offset + 1)?;
     let rating: Option<f64> = col(row, offset + 2)?;
@@ -78,28 +78,6 @@ fn record_params(record: &MediaRecord) -> Vec<Box<dyn rusqlite::ToSql>> {
         Box::new(record.started_at.map(ts_to_string)),
         Box::new(record.completed_at.map(ts_to_string)),
     ]
-}
-
-impl SqliteMediaRepo<'_> {
-    fn tags_for_asset(&self, asset_id: AssetId) -> AppResult<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT t.name FROM asset_tags at JOIN tags t ON t.id = at.tag_id \
-                 WHERE at.asset_id = ?1 ORDER BY t.name",
-            )
-            .map_err(crate::map_error)?;
-        let rows = stmt
-            .query_map([uuid_to_string(asset_id.as_uuid())], |row| {
-                row.get::<_, String>(0)
-            })
-            .map_err(crate::map_error)?;
-        let mut names = Vec::new();
-        for row in rows {
-            names.push(row.map_err(crate::map_error)?);
-        }
-        Ok(names)
-    }
 }
 
 impl MediaReader for SqliteMediaRepo<'_> {
@@ -173,10 +151,21 @@ impl MediaReader for SqliteMediaRepo<'_> {
             })
             .map_err(crate::map_error)?;
 
-        let mut out = Vec::new();
+        let mut rows_with_assets = Vec::new();
         for row in rows {
             let (asset, record) = row.map_err(crate::map_error)?;
-            let tags = self.tags_for_asset(asset.id)?;
+            rows_with_assets.push((asset, record));
+        }
+
+        // Tags for the whole page in one query. A per-row query here made the
+        // list O(rows) round-trips, which shows up as a page that gets slower
+        // as the library grows.
+        let asset_ids: Vec<AssetId> = rows_with_assets.iter().map(|(a, _)| a.id).collect();
+        let tags_by_asset = crate::repos::batch_tags(self.conn, &asset_ids)?;
+
+        let mut out = Vec::with_capacity(rows_with_assets.len());
+        for (asset, record) in rows_with_assets {
+            let tags = tags_by_asset.get(&asset.id).cloned().unwrap_or_default();
             out.push(MediaListRow {
                 entry: MediaEntry { asset, record },
                 tags,

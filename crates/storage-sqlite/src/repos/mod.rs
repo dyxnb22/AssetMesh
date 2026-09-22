@@ -3,6 +3,7 @@
 mod activity;
 mod asset;
 mod external_ref;
+mod library;
 mod media;
 mod relation;
 mod search;
@@ -13,6 +14,7 @@ mod tag;
 pub use activity::SqliteActivityRepo;
 pub use asset::SqliteAssetRepo;
 pub use external_ref::SqliteExternalRefRepo;
+pub use library::SqliteLibraryRepo;
 pub use media::SqliteMediaRepo;
 pub use relation::SqliteRelationRepo;
 pub use search::SqliteSearchIndex;
@@ -21,8 +23,33 @@ pub use software::SqliteSoftwareRepo;
 pub use tag::SqliteTagRepo;
 
 use assetmesh_core::domain::Timestamp;
+use assetmesh_core::ports::repos::TagReader;
 use assetmesh_core::AppResult;
 use uuid::Uuid;
+
+/// Tag names for a page of assets, keyed by asset id.
+///
+/// Shared by the module list queries, which all render a page of rows with
+/// their tags. Loading them per row is an N+1: the number of queries grows with
+/// the page, so a long library makes every listing slower. This does it in one
+/// query via [`TagReader::list_for_assets`](assetmesh_core::ports::repos::TagReader::list_for_assets).
+///
+/// The asset ids come from rows the caller already has, so the query only needs
+/// the ids and returns no duplicate work.
+pub(crate) fn batch_tags(
+    conn: &rusqlite::Connection,
+    asset_ids: &[assetmesh_core::domain::ids::AssetId],
+) -> AppResult<std::collections::HashMap<assetmesh_core::domain::ids::AssetId, Vec<String>>> {
+    let mut tags = crate::repos::tag::SqliteTagRepo { conn };
+    tags.list_for_assets(asset_ids).map(|pairs| {
+        let mut out: std::collections::HashMap<_, Vec<String>> =
+            std::collections::HashMap::with_capacity(asset_ids.len());
+        for (asset_id, tag) in pairs {
+            out.entry(asset_id).or_default().push(tag.name);
+        }
+        out
+    })
+}
 
 /// Converts a `query_map` row result into an application result.
 pub(crate) fn row_result<T>(row: rusqlite::Result<T>) -> AppResult<T> {

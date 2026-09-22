@@ -432,6 +432,9 @@ impl QueryUnitOfWork for WriteAsQuery<'_> {
     fn search_index(&mut self) -> &mut dyn crate::ports::search::SearchReader {
         self.0.search_index()
     }
+    fn library(&mut self) -> &mut dyn crate::ports::repos::LibraryReadPort {
+        self.0.library()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -18,11 +18,12 @@ use assetmesh_core::domain::Timestamp;
 use assetmesh_core::ports::clock::Clock;
 use assetmesh_core::ports::ids::IdGenerator;
 use assetmesh_core::ports::repos::{
-    ActivityReader, ActivityRepository, AssetFilter, AssetReader, AssetRepository,
-    ExternalRefReader, ExternalRefRepository, LifecycleFilter, MediaFilter, MediaListRow,
-    MediaReader, MediaRepository, MediaSort, RelationReader, RelationRepository, ServiceFilter,
-    ServiceListRow, ServiceReader, ServiceRepository, ServiceSort, SoftwareFilter, SoftwareListRow,
-    SoftwareReader, SoftwareRepository, SoftwareSort, TagReader, TagRepository,
+    ActivityReader, ActivityRepository, AssetFilter, AssetReader, AssetRepository, AssetSummary,
+    ExternalRefReader, ExternalRefRepository, LibraryQuery, LibraryReadPort,
+    LifecycleFilter, MediaFilter, MediaListRow, MediaReader, MediaRepository, MediaSort, Page,
+    RelationReader, RelationRepository, ServiceFilter, ServiceListRow, ServiceReader,
+    ServiceRepository, ServiceSort, SoftwareFilter, SoftwareListRow, SoftwareReader,
+    SoftwareRepository, SoftwareSort, TagReader, TagRepository,
 };
 use assetmesh_core::ports::search::{SearchIndex, SearchReader};
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
@@ -637,6 +638,36 @@ impl TagReader for MemStore {
             .filter_map(|(_, t)| self.tags.get(t).cloned())
             .collect())
     }
+    fn list_for_assets(&mut self, asset_ids: &[AssetId]) -> AppResult<Vec<(AssetId, Tag)>> {
+        // Mirrors the SQLite adapter: one pass over a filterable set, ordered by
+        // (asset_id, name), and an empty slice yields no rows. The set is built
+        // from the id strings so the grouping matches the stored membership keys.
+        let wanted: std::collections::HashSet<String> =
+            asset_ids.iter().map(|id| id.to_string()).collect();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut out: Vec<(String, Tag)> = self
+            .memberships
+            .iter()
+            .filter(|(a, _)| wanted.contains(a))
+            .filter_map(|(a, t)| self.tags.get(t).map(|tag| (a.clone(), tag.clone())))
+            .collect();
+        out.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.name.cmp(&b.1.name))
+                .then_with(|| a.1.id.as_uuid().cmp(&b.1.id.as_uuid()))
+        });
+        Ok(out
+            .into_iter()
+            .filter_map(|(a, tag)| {
+                uuid::Uuid::parse_str(&a)
+                    .ok()
+                    .map(AssetId::from_uuid)
+                    .map(|id| (id, tag))
+            })
+            .collect())
+    }
     fn list_all(&mut self) -> AppResult<Vec<Tag>> {
         Ok(self.tags.values().cloned().collect())
     }
@@ -793,6 +824,10 @@ impl UnitOfWork for MemStore {
     fn search_index(&mut self) -> &mut dyn SearchIndex {
         self
     }
+
+    fn library(&mut self) -> &mut dyn LibraryReadPort {
+        self
+    }
 }
 
 impl QueryUnitOfWork for MemStore {
@@ -830,6 +865,42 @@ impl QueryUnitOfWork for MemStore {
 
     fn search_index(&mut self) -> &mut dyn SearchReader {
         self
+    }
+
+    fn library(&mut self) -> &mut dyn LibraryReadPort {
+        self
+    }
+}
+
+impl LibraryReadPort for MemStore {
+    fn query_library(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>> {
+        use assetmesh_core::application::library_service::{
+            load_library_rows, matches_kinds, matches_lifecycle, matches_tags, selected_modules,
+            sort_rows, summarize_row,
+        };
+        let modules = selected_modules(&query.modules, &query.kinds);
+        let limit = query.page.effective_limit();
+        if modules.is_empty() {
+            return Ok(Page::empty(&query.page));
+        }
+        let mut rows = load_library_rows(self, &modules)?;
+        rows.retain(|row| matches_lifecycle(query.lifecycle, row));
+        rows.retain(|row| matches_kinds(&query.kinds, row));
+        rows.retain(|row| matches_tags(&query.tags, row));
+        sort_rows(&mut rows, query.sort);
+        let total = rows.len();
+        let items = rows
+            .into_iter()
+            .skip(query.page.offset)
+            .take(limit)
+            .map(|row| summarize_row(&row))
+            .collect();
+        Ok(Page {
+            items,
+            offset: query.page.offset,
+            limit,
+            total: Some(total),
+        })
     }
 }
 

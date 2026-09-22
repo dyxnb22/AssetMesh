@@ -11,8 +11,9 @@
 
 use crate::ports::repos::{
     ActivityReader, ActivityRepository, AssetReader, AssetRepository, ExternalRefReader,
-    ExternalRefRepository, MediaReader, MediaRepository, RelationReader, RelationRepository,
-    ServiceReader, ServiceRepository, SoftwareReader, SoftwareRepository, TagReader, TagRepository,
+    ExternalRefRepository, LibraryReadPort, MediaReader, MediaRepository, RelationReader,
+    RelationRepository, ServiceReader, ServiceRepository, SoftwareReader, SoftwareRepository,
+    TagReader, TagRepository,
 };
 use crate::ports::search::{SearchIndex, SearchReader};
 use crate::AppResult;
@@ -28,6 +29,7 @@ pub trait UnitOfWork {
     fn tags(&mut self) -> &mut dyn TagRepository;
     fn relations(&mut self) -> &mut dyn RelationRepository;
     fn search_index(&mut self) -> &mut dyn SearchIndex;
+    fn library(&mut self) -> &mut dyn LibraryReadPort;
 }
 
 /// Read scope: query-only access. Mutation methods are not reachable through
@@ -43,6 +45,7 @@ pub trait QueryUnitOfWork {
     fn tags(&mut self) -> &mut dyn TagReader;
     fn relations(&mut self) -> &mut dyn RelationReader;
     fn search_index(&mut self) -> &mut dyn SearchReader;
+    fn library(&mut self) -> &mut dyn LibraryReadPort;
 }
 
 /// Opens work scopes over a [`UnitOfWork`] / [`QueryUnitOfWork`].
