@@ -101,6 +101,18 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [searchInput, nav.search, setSearch]);
 
+  // Dismiss active asset detail view on Escape key
+  useEffect(() => {
+    if (!activeDetailId) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveDetailId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeDetailId]);
+
   const transport = getTransport();
 
   // Load application capabilities and verify status

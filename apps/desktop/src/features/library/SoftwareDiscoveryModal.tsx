@@ -52,6 +52,17 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !adopting) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, adopting]);
+
   if (!isOpen) return null;
 
   const handleAdopt = async (e: React.FormEvent) => {

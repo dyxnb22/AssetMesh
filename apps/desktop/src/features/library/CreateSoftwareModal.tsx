@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Badge } from '../../ui/Badge';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { DesktopError } from './types';
@@ -28,6 +28,17 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<DesktopError | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, submitting]);
 
   if (!isOpen) return null;
 

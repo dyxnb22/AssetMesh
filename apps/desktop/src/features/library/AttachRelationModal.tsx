@@ -90,6 +90,17 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
     };
   }, [isOpen, searchTargetText, sourceAsset.id, transport]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, submitting]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
