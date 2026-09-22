@@ -47,6 +47,23 @@ pub enum AssetKind {
 }
 
 impl AssetKind {
+    pub const ALL: [AssetKind; 14] = [
+        AssetKind::MediaMovie,
+        AssetKind::MediaTv,
+        AssetKind::MediaAnime,
+        AssetKind::MediaGame,
+        AssetKind::SoftwareApplication,
+        AssetKind::SoftwareCli,
+        AssetKind::SoftwarePackage,
+        AssetKind::SoftwareRuntime,
+        AssetKind::SoftwareTool,
+        AssetKind::ServiceSaas,
+        AssetKind::ServiceApi,
+        AssetKind::ServiceVps,
+        AssetKind::ServiceDomain,
+        AssetKind::ServiceLocal,
+    ];
+
     pub const fn as_str(&self) -> &'static str {
         match self {
             AssetKind::MediaMovie => "media.movie",

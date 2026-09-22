@@ -218,6 +218,7 @@ fn update_metadata_touches_asset_and_projection() {
             year: Some(1999),
             platform: Some("DVD".into()),
             notes: Some("Rewatched".into()),
+            ..Default::default()
         })
         .unwrap();
 

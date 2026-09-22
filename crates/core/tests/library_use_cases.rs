@@ -1335,3 +1335,79 @@ fn the_projection_rebuild_path_still_agrees_with_the_library() {
         .unwrap();
     assert_eq!(summary_ids(&after), vec![seeded.media]);
 }
+
+#[test]
+fn app_capabilities_exposes_modules_and_flags() {
+    let seeded = seed();
+    let library = seeded.env.library_service();
+    let caps = library.capabilities();
+
+    assert_eq!(caps.modules, vec!["media", "software", "services"]);
+    assert!(!caps.features.runtime_enrichment);
+    assert!(!caps.features.projects);
+    assert!(!caps.features.agent_capabilities);
+    assert!(!caps.features.knowledge_collections);
+    assert!(caps.relation_types.contains(&"depends_on".to_string()));
+    assert!(caps.relation_types.contains(&"dependency_of".to_string()));
+    assert!(caps
+        .storable_relation_types
+        .contains(&"depends_on".to_string()));
+    assert!(!caps
+        .storable_relation_types
+        .contains(&"dependency_of".to_string()));
+}
+
+#[test]
+fn error_categories_map_to_stable_vocabulary() {
+    use assetmesh_core::AppError;
+
+    assert_eq!(AppError::validation("test").category(), "invalid_input");
+    assert_eq!(AppError::not_found("asset", "id").category(), "not_found");
+    assert_eq!(AppError::conflict("test").category(), "conflict");
+    assert_eq!(AppError::stale_revision(1, 2).category(), "stale_revision");
+    assert_eq!(
+        AppError::setup_required("test").category(),
+        "setup_required"
+    );
+    assert_eq!(
+        AppError::provider_unavailable("test").category(),
+        "unavailable"
+    );
+    assert_eq!(AppError::storage_busy("test").category(), "unavailable");
+    assert_eq!(AppError::corrupt_data("test").category(), "corrupt_data");
+    assert_eq!(AppError::storage("test").category(), "internal");
+}
+
+#[test]
+fn optimistic_concurrency_stale_revision_rejected() {
+    use assetmesh_core::application::software_service::UpdateSoftwareMetadata;
+
+    let seeded = seed();
+    let mut software_svc = seeded.env.software_service();
+
+    // Initial revision is 1
+    let detail = software_svc.get_software(seeded.software).unwrap();
+    assert_eq!(detail.entry.asset.revision, 1);
+
+    // Update with correct expected_revision passes and bumps revision to 2
+    let updated = software_svc
+        .update_metadata(UpdateSoftwareMetadata {
+            asset_id: seeded.software,
+            purpose: Some("testing revision bump".into()),
+            expected_revision: Some(1),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(updated.entry.asset.revision, 2);
+
+    // Stale update with old expected_revision (1) is rejected
+    let stale_err = software_svc
+        .update_metadata(UpdateSoftwareMetadata {
+            asset_id: seeded.software,
+            purpose: Some("will fail".into()),
+            expected_revision: Some(1),
+            ..Default::default()
+        })
+        .unwrap_err();
+    assert_eq!(stale_err.category(), "stale_revision");
+}

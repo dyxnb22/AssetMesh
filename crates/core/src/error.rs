@@ -39,6 +39,15 @@ pub enum AppError {
         found: String,
         supported: String,
     },
+
+    #[error("stale revision: expected {expected}, found {found}")]
+    StaleRevision { expected: i64, found: i64 },
+
+    #[error("setup required: {message}")]
+    SetupRequired { message: String },
+
+    #[error("corrupt data: {message}")]
+    CorruptData { message: String },
 }
 
 impl AppError {
@@ -94,6 +103,40 @@ impl AppError {
             context: context.into(),
             found: found.to_string(),
             supported: supported.into(),
+        }
+    }
+
+    pub fn stale_revision(expected: i64, found: i64) -> Self {
+        AppError::StaleRevision { expected, found }
+    }
+
+    pub fn setup_required(message: impl Into<String>) -> Self {
+        AppError::SetupRequired {
+            message: message.into(),
+        }
+    }
+
+    pub fn corrupt_data(message: impl Into<String>) -> Self {
+        AppError::CorruptData {
+            message: message.into(),
+        }
+    }
+
+    /// Stable error category for adapters (CLI, Desktop UI, HTTP).
+    /// Prevents leaking raw driver or internal details to presentation.
+    pub fn category(&self) -> &'static str {
+        match self {
+            AppError::Validation { .. } => "invalid_input",
+            AppError::NotFound { .. } => "not_found",
+            AppError::Conflict { .. } | AppError::ImportConflict { .. } => "conflict",
+            AppError::StaleRevision { .. } => "stale_revision",
+            AppError::SetupRequired { .. } => "setup_required",
+            AppError::ProviderUnavailable { .. } => "unavailable",
+            AppError::PermissionDenied { .. } => "permission_denied",
+            AppError::StorageBusy { .. } => "unavailable",
+            AppError::UnsupportedSchemaVersion { .. } => "unsupported",
+            AppError::CorruptData { .. } => "corrupt_data",
+            AppError::Storage { .. } => "internal",
         }
     }
 

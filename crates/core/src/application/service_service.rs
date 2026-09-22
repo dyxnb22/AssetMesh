@@ -147,6 +147,7 @@ pub struct UpdateService {
     pub expires_at: Patch<Timestamp>,
     pub auto_renew: Patch<bool>,
     pub notes: Patch<String>,
+    pub expected_revision: Option<i64>,
 }
 
 pub struct ServiceService<F: UnitOfWorkFactory> {
@@ -285,6 +286,11 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
 
         self.factory.transact(&mut |uow| {
             let mut asset = crate::application::shared::load_active_asset(uow, cmd.asset_id)?;
+            if let Some(expected) = cmd.expected_revision {
+                if asset.revision != expected {
+                    return Err(AppError::stale_revision(expected, asset.revision));
+                }
+            }
             let mut record = load_service_record(uow, cmd.asset_id)?;
 
             // A cross-module guard: the record must belong to this asset's

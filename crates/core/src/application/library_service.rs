@@ -276,6 +276,58 @@ pub struct LibrarySearchQuery {
     pub page: PageRequest,
 }
 
+/// Feature flags declaring available subsystem capabilities (docs/12 Section 6.3 & 6.5).
+/// Prevents UI from rendering empty shell placeholders for unreached phases.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AppFeatures {
+    pub runtime_enrichment: bool,
+    pub projects: bool,
+    pub agent_capabilities: bool,
+    pub knowledge_collections: bool,
+}
+
+/// Application capabilities exposed to adapters (CLI, Desktop UI, HTTP).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AppCapabilities {
+    pub version: String,
+    pub modules: Vec<String>,
+    pub asset_kinds: Vec<String>,
+    pub relation_types: Vec<String>,
+    pub storable_relation_types: Vec<String>,
+    pub features: AppFeatures,
+}
+
+impl AppCapabilities {
+    pub fn current() -> Self {
+        Self {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            modules: LibraryModule::ALL
+                .iter()
+                .map(|m| m.as_str().to_string())
+                .collect(),
+            asset_kinds: AssetKind::ALL
+                .iter()
+                .map(|k| k.as_str().to_string())
+                .collect(),
+            relation_types: crate::domain::relation::ALL_TYPES
+                .iter()
+                .map(|r| r.as_str().to_string())
+                .collect(),
+            storable_relation_types: crate::domain::relation::ALL_TYPES
+                .iter()
+                .filter(|r| r.is_storable())
+                .map(|r| r.as_str().to_string())
+                .collect(),
+            features: AppFeatures {
+                runtime_enrichment: false,
+                projects: false,
+                agent_capabilities: false,
+                knowledge_collections: false,
+            },
+        }
+    }
+}
+
 /// The unified library application boundary (docs/11 Phase 4A).
 #[derive(Debug, Clone)]
 pub struct LibraryService<F: UnitOfWorkFactory> {
@@ -285,6 +337,12 @@ pub struct LibraryService<F: UnitOfWorkFactory> {
 impl<F: UnitOfWorkFactory> LibraryService<F> {
     pub fn new(factory: F) -> Self {
         LibraryService { factory }
+    }
+
+    /// Exposes application-level capabilities and feature flags without
+    /// touching storage.
+    pub fn capabilities(&self) -> AppCapabilities {
+        AppCapabilities::current()
     }
 
     /// Opens one asset's complete typed detail view from a single read

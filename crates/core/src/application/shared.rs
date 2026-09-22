@@ -71,3 +71,43 @@ pub fn normalize_tags(tags: &[String]) -> Vec<String> {
     }
     normalized
 }
+
+/// Standard receipt returned by mutating commands (docs/12 Section 6.3 & P5-05).
+/// Contains the operation name, affected canonical asset IDs, the resulting revision,
+/// and any advisory warnings.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MutationReceipt {
+    pub operation: String,
+    pub asset_ids: Vec<AssetId>,
+    pub revision: Option<i64>,
+    pub warnings: Vec<String>,
+}
+
+impl MutationReceipt {
+    pub fn new(operation: impl Into<String>, asset_id: AssetId, revision: Option<i64>) -> Self {
+        Self {
+            operation: operation.into(),
+            asset_ids: vec![asset_id],
+            revision,
+            warnings: Vec::new(),
+        }
+    }
+
+    pub fn multiple(
+        operation: impl Into<String>,
+        asset_ids: Vec<AssetId>,
+        revision: Option<i64>,
+    ) -> Self {
+        Self {
+            operation: operation.into(),
+            asset_ids,
+            revision,
+            warnings: Vec::new(),
+        }
+    }
+
+    pub fn with_warning(mut self, warning: impl Into<String>) -> Self {
+        self.warnings.push(warning.into());
+        self
+    }
+}

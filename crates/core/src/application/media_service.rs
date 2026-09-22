@@ -60,6 +60,7 @@ pub struct UpdateMediaMetadata {
     pub year: Option<i32>,
     pub platform: Option<String>,
     pub notes: Option<String>,
+    pub expected_revision: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -195,6 +196,11 @@ impl<F: UnitOfWorkFactory> MediaService<F> {
 
         self.factory.transact(&mut |uow| {
             let mut asset = load_active_asset(uow, cmd.asset_id)?;
+            if let Some(expected) = cmd.expected_revision {
+                if asset.revision != expected {
+                    return Err(AppError::stale_revision(expected, asset.revision));
+                }
+            }
             let mut record = load_media_record(uow, cmd.asset_id)?;
 
             if let Some(title) = cmd.title.as_deref().map(str::trim) {

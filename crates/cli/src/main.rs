@@ -1133,6 +1133,7 @@ fn run_media(
                 year,
                 platform,
                 notes,
+                ..Default::default()
             })?;
             println!("updated {}", view.entry.asset.id);
         }
@@ -1655,6 +1656,7 @@ fn run_service(
                     }
                 },
                 notes: Patch::from_text(notes),
+                ..Default::default()
             })?;
             println!("updated {}", view.entry.asset.id);
         }
@@ -1903,6 +1905,7 @@ fn run_software(
                 purpose,
                 notes,
                 architecture,
+                ..Default::default()
             })?;
             println!("updated {}", view.entry.asset.id);
         }

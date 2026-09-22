@@ -64,6 +64,7 @@ pub struct UpdateSoftwareMetadata {
     pub purpose: Option<String>,
     pub notes: Option<String>,
     pub architecture: Option<String>,
+    pub expected_revision: Option<i64>,
 }
 
 /// Explicit adoption decision for a candidate that heuristics flagged as a
@@ -236,6 +237,11 @@ impl<F: UnitOfWorkFactory> SoftwareService<F> {
 
         self.factory.transact(&mut |uow| {
             let mut asset = crate::application::shared::load_active_asset(uow, cmd.asset_id)?;
+            if let Some(expected) = cmd.expected_revision {
+                if asset.revision != expected {
+                    return Err(AppError::stale_revision(expected, asset.revision));
+                }
+            }
             let mut record = load_software_record(uow, cmd.asset_id)?;
 
             if let Some(name) = cmd.name.as_deref().map(str::trim) {
