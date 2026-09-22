@@ -865,3 +865,96 @@ pub struct MergeApplyDto {
     pub winner_id: String,
     pub loser_id: String,
 }
+
+// =========================================================================
+// Import / Export & Settings DTOs (P5-09)
+// =========================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportReceiptDto {
+    pub target_dir: String,
+    pub format: String,
+    pub version: i64,
+    pub app_version: String,
+    pub created_at: String,
+    pub record_counts: std::collections::BTreeMap<String, usize>,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ImportReportDto {
+    pub assets_created: usize,
+    pub assets_updated: usize,
+    pub media_created: usize,
+    pub media_updated: usize,
+    pub software_created: usize,
+    pub software_updated: usize,
+    pub services_created: usize,
+    pub services_updated: usize,
+    pub relations_created: usize,
+    pub relations_updated: usize,
+    pub external_refs_created: usize,
+    pub external_refs_deduplicated: usize,
+    pub activity_created: usize,
+    pub tags_created: usize,
+}
+
+impl From<assetmesh_core::application::portable::PortableImportReport> for ImportReportDto {
+    fn from(r: assetmesh_core::application::portable::PortableImportReport) -> Self {
+        Self {
+            assets_created: r.assets_created,
+            assets_updated: r.assets_updated,
+            media_created: r.media_created,
+            media_updated: r.media_updated,
+            software_created: r.software_created,
+            software_updated: r.software_updated,
+            services_created: r.services_created,
+            services_updated: r.services_updated,
+            relations_created: r.relations_created,
+            relations_updated: r.relations_updated,
+            external_refs_created: r.external_refs_created,
+            external_refs_deduplicated: r.external_refs_deduplicated,
+            activity_created: r.activity_created,
+            tags_created: r.tags_created,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportPreviewDto {
+    pub valid: bool,
+    pub source_dir: String,
+    pub format: String,
+    pub version: i64,
+    pub app_version: String,
+    pub created_at: String,
+    pub record_counts: std::collections::BTreeMap<String, usize>,
+    pub modules: Vec<String>,
+    pub dispositions: ImportReportDto,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportReceiptDto {
+    pub success: bool,
+    pub source_dir: String,
+    pub applied_at: String,
+    pub report: ImportReportDto,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderStatusDto {
+    pub name: String,
+    pub display_name: String,
+    pub available: bool,
+    pub details: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppSettingsDto {
+    pub db_path: Option<String>,
+    pub db_status: String,
+    pub app_version: String,
+    pub providers: Vec<ProviderStatusDto>,
+    pub capabilities: assetmesh_core::application::library_service::AppCapabilities,
+}

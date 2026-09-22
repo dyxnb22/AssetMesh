@@ -63,4 +63,11 @@ impl DesktopError {
             message: msg.into(),
         }
     }
+
+    pub fn validation(msg: impl Into<String>) -> Self {
+        DesktopError {
+            category: "validation".to_string(),
+            message: msg.into(),
+        }
+    }
 }

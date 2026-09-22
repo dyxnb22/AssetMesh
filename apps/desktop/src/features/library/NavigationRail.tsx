@@ -205,6 +205,56 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
         >
           Duplicates
         </button>
+
+        <div
+          style={{
+            height: '1px',
+            backgroundColor: 'var(--color-border)',
+            margin: '8px 0',
+          }}
+        />
+
+        <button
+          role="tab"
+          data-testid="nav-import-export"
+          aria-selected={currentSection === 'import-export'}
+          onClick={() => onSelectSection('import-export')}
+          style={{
+            all: 'unset',
+            cursor: 'pointer',
+            padding: '7px 10px',
+            borderRadius: 'var(--radius-sm)',
+            backgroundColor:
+              currentSection === 'import-export' ? 'var(--color-surface)' : 'transparent',
+            color:
+              currentSection === 'import-export' ? 'var(--color-mesh)' : 'var(--color-ink)',
+            fontWeight: currentSection === 'import-export' ? 600 : 400,
+            fontSize: '12px',
+          }}
+        >
+          Portable Data
+        </button>
+
+        <button
+          role="tab"
+          data-testid="nav-settings"
+          aria-selected={currentSection === 'settings'}
+          onClick={() => onSelectSection('settings')}
+          style={{
+            all: 'unset',
+            cursor: 'pointer',
+            padding: '7px 10px',
+            borderRadius: 'var(--radius-sm)',
+            backgroundColor:
+              currentSection === 'settings' ? 'var(--color-surface)' : 'transparent',
+            color:
+              currentSection === 'settings' ? 'var(--color-mesh)' : 'var(--color-ink)',
+            fontWeight: currentSection === 'settings' ? 600 : 400,
+            fontSize: '12px',
+          }}
+        >
+          Settings
+        </button>
       </div>
     </nav>
   );

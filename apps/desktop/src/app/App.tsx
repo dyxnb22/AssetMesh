@@ -10,6 +10,8 @@ import { NavigationRail } from '../features/library/NavigationRail';
 import { RelationExplorer } from '../features/library/RelationExplorer';
 import { ActivityFeed } from '../features/library/ActivityFeed';
 import { DuplicateReview } from '../features/library/DuplicateReview';
+import { ImportExportView } from '../features/library/ImportExportView';
+import { SettingsView } from '../features/library/SettingsView';
 import { getTransport } from '../features/library/transport';
 import type {
   AppCapabilities,
@@ -19,6 +21,7 @@ import type {
   LibraryQuery,
   LibrarySearchQuery,
   Page,
+  ThemePreference,
 } from '../features/library/types';
 import { useNavigation } from '../features/library/useNavigation';
 import { Badge } from '../ui/Badge';
@@ -54,9 +57,39 @@ export const App: React.FC = () => {
   const [searchInput, setSearchInput] = useState(nav.search);
 
   // Sync search input if nav.search changes externally (hash change / resetFilters)
+  const [theme, setTheme] = useState<ThemePreference>(() => {
+    try {
+      const saved = localStorage.getItem('assetmesh-theme');
+      if (saved === 'light' || saved === 'dark' || saved === 'system') {
+        return saved as ThemePreference;
+      }
+    } catch {
+      // Fallback if localStorage unavailable
+    }
+    return 'system';
+  });
+
+  const handleThemeChange = (newTheme: ThemePreference) => {
+    setTheme(newTheme);
+    try {
+      localStorage.setItem('assetmesh-theme', newTheme);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
-    setSearchInput(nav.search);
-  }, [nav.search]);
+    const root = document.documentElement;
+    if (theme === 'system') {
+      const prefersDark =
+        typeof window !== 'undefined' &&
+        window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      root.dataset.theme = prefersDark ? 'dark' : 'light';
+    } else {
+      root.dataset.theme = theme;
+    }
+  }, [theme]);
 
   // Debounce search input changes (300ms) to update navigation state
   useEffect(() => {
@@ -401,6 +434,14 @@ export const App: React.FC = () => {
             onOpenAssetDetail={(id) => setActiveDetailId(id)}
             onAssetMerged={() => loadAssets()}
           />
+        </main>
+      ) : nav.section === 'import-export' ? (
+        <main style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <ImportExportView />
+        </main>
+      ) : nav.section === 'settings' ? (
+        <main style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <SettingsView currentTheme={theme} onThemeChange={handleThemeChange} />
         </main>
       ) : (
         <>

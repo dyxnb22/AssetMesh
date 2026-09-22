@@ -26,6 +26,10 @@ import type {
   DuplicateQuery,
   MergeApplyCommand,
   MergePreviewDto,
+  AppSettings,
+  ExportReceipt,
+  ImportPreview,
+  ImportReceipt,
 } from './types';
 
 export interface DesktopTransport {
@@ -48,6 +52,11 @@ export interface DesktopTransport {
   duplicateCandidates(query?: DuplicateQuery): Promise<Page<DuplicateCandidateDto>>;
   mergePreview(winner_id: string, loser_id: string): Promise<MergePreviewDto>;
   mergeApply(command: MergeApplyCommand): Promise<MutationReceiptDto>;
+  pickDirectory(prompt?: string): Promise<string | null>;
+  portableExport(targetDir: string): Promise<ExportReceipt>;
+  portableImportPreview(sourceDir: string): Promise<ImportPreview>;
+  portableImportApply(sourceDir: string): Promise<ImportReceipt>;
+  getAppSettings(): Promise<AppSettings>;
 }
 
 export class TauriTransport implements DesktopTransport {
@@ -125,6 +134,26 @@ export class TauriTransport implements DesktopTransport {
 
   async mergeApply(command: MergeApplyCommand): Promise<MutationReceiptDto> {
     return await invoke<MutationReceiptDto>('merge_apply', { input: command });
+  }
+
+  async pickDirectory(prompt?: string): Promise<string | null> {
+    return await invoke<string | null>('pick_directory', { prompt });
+  }
+
+  async portableExport(targetDir: string): Promise<ExportReceipt> {
+    return await invoke<ExportReceipt>('portable_export', { targetDir });
+  }
+
+  async portableImportPreview(sourceDir: string): Promise<ImportPreview> {
+    return await invoke<ImportPreview>('portable_import_preview', { sourceDir });
+  }
+
+  async portableImportApply(sourceDir: string): Promise<ImportReceipt> {
+    return await invoke<ImportReceipt>('portable_import_apply', { sourceDir });
+  }
+
+  async getAppSettings(): Promise<AppSettings> {
+    return await invoke<AppSettings>('app_settings');
   }
 }
 

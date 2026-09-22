@@ -37,6 +37,11 @@ pub fn run() {
             commands::duplicate_candidates,
             commands::merge_preview,
             commands::merge_apply,
+            commands::pick_directory,
+            commands::portable_export,
+            commands::portable_import_preview,
+            commands::portable_import_apply,
+            commands::app_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

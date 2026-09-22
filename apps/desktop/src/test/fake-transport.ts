@@ -31,6 +31,10 @@ import type {
   DuplicateQuery,
   MergeApplyCommand,
   MergePreviewDto,
+  AppSettings,
+  ExportReceipt,
+  ImportPreview,
+  ImportReceipt,
 } from '../features/library/types';
 
 const INVERSE_MAP: Record<string, string> = {
@@ -1774,4 +1778,278 @@ export class FakeDesktopTransport implements DesktopTransport {
       warnings: [],
     };
   }
+
+  // =========================================================================
+  // Import / Export & Settings (P5-09)
+  // =========================================================================
+
+  public nextPickedDirectory: string | null | undefined = undefined;
+  public nextImportPreview: ImportPreview | null = null;
+  public nextImportReceipt: ImportReceipt | null = null;
+
+  async pickDirectory(prompt?: string): Promise<string | null> {
+    void prompt;
+    if (this.nextPickedDirectory !== undefined) {
+      return this.nextPickedDirectory;
+    }
+    return '/Users/diaoyuxuan/Downloads/assetmesh-export';
+  }
+
+  async portableExport(targetDir: string): Promise<ExportReceipt> {
+    if (!targetDir || !targetDir.trim()) {
+      const err = new Error('Target directory cannot be empty') as Error & { category?: string };
+      err.category = 'invalid_input';
+      throw err;
+    }
+
+    let mediaCount = 0;
+    let softwareCount = 0;
+    let serviceCount = 0;
+
+    for (const d of this.details.values()) {
+      if (d.details.module === 'media') mediaCount++;
+      if (d.details.module === 'software') softwareCount++;
+      if (d.details.module === 'services') serviceCount++;
+    }
+
+    const counts: Record<string, number> = {
+      assets: this.assets.length,
+      media: mediaCount,
+      software: softwareCount,
+      services: serviceCount,
+      relations: this.storedRelations.length,
+      external_refs: 0,
+      tags: 0,
+      activity: this.activityEvents.length,
+    };
+
+    const files = [
+      'manifest.json',
+      'assets.jsonl',
+      'external_refs.jsonl',
+      'activity.jsonl',
+      'tags.json',
+      'asset_tags.jsonl',
+      'relations.jsonl',
+      'modules/media.jsonl',
+      'modules/software.jsonl',
+      'modules/services.jsonl',
+    ];
+
+    return {
+      target_dir: targetDir,
+      format: 'assetmesh-portable-export',
+      version: 1,
+      app_version: '0.3.0',
+      created_at: new Date().toISOString(),
+      record_counts: counts,
+      files,
+    };
+  }
+
+  async portableImportPreview(sourceDir: string): Promise<ImportPreview> {
+    if (!sourceDir || !sourceDir.trim()) {
+      const err = new Error('Source directory cannot be empty') as Error & { category?: string };
+      err.category = 'invalid_input';
+      throw err;
+    }
+
+    if (this.nextImportPreview) {
+      return this.nextImportPreview;
+    }
+
+    if (sourceDir.includes('malformed')) {
+      return {
+        valid: false,
+        source_dir: sourceDir,
+        format: 'assetmesh-portable-export',
+        version: 1,
+        app_version: '0.3.0',
+        created_at: new Date().toISOString(),
+        record_counts: {},
+        modules: [],
+        dispositions: {
+          assets_created: 0,
+          assets_updated: 0,
+          media_created: 0,
+          media_updated: 0,
+          software_created: 0,
+          software_updated: 0,
+          services_created: 0,
+          services_updated: 0,
+          relations_created: 0,
+          relations_updated: 0,
+          external_refs_created: 0,
+          external_refs_deduplicated: 0,
+          activity_created: 0,
+          tags_created: 0,
+        },
+        errors: ['Failed to read bundle: invalid json syntax in assets.jsonl'],
+      };
+    }
+
+    if (sourceDir.includes('unsupported')) {
+      return {
+        valid: false,
+        source_dir: sourceDir,
+        format: 'assetmesh-portable-export',
+        version: 999,
+        app_version: '99.0.0',
+        created_at: new Date().toISOString(),
+        record_counts: {},
+        modules: [],
+        dispositions: {
+          assets_created: 0,
+          assets_updated: 0,
+          media_created: 0,
+          media_updated: 0,
+          software_created: 0,
+          software_updated: 0,
+          services_created: 0,
+          services_updated: 0,
+          relations_created: 0,
+          relations_updated: 0,
+          external_refs_created: 0,
+          external_refs_deduplicated: 0,
+          activity_created: 0,
+          tags_created: 0,
+        },
+        errors: ['Unsupported export version 999, supported version is 1'],
+      };
+    }
+
+    if (sourceDir.includes('collision')) {
+      return {
+        valid: false,
+        source_dir: sourceDir,
+        format: 'assetmesh-portable-export',
+        version: 1,
+        app_version: '0.3.0',
+        created_at: new Date().toISOString(),
+        record_counts: { assets: 1, external_refs: 1 },
+        modules: ['media'],
+        dispositions: {
+          assets_created: 0,
+          assets_updated: 0,
+          media_created: 0,
+          media_updated: 0,
+          software_created: 0,
+          software_updated: 0,
+          services_created: 0,
+          services_updated: 0,
+          relations_created: 0,
+          relations_updated: 0,
+          external_refs_created: 0,
+          external_refs_deduplicated: 0,
+          activity_created: 0,
+          tags_created: 0,
+        },
+        errors: ['Collision: external ref imdb:tt0000001 is already attached to another asset'],
+      };
+    }
+
+    return {
+      valid: true,
+      source_dir: sourceDir,
+      format: 'assetmesh-portable-export',
+      version: 1,
+      app_version: '0.3.0',
+      created_at: '2026-01-01T00:00:00Z',
+      record_counts: {
+        assets: 3,
+        media: 1,
+        software: 1,
+        services: 1,
+        relations: 1,
+      },
+      modules: ['media', 'software', 'services'],
+      dispositions: {
+        assets_created: 3,
+        assets_updated: 0,
+        media_created: 1,
+        media_updated: 0,
+        software_created: 1,
+        software_updated: 0,
+        services_created: 1,
+        services_updated: 0,
+        relations_created: 1,
+        relations_updated: 0,
+        external_refs_created: 0,
+        external_refs_deduplicated: 0,
+        activity_created: 3,
+        tags_created: 2,
+      },
+      errors: [],
+    };
+  }
+
+  async portableImportApply(sourceDir: string): Promise<ImportReceipt> {
+    if (!sourceDir || !sourceDir.trim()) {
+      const err = new Error('Source directory cannot be empty') as Error & { category?: string };
+      err.category = 'invalid_input';
+      throw err;
+    }
+
+    if (this.nextImportReceipt) {
+      return this.nextImportReceipt;
+    }
+
+    if (sourceDir.includes('malformed') || sourceDir.includes('unsupported')) {
+      const err = new Error('Bundle validation failed') as Error & { category?: string };
+      err.category = 'validation';
+      throw err;
+    }
+
+    if (sourceDir.includes('collision')) {
+      const err = new Error('Import collision: external ref conflict') as Error & { category?: string };
+      err.category = 'conflict';
+      throw err;
+    }
+
+    const preview = await this.portableImportPreview(sourceDir);
+    if (!preview.valid) {
+      const err = new Error(preview.errors[0] || 'Import preflight rejected') as Error & {
+        category?: string;
+      };
+      err.category = 'validation';
+      throw err;
+    }
+
+    return {
+      success: true,
+      source_dir: sourceDir,
+      applied_at: new Date().toISOString(),
+      report: preview.dispositions,
+    };
+  }
+
+  async getAppSettings(): Promise<AppSettings> {
+    return {
+      db_path: '/Users/diaoyuxuan/Library/Application Support/com.assetmesh.desktop/assetmesh.db',
+      db_status: 'Ready',
+      app_version: '0.3.0',
+      providers: [
+        {
+          name: 'macos_applications',
+          display_name: 'macOS Applications',
+          available: true,
+          details: '/Applications, ~/Applications',
+        },
+        {
+          name: 'homebrew',
+          display_name: 'Homebrew',
+          available: true,
+          details: 'Homebrew 4.4.0 in PATH',
+        },
+        {
+          name: 'cli_tools',
+          display_name: 'CLI Tools (npm, pipx)',
+          available: true,
+          details: 'npm and pipx detected in PATH',
+        },
+      ],
+      capabilities: this.capabilities,
+    };
+  }
 }
+

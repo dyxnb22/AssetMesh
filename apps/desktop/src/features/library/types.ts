@@ -61,7 +61,13 @@ export interface DesktopError {
 }
 
 export type ActiveModule = 'all' | 'media' | 'software' | 'services';
-export type ActiveSection = 'library' | 'relations' | 'activity' | 'duplicates';
+export type ActiveSection =
+  | 'library'
+  | 'relations'
+  | 'activity'
+  | 'duplicates'
+  | 'import-export'
+  | 'settings';
 export type SortOption = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'kind_asc';
 export type LifecycleOption = 'active' | 'active_or_archived' | 'all';
 
@@ -467,3 +473,72 @@ export interface MergeApplyCommand {
   winner_id: string;
   loser_id: string;
 }
+
+// =========================================================================
+// Import / Export & Settings Types (P5-09)
+// =========================================================================
+
+export type ThemePreference = 'system' | 'light' | 'dark';
+
+export interface ExportReceipt {
+  target_dir: string;
+  format: string;
+  version: number;
+  app_version: string;
+  created_at: string;
+  record_counts: Record<string, number>;
+  files: string[];
+}
+
+export interface ImportReport {
+  assets_created: number;
+  assets_updated: number;
+  media_created: number;
+  media_updated: number;
+  software_created: number;
+  software_updated: number;
+  services_created: number;
+  services_updated: number;
+  relations_created: number;
+  relations_updated: number;
+  external_refs_created: number;
+  external_refs_deduplicated: number;
+  activity_created: number;
+  tags_created: number;
+}
+
+export interface ImportPreview {
+  valid: boolean;
+  source_dir: string;
+  format: string;
+  version: number;
+  app_version: string;
+  created_at: string;
+  record_counts: Record<string, number>;
+  modules: string[];
+  dispositions: ImportReport;
+  errors: string[];
+}
+
+export interface ImportReceipt {
+  success: boolean;
+  source_dir: string;
+  applied_at: string;
+  report: ImportReport;
+}
+
+export interface ProviderStatus {
+  name: string;
+  display_name: string;
+  available: boolean;
+  details: string | null;
+}
+
+export interface AppSettings {
+  db_path: string | null;
+  db_status: string;
+  app_version: string;
+  providers: ProviderStatus[];
+  capabilities: AppCapabilities;
+}
+
