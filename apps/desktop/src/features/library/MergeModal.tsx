@@ -7,6 +7,7 @@ import type {
   MergePreviewDto,
   MutationReceiptDto,
 } from './types';
+import { t } from '../../i18n';
 
 interface MergeModalProps {
   candidate: DuplicateCandidateDto;
@@ -150,12 +151,8 @@ export const MergeModal: React.FC<MergeModalProps> = ({
           }}
         >
           <div>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>
-              Explicit Merge Review
-            </h3>
-            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginTop: '2px' }}>
-              Select which asset survives. Loser becomes a permanent redirect tombstone.
-            </div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Explicit Merge Review')}</h3>
+            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginTop: '2px' }}>{t('Select which asset survives. Loser becomes a permanent redirect tombstone.')}</div>
           </div>
           <button
             type="button"
@@ -187,12 +184,8 @@ export const MergeModal: React.FC<MergeModalProps> = ({
         >
           {/* Winner Selection Cards */}
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)', marginBottom: '8px' }}>
-              1. Choose Surviving Asset (Winner):
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginBottom: '8px' }}>
-              Nothing is preselected — the survivor is yours to choose.
-            </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)', marginBottom: '8px' }}>{t('1. Choose Surviving Asset (Winner):')}</div>
+            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginBottom: '8px' }}>{t('Nothing is preselected — the survivor is yours to choose.')}</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               {/* Left Candidate Card */}
               <div
@@ -231,15 +224,15 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                   </label>
                   <Badge variant={winnerId === candidate.left.id ? 'mesh' : 'muted'}>
                     {winnerId === candidate.left.id
-                      ? 'Survivor'
+                      ? t('Survivor')
                       : winnerId === null
-                        ? 'Not selected'
-                        : 'Loser'}
+                        ? t('Not selected')
+                        : t('Loser')}
                   </Badge>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <Badge variant="muted">{candidate.left.kind}</Badge>
-                  <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{candidate.left.lifecycle}</span>
+                  <Badge variant="muted">{t(candidate.left.kind)}</Badge>
+                  <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{t(candidate.left.lifecycle)}</span>
                 </div>
                 {candidate.left.subtitle && (
                   <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>{candidate.left.subtitle}</div>
@@ -283,15 +276,15 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                   </label>
                   <Badge variant={winnerId === candidate.right.id ? 'mesh' : 'muted'}>
                     {winnerId === candidate.right.id
-                      ? 'Survivor'
+                      ? t('Survivor')
                       : winnerId === null
-                        ? 'Not selected'
-                        : 'Loser'}
+                        ? t('Not selected')
+                        : t('Loser')}
                   </Badge>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <Badge variant="muted">{candidate.right.kind}</Badge>
-                  <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{candidate.right.lifecycle}</span>
+                  <Badge variant="muted">{t(candidate.right.kind)}</Badge>
+                  <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{t(candidate.right.lifecycle)}</span>
                 </div>
                 {candidate.right.subtitle && (
                   <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>{candidate.right.subtitle}</div>
@@ -309,9 +302,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
               border: '1px solid var(--color-border)',
             }}
           >
-            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-muted)', marginBottom: '4px' }}>
-              Deterministic Evidence:
-            </div>
+            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-muted)', marginBottom: '4px' }}>{t('Deterministic Evidence:')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               {candidate.evidence_labels.map((lbl, idx) => (
                 <span
@@ -334,9 +325,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
 
           {/* Merge Preview Results */}
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)', marginBottom: '8px' }}>
-              2. Merge Impact Preview:
-            </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)', marginBottom: '8px' }}>{t('2. Merge Impact Preview:')}</div>
 
             {winnerId === null ? (
               <div
@@ -350,16 +339,12 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                   fontSize: '12px',
                   textAlign: 'center',
                 }}
-              >
-                Choose a surviving asset above to see what this merge would move.
-              </div>
+              >{t('Choose a surviving asset above to see what this merge would move.')}</div>
             ) : loadingPreview ? (
               <div
                 data-testid="merge-preview-loading"
                 style={{ padding: '16px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '12px' }}
-              >
-                Analyzing field conflicts and relations impact...
-              </div>
+              >{t('Analyzing field conflicts and relations impact...')}</div>
             ) : preview ? (
               <div
                 data-testid="merge-preview-container"
@@ -386,9 +371,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                       fontSize: '12px',
                     }}
                   >
-                    <div style={{ fontWeight: 600, marginBottom: '4px' }}>
-                      ⚠ Merge Blocked: Cannot merge due to field conflicts
-                    </div>
+                    <div style={{ fontWeight: 600, marginBottom: '4px' }}>{t('⚠ Merge Blocked: Cannot merge due to field conflicts')}</div>
                     <ul style={{ margin: '0 0 0 16px', padding: 0 }}>
                       {preview.conflicts.map((c, i) => (
                         <li key={i}>{c}</li>
@@ -409,28 +392,27 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                       fontSize: '12px',
                       fontWeight: 500,
                     }}
-                  >
-                    ✓ No blocking conflicts. Merge is safe and lossless.
-                  </div>
+                  >{t('✓ No blocking conflicts. Merge is safe and lossless.')}</div>
                 )}
 
                 {/* Impact details */}
                 <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <div data-testid="impact-lifecycle">
-                    <strong>Survivor:</strong> {winnerAsset?.name} ({winnerAsset?.id}) remains active.
-                  </div>
+                    <strong>{t('Survivor:')}</strong> {winnerAsset?.name} ({winnerAsset?.id}{t(') remains active.')}</div>
                   <div data-testid="impact-tombstone">
-                    <strong>Tombstone:</strong> {loserAsset?.name} ({loserAsset?.id}) will be marked merged and redirect to {winnerAsset?.name}.
+                    <strong>{t('Tombstone:')}</strong> {loserAsset?.name} ({loserAsset?.id}{t(') will be marked merged and redirect to ')}{winnerAsset?.name}.
                   </div>
                   <div data-testid="impact-tags">
-                    <strong>Tags Transfer:</strong>{' '}
+                    <strong>{t('Tags Transfer:')}</strong>{' '}
                     {preview.transferred_tags.length > 0
-                      ? `+${preview.transferred_tags.length} tag(s) added to winner: ${preview.transferred_tags.map((t) => `#${t}`).join(', ')}`
-                      : 'None'}
+                      ? t('+{n} tag(s) added to winner: {tags}', {
+                        n: preview.transferred_tags.length,
+                        tags: preview.transferred_tags.map((tag) => `#${tag}`).join(', '),
+                      })
+                      : t('None')}
                   </div>
                   <div data-testid="impact-relations">
-                    <strong>Relations:</strong> {preview.transferred_relations_count} relation(s) re-pointed to winner; {preview.redundant_relations_count} redundant relation(s) dropped.
-                  </div>
+                    <strong>{t('Relations:')}</strong> {preview.transferred_relations_count}{t(' relation(s) re-pointed to winner; ')}{preview.redundant_relations_count}{t(' redundant relation(s) dropped.')}</div>
                   {preview.notes.map((n, i) => (
                     <div key={i} style={{ color: 'var(--color-muted)' }}>
                       ℹ {n}
@@ -454,7 +436,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                 fontSize: '12px',
               }}
             >
-              <strong>Error [{error.category}]:</strong> {error.message}
+              <strong>{t('Error [')}{t(error.category)}]:</strong> {t(error.message)}
             </div>
           )}
 
@@ -469,8 +451,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                 onChange={(e) => setConfirmed(e.target.checked)}
                 style={{ cursor: 'pointer' }}
               />
-              <label htmlFor="merge-confirm-checkbox" style={{ cursor: 'pointer', color: 'var(--color-ink)' }}>
-                I confirm merging <strong>{loserAsset.name}</strong> into <strong>{winnerAsset.name}</strong>.
+              <label htmlFor="merge-confirm-checkbox" style={{ cursor: 'pointer', color: 'var(--color-ink)' }}>{t('I confirm merging ')}<strong>{loserAsset.name}</strong>{t(' into ')}<strong>{winnerAsset.name}</strong>.
               </label>
             </div>
           )}
@@ -502,9 +483,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
               cursor: merging ? 'not-allowed' : 'pointer',
               color: 'var(--color-ink)',
             }}
-          >
-            Cancel
-          </button>
+          >{t('Cancel')}</button>
           <button
             type="button"
             data-testid="execute-merge-button"
@@ -527,7 +506,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
                   : 'pointer',
             }}
           >
-            {merging ? 'Merging...' : 'Execute Merge'}
+            {merging ? t('Merging...') : t('Execute Merge')}
           </button>
         </div>
       </div>

@@ -1,12 +1,11 @@
 # Developer Setup & Implementation Notes
 
-This document covers how to build, test, and use the implemented headless core
-(Phase 1 Media Records + Phase 2 Software Inventory + Phase 3 Services and
-Subscriptions), and records the concrete contracts the implementation
+This document covers how to build, test, and use the implemented core, CLI,
+and Phase 5 Tauri desktop application, and records the concrete contracts the implementation
 established on top of the architecture docs and ADRs.
 
-**Current implementation target:** Phase 5 — Application Shell / Desktop UI.
-Phase 4 — Unified Library Core is complete (4A–4D); see
+**Next implementation target:** Phase 6 — Runtime Enrichment.
+Phase 4 — Unified Library Core and Phase 5 — Desktop are complete; see
 `docs/11-unified-library-core.md` for the implementation contract and
 `docs/07-roadmap.md` for phase boundaries.
 
@@ -18,10 +17,15 @@ Phase 4 — Unified Library Core is complete (4A–4D); see
 ## Build & test
 
 ```bash
-cargo build                       # workspace: core, providers, storage-sqlite, cli
+cargo build                       # workspace: core, providers, storage-sqlite, cli, desktop
 cargo test --workspace            # domain, use cases, providers, sqlite, e2e
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features
+npm ci && npm run typecheck && npm run lint && npm test && npm run build
+npm run test:frontend-workflow # jsdom cross-workspace workflow
+# Linux only: install tauri-driver + webkit2gtk-driver, then:
+cargo build -p assetmesh-desktop
+xvfb-run -a npm run test:e2e # real Tauri/WebKitGTK/SQLite runtime
 ```
 
 ## Desktop run & package
@@ -73,7 +77,7 @@ AssetMesh/
 └── docs/
 ```
 
-Dependency rule (verified by tests + crate boundaries): `cli → storage-sqlite →
+Dependency rule (verified by tests + crate boundaries): `cli/desktop → storage-sqlite →
 core` and `providers → core`; `core` depends only on
 chrono/csv/serde/serde_json/thiserror/uuid — no database driver, UI framework,
 OS API, or transport. Provider I/O (process execution, plist parsing) is

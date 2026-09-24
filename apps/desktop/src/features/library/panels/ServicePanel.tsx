@@ -1,6 +1,7 @@
 import React from 'react';
 import { Badge } from '../../../ui/Badge';
 import type { ServiceRecordDto } from '../types';
+import { t } from '../../../i18n';
 
 interface ServicePanelProps {
   record: ServiceRecordDto;
@@ -35,10 +36,8 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-muted)', fontWeight: 600 }}>
-            Service Details
-          </span>
-          <Badge variant="muted">{record.service_type}</Badge>
+          <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-muted)', fontWeight: 600 }}>{t('Service Details')}</span>
+          <Badge variant="muted">{t(record.service_type)}</Badge>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -57,9 +56,7 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
                 color: 'var(--color-mesh)',
                 fontWeight: 500,
               }}
-            >
-              ↻ Record Renewal
-            </button>
+            >{t('↻ Record Renewal')}</button>
           )}
 
           {onEdit && (
@@ -76,9 +73,7 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
                 cursor: 'pointer',
                 color: 'var(--color-ink)',
               }}
-            >
-              ✎ Edit
-            </button>
+            >{t('✎ Edit')}</button>
           )}
         </div>
       </div>
@@ -86,28 +81,28 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', fontSize: '12px' }}>
         {record.provider && (
           <div>
-            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Provider</div>
+            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Provider')}</div>
             <div style={{ fontWeight: 500 }}>{record.provider}</div>
           </div>
         )}
 
         {record.plan && (
           <div>
-            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Plan</div>
+            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Plan')}</div>
             <div>{record.plan}</div>
           </div>
         )}
 
         {record.account_label && (
           <div>
-            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Account</div>
+            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Account')}</div>
             <div>{record.account_label}</div>
           </div>
         )}
 
         {formattedCost && (
           <div>
-            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Cost</div>
+            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Cost')}</div>
             <div style={{ fontWeight: 600, color: 'var(--color-mesh)' }}>{formattedCost}</div>
           </div>
         )}
@@ -115,7 +110,7 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
 
       {record.domain_name && (
         <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '8px', fontSize: '12px' }}>
-          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Domain</div>
+          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Domain')}</div>
           <code style={{ fontSize: '12px' }}>{record.domain_name}</code>
         </div>
       )}
@@ -124,7 +119,7 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
         <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '8px', fontSize: '12px' }}>
           {record.dashboard_url && (
             <div style={{ marginBottom: '6px' }}>
-              <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Dashboard URL</div>
+              <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Dashboard URL')}</div>
               <a
                 href={record.dashboard_url}
                 target="_blank"
@@ -137,7 +132,7 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
           )}
           {record.endpoint_url && (
             <div>
-              <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Endpoint URL</div>
+              <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Endpoint URL')}</div>
               <code style={{ fontSize: '11px', wordBreak: 'break-all' }}>{record.endpoint_url}</code>
             </div>
           )}
@@ -149,19 +144,19 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
             {record.renews_at && (
               <div>
-                <span style={{ color: 'var(--color-muted)' }}>Renews: </span>
+                <span style={{ color: 'var(--color-muted)' }}>{t('Renews: ')}</span>
                 <span>{record.renews_at.slice(0, 10)}</span>
               </div>
             )}
             {record.expires_at && (
               <div>
-                <span style={{ color: 'var(--color-muted)' }}>Expires: </span>
+                <span style={{ color: 'var(--color-muted)' }}>{t('Expires: ')}</span>
                 <span>{record.expires_at.slice(0, 10)}</span>
               </div>
             )}
             {record.auto_renew != null && (
               <Badge variant={record.auto_renew ? 'mesh' : 'muted'}>
-                {record.auto_renew ? 'Auto-Renew Active' : 'Manual Renewal'}
+                {record.auto_renew ? t('Auto-Renew Active') : t('Manual Renewal')}
               </Badge>
             )}
           </div>
@@ -170,7 +165,7 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
 
       {record.notes && (
         <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '8px', fontSize: '12px' }}>
-          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Notes</div>
+          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Notes')}</div>
           <p style={{ whiteSpace: 'pre-wrap', color: 'var(--color-ink)' }}>{record.notes}</p>
         </div>
       )}

@@ -8,8 +8,9 @@ use std::sync::Arc;
 
 use assetmesh_core::ports::{SystemClock, UuidV7Generator};
 use assetmesh_desktop_lib::commands::{
-    media_command_impl, relation_attach_impl, relation_list_impl, relation_neighbors_impl,
-    relation_remove_impl, relation_traverse_impl, software_command_impl,
+    library_get_impl, media_command_impl, relation_attach_impl as raw_relation_attach_impl,
+    relation_list_impl, relation_neighbors_impl, relation_remove_impl, relation_traverse_impl,
+    software_command_impl,
 };
 use assetmesh_desktop_lib::dto::{
     MediaCommandDto, RelationAttachDto, RelationNeighborsQueryDto, RelationRemoveDto,
@@ -30,6 +31,26 @@ fn setup_test_state(name: &str) -> DesktopState {
     let state = DesktopState::with_clock_and_ids(Arc::new(SystemClock), Arc::new(UuidV7Generator));
     state.initialize(&db_path).expect("initialize");
     state
+}
+
+fn relation_attach_impl(
+    mut payload: RelationAttachDto,
+    state: &DesktopState,
+) -> Result<
+    assetmesh_desktop_lib::dto::MutationReceiptDto,
+    assetmesh_desktop_lib::error::DesktopError,
+> {
+    payload.expected_source_revision.get_or_insert_with(|| {
+        library_get_impl(&payload.source_asset_id, state)
+            .map(|view| view.revision)
+            .unwrap_or(1)
+    });
+    payload.expected_target_revision.get_or_insert_with(|| {
+        library_get_impl(&payload.target_asset_id, state)
+            .map(|view| view.revision)
+            .unwrap_or(1)
+    });
+    raw_relation_attach_impl(payload, state)
 }
 
 fn create_software_asset(name: &str, state: &DesktopState) -> String {
@@ -73,6 +94,71 @@ fn create_media_asset(title: &str, state: &DesktopState) -> String {
     )
     .expect("create media");
     receipt.asset_ids[0].clone()
+}
+
+#[test]
+fn relation_changes_bump_both_asset_revisions_and_reject_stale_attach() {
+    let state = setup_test_state("revisions");
+    let a = create_software_asset("revision-a", &state);
+    let b = create_software_asset("revision-b", &state);
+    let missing = raw_relation_attach_impl(
+        RelationAttachDto {
+            source_asset_id: a.clone(),
+            target_asset_id: b.clone(),
+            relation_type: "depends_on".into(),
+            note: None,
+            expected_source_revision: None,
+            expected_target_revision: Some(1),
+        },
+        &state,
+    )
+    .unwrap_err();
+    assert_eq!(missing.category, "invalid_input");
+    let receipt = relation_attach_impl(
+        RelationAttachDto {
+            source_asset_id: a.clone(),
+            target_asset_id: b.clone(),
+            relation_type: "depends_on".into(),
+            note: None,
+            expected_source_revision: Some(1),
+            expected_target_revision: Some(1),
+        },
+        &state,
+    )
+    .unwrap();
+    assert_eq!(receipt.revision, Some(2));
+    assert_eq!(library_get_impl(&a, &state).unwrap().revision, 2);
+    assert_eq!(library_get_impl(&b, &state).unwrap().revision, 2);
+
+    let stale = relation_attach_impl(
+        RelationAttachDto {
+            source_asset_id: a.clone(),
+            target_asset_id: b.clone(),
+            relation_type: "uses".into(),
+            note: None,
+            expected_source_revision: Some(1),
+            expected_target_revision: Some(1),
+        },
+        &state,
+    )
+    .unwrap_err();
+    assert_eq!(stale.category, "stale_revision");
+
+    let relation_id = relation_list_impl(a.clone(), &state).unwrap()[0]
+        .relation_id
+        .clone();
+    let removed = relation_remove_impl(
+        RelationRemoveDto {
+            relation_id,
+            context_asset_id: Some(a.clone()),
+            expected_context_revision: Some(2),
+        },
+        &state,
+    )
+    .unwrap();
+    assert_eq!(removed.revision, Some(3));
+    assert_eq!(library_get_impl(&a, &state).unwrap().revision, 3);
+    assert_eq!(library_get_impl(&b, &state).unwrap().revision, 3);
 }
 
 #[test]
@@ -396,7 +482,7 @@ fn relation_workflow_archived_filtering() {
     media_command_impl(
         MediaCommandDto::Archive {
             asset_id: to_archive.clone(),
-            expected_revision: None,
+            expected_revision: Some(library_get_impl(&to_archive, &state).unwrap().revision),
         },
         &state,
     )
@@ -460,8 +546,8 @@ fn relation_workflow_remove_and_activity() {
     let receipt = relation_remove_impl(
         RelationRemoveDto {
             relation_id: rel_id,
-            context_asset_id: None,
-            expected_context_revision: None,
+            context_asset_id: Some(a.clone()),
+            expected_context_revision: Some(library_get_impl(&a, &state).unwrap().revision),
         },
         &state,
     )

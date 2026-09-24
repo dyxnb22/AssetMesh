@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Badge } from '../../ui/Badge';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { DesktopError } from './types';
+import { t } from '../../i18n';
 
 interface CreateSoftwareModalProps {
   isOpen: boolean;
@@ -94,7 +95,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Add Software Asset"
+      aria-label={t('Add Software Asset')}
       style={{
         position: 'fixed',
         inset: 0,
@@ -136,15 +137,13 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Badge variant="mesh">Software</Badge>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>
-              Add Software Asset
-            </h3>
+            <Badge variant="mesh">{t('Software')}</Badge>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Add Software Asset')}</h3>
           </div>
           <button
             onClick={onClose}
             disabled={submitting}
-            aria-label="Close add software modal"
+            aria-label={t('Close add software modal')}
             style={{
               background: 'none',
               border: 'none',
@@ -181,8 +180,8 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
                 fontSize: '12px',
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: '2px' }}>{error.category}</div>
-              <div>{error.message}</div>
+              <div style={{ fontWeight: 600, marginBottom: '2px' }}>{t(error.category)}</div>
+              <div>{t(error.message)}</div>
             </div>
           )}
 
@@ -190,9 +189,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
             <label
               htmlFor="create-software-name"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Name *
-            </label>
+            >{t('Name *')}</label>
             <input
               id="create-software-name"
               data-testid="software-create-name-input"
@@ -201,7 +198,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={submitting}
-              placeholder="e.g. Visual Studio Code, ripgrep"
+              placeholder={t('e.g. Visual Studio Code, ripgrep')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -218,9 +215,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               <label
                 htmlFor="create-software-category"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Category
-              </label>
+              >{t('Category')}</label>
               <select
                 id="create-software-category"
                 data-testid="software-create-category-select"
@@ -237,11 +232,11 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="application">Application</option>
-                <option value="cli">CLI Tool</option>
-                <option value="package">Package</option>
-                <option value="runtime">Runtime</option>
-                <option value="tool">Tool</option>
+                <option value="application">{t('Application')}</option>
+                <option value="cli">{t('CLI Tool')}</option>
+                <option value="package">{t('Package')}</option>
+                <option value="runtime">{t('Runtime')}</option>
+                <option value="tool">{t('Tool')}</option>
               </select>
             </div>
 
@@ -249,9 +244,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               <label
                 htmlFor="create-software-source"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Install Source
-              </label>
+              >{t('Install Source')}</label>
               <select
                 id="create-software-source"
                 data-testid="software-create-source-select"
@@ -268,14 +261,14 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="homebrew_cask">Homebrew Cask</option>
-                <option value="homebrew_formula">Homebrew Formula</option>
-                <option value="macos_app">macOS App</option>
-                <option value="npm_global">npm Global</option>
-                <option value="pipx">pipx</option>
-                <option value="manual">Manual</option>
-                <option value="system">System</option>
-                <option value="unknown">Unknown</option>
+                <option value="homebrew_cask">{t('Homebrew Cask')}</option>
+                <option value="homebrew_formula">{t('Homebrew Formula')}</option>
+                <option value="macos_app">{t('macOS App')}</option>
+                <option value="npm_global">{t('npm Global')}</option>
+                <option value="pipx">{t('pipx')}</option>
+                <option value="manual">{t('Manual')}</option>
+                <option value="system">{t('System')}</option>
+                <option value="unknown">{t('Unknown')}</option>
               </select>
             </div>
           </div>
@@ -285,9 +278,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               <label
                 htmlFor="create-software-version"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Version
-              </label>
+              >{t('Version')}</label>
               <input
                 id="create-software-version"
                 data-testid="software-create-version-input"
@@ -311,9 +302,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               <label
                 htmlFor="create-software-arch"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Architecture
-              </label>
+              >{t('Architecture')}</label>
               <input
                 id="create-software-arch"
                 data-testid="software-create-arch-input"
@@ -321,7 +310,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
                 value={architecture}
                 onChange={(e) => setArchitecture(e.target.value)}
                 disabled={submitting}
-                placeholder="e.g. arm64, x86_64"
+                placeholder={t('e.g. arm64, x86_64')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -338,9 +327,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
             <label
               htmlFor="create-software-summary"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Summary
-            </label>
+            >{t('Summary')}</label>
             <input
               id="create-software-summary"
               data-testid="software-create-summary-input"
@@ -348,7 +335,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
               disabled={submitting}
-              placeholder="Short description of the software"
+              placeholder={t('Short description of the software')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -365,9 +352,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               <label
                 htmlFor="create-software-loc"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Install Location
-              </label>
+              >{t('Install Location')}</label>
               <input
                 id="create-software-loc"
                 data-testid="software-create-loc-input"
@@ -375,7 +360,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
                 value={installLocation}
                 onChange={(e) => setInstallLocation(e.target.value)}
                 disabled={submitting}
-                placeholder="/Applications/App.app or /opt/homebrew"
+                placeholder={t('/Applications/App.app or /opt/homebrew')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -391,9 +376,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               <label
                 htmlFor="create-software-exec"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Executable Path
-              </label>
+              >{t('Executable Path')}</label>
               <input
                 id="create-software-exec"
                 data-testid="software-create-exec-input"
@@ -401,7 +384,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
                 value={executablePath}
                 onChange={(e) => setExecutablePath(e.target.value)}
                 disabled={submitting}
-                placeholder="/Applications/App.app/Contents/MacOS/app"
+                placeholder={t('/Applications/App.app/Contents/MacOS/app')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -418,9 +401,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
             <label
               htmlFor="create-software-purpose"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Purpose (User Defined)
-            </label>
+            >{t('Purpose (User Defined)')}</label>
             <input
               id="create-software-purpose"
               data-testid="software-create-purpose-input"
@@ -428,7 +409,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               value={purpose}
               onChange={(e) => setPurpose(e.target.value)}
               disabled={submitting}
-              placeholder="Why this software is installed / what role it plays"
+              placeholder={t('Why this software is installed / what role it plays')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -444,9 +425,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
             <label
               htmlFor="create-software-tags"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Tags (comma separated)
-            </label>
+            >{t('Tags (comma separated)')}</label>
             <input
               id="create-software-tags"
               data-testid="software-create-tags-input"
@@ -454,7 +433,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               disabled={submitting}
-              placeholder="editor, ide, productivity"
+              placeholder={t('editor, ide, productivity')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -470,9 +449,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
             <label
               htmlFor="create-software-notes"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Notes
-            </label>
+            >{t('Notes')}</label>
             <textarea
               id="create-software-notes"
               data-testid="software-create-notes-input"
@@ -480,7 +457,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={submitting}
-              placeholder="Configurations, licenses, setup steps"
+              placeholder={t('Configurations, licenses, setup steps')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -506,9 +483,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
                 fontSize: '13px',
                 cursor: submitting ? 'not-allowed' : 'pointer',
               }}
-            >
-              Cancel
-            </button>
+            >{t('Cancel')}</button>
             <button
               type="submit"
               data-testid="submit-create-software-button"
@@ -524,7 +499,7 @@ export const CreateSoftwareModal: React.FC<CreateSoftwareModalProps> = ({
                 cursor: submitting ? 'not-allowed' : 'pointer',
               }}
             >
-              {submitting ? 'Creating...' : 'Create Software Asset'}
+              {submitting ? t('Creating...') : t('Create Software Asset')}
             </button>
           </div>
         </form>

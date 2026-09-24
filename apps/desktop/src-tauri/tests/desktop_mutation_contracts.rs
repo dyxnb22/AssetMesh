@@ -33,7 +33,7 @@ fn desktop_mutation_contracts_cover_success_validation_stale_and_noop() {
 
     let clock = Arc::new(SystemClock);
     let ids = Arc::new(UuidV7Generator);
-    let factory = state.factory.read().unwrap().clone().unwrap();
+    let factory = state.modules().unwrap().factory().clone();
 
     // 1. Create a software asset
     let mut software_svc = SoftwareService::new(factory, clock, ids);

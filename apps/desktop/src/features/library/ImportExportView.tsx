@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { ExportReceipt, ImportPreview, ImportReceipt } from './types';
+import { t } from '../../i18n';
 
 export const ImportExportView: React.FC = () => {
   const transport = getTransport();
@@ -31,7 +32,7 @@ export const ImportExportView: React.FC = () => {
   // Browse Directory for Export
   const handleBrowseExport = async () => {
     try {
-      const picked = await transport.pickDirectory('Select Directory to Export Bundle');
+      const picked = await transport.pickDirectory(t('Select Directory to Export Bundle'));
       if (picked !== null) {
         setExportDir(picked);
       }
@@ -61,7 +62,7 @@ export const ImportExportView: React.FC = () => {
   // Browse Directory for Import
   const handleBrowseImport = async () => {
     try {
-      const picked = await transport.pickDirectory('Select Portable Bundle Directory to Import');
+      const picked = await transport.pickDirectory(t('Select Portable Bundle Directory to Import'));
       if (picked !== null) {
         setImportDir(picked);
         // Reset previous preview / receipt
@@ -159,19 +160,14 @@ export const ImportExportView: React.FC = () => {
               color: 'var(--color-ink)',
               margin: '0 0 4px 0',
             }}
-          >
-            Portable Data (Import / Export)
-          </h2>
-          <div style={{ fontSize: '13px', color: 'var(--color-muted)' }}>
-            Export your entire personal asset ledger to a deterministic portable bundle, or inspect
-            and import portable data with mandatory preflight verification.
-          </div>
+          >{t('Portable Data (Import / Export)')}</h2>
+          <div style={{ fontSize: '13px', color: 'var(--color-muted)' }}>{t('Export your entire personal asset ledger to a deterministic portable bundle, or inspect and import portable data with mandatory preflight verification.')}</div>
         </div>
 
         {/* Tab switch */}
         <div
           role="tablist"
-          aria-label="Portable Data Tabs"
+          aria-label={t('Portable Data Tabs')}
           style={{
             display: 'flex',
             backgroundColor: 'var(--color-surface)',
@@ -195,9 +191,7 @@ export const ImportExportView: React.FC = () => {
               color: activeTab === 'export' ? 'var(--color-mesh)' : 'var(--color-muted)',
               borderRadius: 'var(--radius-sm)',
             }}
-          >
-            Export Bundle
-          </button>
+          >{t('Export Bundle')}</button>
           <button
             role="tab"
             data-testid="tab-import"
@@ -213,9 +207,7 @@ export const ImportExportView: React.FC = () => {
               color: activeTab === 'import' ? 'var(--color-mesh)' : 'var(--color-muted)',
               borderRadius: 'var(--radius-sm)',
             }}
-          >
-            Import Bundle
-          </button>
+          >{t('Import Bundle')}</button>
         </div>
       </div>
 
@@ -237,22 +229,16 @@ export const ImportExportView: React.FC = () => {
                 color: 'var(--color-ink)',
                 margin: '0 0 8px 0',
               }}
-            >
-              Export Portable Bundle
-            </h3>
-            <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>
-              Select a target directory where the standard <code>assetmesh-export/</code> bundle
-              will be created. All canonical assets, media, software, services, relations, and
-              activity history will be preserved.
-            </p>
+            >{t('Export Portable Bundle')}</h3>
+            <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>{t('Select a target directory where the standard ')}<code>{t('assetmesh-export/')}</code>{t(' bundle will be created. All canonical assets, media, software, services, relations, and activity history will be preserved.')}</p>
 
             {/* Target Destination Directory */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <input
                 data-testid="export-dir-input"
                 type="text"
-                aria-label="Target directory"
-                placeholder="/path/to/destination-folder"
+                aria-label={t('Target directory')}
+                placeholder={t('/path/to/destination-folder')}
                 value={exportDir}
                 onChange={(e) => setExportDir(e.target.value)}
                 style={{
@@ -279,9 +265,7 @@ export const ImportExportView: React.FC = () => {
                   border: '1px solid var(--color-border)',
                   borderRadius: 'var(--radius-sm)',
                 }}
-              >
-                Browse...
-              </button>
+              >{t('Browse...')}</button>
               <button
                 data-testid="execute-export-button"
                 disabled={isExporting || !exportDir.trim()}
@@ -298,7 +282,7 @@ export const ImportExportView: React.FC = () => {
                   borderRadius: 'var(--radius-sm)',
                 }}
               >
-                {isExporting ? 'Exporting...' : 'Export Bundle'}
+                {isExporting ? t('Exporting...') : t('Export Bundle')}
               </button>
             </div>
 
@@ -315,7 +299,7 @@ export const ImportExportView: React.FC = () => {
                   fontSize: '13px',
                 }}
               >
-                <strong>Export Error:</strong> {exportError}
+                <strong>{t('Export Error:')}</strong> {exportError}
               </div>
             )}
           </div>
@@ -348,11 +332,8 @@ export const ImportExportView: React.FC = () => {
                     padding: '2px 8px',
                     borderRadius: '12px',
                   }}
-                >
-                  ✓ Export Complete
-                </span>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>
-                  Receipt: {exportReceipt.target_dir}
+                >{t('✓ Export Complete')}</span>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Receipt: ')}{exportReceipt.target_dir}
                 </span>
               </div>
 
@@ -371,7 +352,7 @@ export const ImportExportView: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                   }}
                 >
-                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>Format & Version</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{t('Format & Version')}</div>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>
                     {exportReceipt.format} (v{exportReceipt.version})
                   </div>
@@ -383,7 +364,7 @@ export const ImportExportView: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                   }}
                 >
-                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>Created At</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{t('Created At')}</div>
                   <div style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--color-ink)' }}>
                     {exportReceipt.created_at.slice(0, 19).replace('T', ' ')}
                   </div>
@@ -395,7 +376,7 @@ export const ImportExportView: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                   }}
                 >
-                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>App Version</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{t('App Version')}</div>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>
                     v{exportReceipt.app_version}
                   </div>
@@ -412,9 +393,7 @@ export const ImportExportView: React.FC = () => {
                     marginBottom: '8px',
                     textTransform: 'uppercase',
                   }}
-                >
-                  Exported Record Breakdown
-                </div>
+                >{t('Exported Record Breakdown')}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                   {Object.entries(exportReceipt.record_counts).map(([name, count]) => (
                     <span
@@ -445,8 +424,7 @@ export const ImportExportView: React.FC = () => {
                     marginBottom: '6px',
                     textTransform: 'uppercase',
                   }}
-                >
-                  Files Written ({exportReceipt.files.length})
+                >{t('Files Written (')}{exportReceipt.files.length})
                 </div>
                 <ul
                   data-testid="export-files-list"
@@ -486,21 +464,16 @@ export const ImportExportView: React.FC = () => {
                 color: 'var(--color-ink)',
                 margin: '0 0 8px 0',
               }}
-            >
-              Import Portable Bundle
-            </h3>
-            <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>
-              Select an existing portable bundle directory to import. Every bundle undergoes
-              mandatory preflight inspection before any mutation can occur.
-            </p>
+            >{t('Import Portable Bundle')}</h3>
+            <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>{t('Select an existing portable bundle directory to import. Every bundle undergoes mandatory preflight inspection before any mutation can occur.')}</p>
 
             {/* Source Directory */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <input
                 data-testid="import-dir-input"
                 type="text"
-                aria-label="Source bundle directory"
-                placeholder="/path/to/exported-bundle"
+                aria-label={t('Source bundle directory')}
+                placeholder={t('/path/to/exported-bundle')}
                 value={importDir}
                 onChange={(e) => {
                   setImportDir(e.target.value);
@@ -533,9 +506,7 @@ export const ImportExportView: React.FC = () => {
                   border: '1px solid var(--color-border)',
                   borderRadius: 'var(--radius-sm)',
                 }}
-              >
-                Browse...
-              </button>
+              >{t('Browse...')}</button>
               <button
                 data-testid="preview-import-button"
                 disabled={isPreviewing || !importDir.trim()}
@@ -552,7 +523,7 @@ export const ImportExportView: React.FC = () => {
                   borderRadius: 'var(--radius-sm)',
                 }}
               >
-                {isPreviewing ? 'Inspecting...' : 'Preview Import'}
+                {isPreviewing ? t('Inspecting...') : t('Preview Import')}
               </button>
             </div>
 
@@ -569,7 +540,7 @@ export const ImportExportView: React.FC = () => {
                   fontSize: '13px',
                 }}
               >
-                <strong>Preflight Rejection:</strong> {importError}
+                <strong>{t('Preflight Rejection:')}</strong> {importError}
               </div>
             )}
           </div>
@@ -606,14 +577,12 @@ export const ImportExportView: React.FC = () => {
                       borderRadius: '12px',
                     }}
                   >
-                    {importPreview.valid ? '✓ Preflight Passed' : '✕ Preflight Failed'}
+                    {importPreview.valid ? t('✓ Preflight Passed') : t('✕ Preflight Failed')}
                   </span>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>
-                    Manifest Inspection: v{importPreview.version}
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Manifest Inspection: v')}{importPreview.version}
                   </span>
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
-                  App version {importPreview.app_version}
+                <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>{t('App version ')}{importPreview.app_version}
                 </div>
               </div>
 
@@ -627,9 +596,7 @@ export const ImportExportView: React.FC = () => {
                     marginBottom: '8px',
                     textTransform: 'uppercase',
                   }}
-                >
-                  Dispositions (Dry-Run Prediction)
-                </div>
+                >{t('Dispositions (Dry-Run Prediction)')}</div>
                 <table
                   data-testid="import-dispositions-table"
                   style={{
@@ -641,14 +608,14 @@ export const ImportExportView: React.FC = () => {
                 >
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--color-border)', color: 'var(--color-muted)' }}>
-                      <th style={{ padding: '6px 8px' }}>Entity Type</th>
-                      <th style={{ padding: '6px 8px' }}>To Be Created</th>
-                      <th style={{ padding: '6px 8px' }}>To Be Updated</th>
+                      <th style={{ padding: '6px 8px' }}>{t('Entity Type')}</th>
+                      <th style={{ padding: '6px 8px' }}>{t('To Be Created')}</th>
+                      <th style={{ padding: '6px 8px' }}>{t('To Be Updated')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>Assets</td>
+                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>{t('Assets')}</td>
                       <td style={{ padding: '6px 8px', color: 'var(--color-mesh)' }}>
                         +{importPreview.dispositions.assets_created}
                       </td>
@@ -657,7 +624,7 @@ export const ImportExportView: React.FC = () => {
                       </td>
                     </tr>
                     <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>Media</td>
+                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>{t('Media')}</td>
                       <td style={{ padding: '6px 8px', color: 'var(--color-mesh)' }}>
                         +{importPreview.dispositions.media_created}
                       </td>
@@ -666,7 +633,7 @@ export const ImportExportView: React.FC = () => {
                       </td>
                     </tr>
                     <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>Software</td>
+                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>{t('Software')}</td>
                       <td style={{ padding: '6px 8px', color: 'var(--color-mesh)' }}>
                         +{importPreview.dispositions.software_created}
                       </td>
@@ -675,7 +642,7 @@ export const ImportExportView: React.FC = () => {
                       </td>
                     </tr>
                     <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>Services</td>
+                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>{t('Services')}</td>
                       <td style={{ padding: '6px 8px', color: 'var(--color-mesh)' }}>
                         +{importPreview.dispositions.services_created}
                       </td>
@@ -684,7 +651,7 @@ export const ImportExportView: React.FC = () => {
                       </td>
                     </tr>
                     <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>Relations</td>
+                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>{t('Relations')}</td>
                       <td style={{ padding: '6px 8px', color: 'var(--color-mesh)' }}>
                         +{importPreview.dispositions.relations_created}
                       </td>
@@ -719,10 +686,7 @@ export const ImportExportView: React.FC = () => {
                         fontSize: '12px',
                       }}
                     >
-                      <strong>Preflight no longer applies.</strong> The field now points at a
-                      different directory than the one inspected above ({previewedRequest}). Re-run
-                      the preview to import it.
-                    </div>
+                      <strong>{t('Preflight no longer applies.')}</strong>{t(' The field now points at a different directory than the one inspected above (')}{previewedRequest}{t('). Re-run the preview to import it.')}</div>
                   )}
 
                   <label
@@ -741,10 +705,7 @@ export const ImportExportView: React.FC = () => {
                       checked={isConfirmed}
                       onChange={(e) => setIsConfirmed(e.target.checked)}
                     />
-                    <span>
-                      I have reviewed the preflight dispositions and explicitly confirm importing
-                      this bundle into the local database.
-                    </span>
+                    <span>{t('I have reviewed the preflight dispositions and explicitly confirm importing this bundle into the local database.')}</span>
                   </label>
 
                   <div>
@@ -764,7 +725,7 @@ export const ImportExportView: React.FC = () => {
                         borderRadius: 'var(--radius-sm)',
                       }}
                     >
-                      {isApplying ? 'Applying Import...' : 'Apply Import'}
+                      {isApplying ? t('Applying Import...') : t('Apply Import')}
                     </button>
                   </div>
                 </div>
@@ -800,16 +761,12 @@ export const ImportExportView: React.FC = () => {
                     padding: '2px 8px',
                     borderRadius: '12px',
                   }}
-                >
-                  ✓ Import Successfully Applied
-                </span>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>
-                  Applied from: {importReceipt.source_dir}
+                >{t('✓ Import Successfully Applied')}</span>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Applied from: ')}{importReceipt.source_dir}
                 </span>
               </div>
 
-              <p style={{ fontSize: '13px', color: 'var(--color-ink)', margin: '0 0 12px 0' }}>
-                All records have been atomically merged and updated into canonical database state at{' '}
+              <p style={{ fontSize: '13px', color: 'var(--color-ink)', margin: '0 0 12px 0' }}>{t('All records have been atomically merged and updated into canonical database state at')}{' '}
                 <code>{importReceipt.applied_at.slice(0, 19).replace('T', ' ')}</code>.
               </p>
 
@@ -822,10 +779,8 @@ export const ImportExportView: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                     fontSize: '12px',
                   }}
-                >
-                  Assets: +{importReceipt.report.assets_created} created,{' '}
-                  {importReceipt.report.assets_updated} updated
-                </span>
+                >{t('Assets: +')}{importReceipt.report.assets_created}{t(' created,')}{' '}
+                  {importReceipt.report.assets_updated}{t(' updated')}</span>
                 <span
                   style={{
                     padding: '4px 10px',
@@ -834,9 +789,7 @@ export const ImportExportView: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                     fontSize: '12px',
                   }}
-                >
-                  Media: +{importReceipt.report.media_created} created
-                </span>
+                >{t('Media: +')}{importReceipt.report.media_created}{t(' created')}</span>
                 <span
                   style={{
                     padding: '4px 10px',
@@ -845,9 +798,7 @@ export const ImportExportView: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                     fontSize: '12px',
                   }}
-                >
-                  Software: +{importReceipt.report.software_created} created
-                </span>
+                >{t('Software: +')}{importReceipt.report.software_created}{t(' created')}</span>
                 <span
                   style={{
                     padding: '4px 10px',
@@ -856,9 +807,7 @@ export const ImportExportView: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                     fontSize: '12px',
                   }}
-                >
-                  Services: +{importReceipt.report.services_created} created
-                </span>
+                >{t('Services: +')}{importReceipt.report.services_created}{t(' created')}</span>
                 <span
                   style={{
                     padding: '4px 10px',
@@ -867,9 +816,7 @@ export const ImportExportView: React.FC = () => {
                     borderRadius: 'var(--radius-sm)',
                     fontSize: '12px',
                   }}
-                >
-                  Relations: +{importReceipt.report.relations_created} created
-                </span>
+                >{t('Relations: +')}{importReceipt.report.relations_created}{t(' created')}</span>
               </div>
             </div>
           )}

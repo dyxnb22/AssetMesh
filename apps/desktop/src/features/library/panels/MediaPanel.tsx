@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Badge } from '../../../ui/Badge';
 import type { MediaRecordDto } from '../types';
+import { t } from '../../../i18n';
 
 interface MediaPanelProps {
   record: MediaRecordDto;
@@ -89,10 +90,8 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
               color: 'var(--color-muted)',
               fontWeight: 600,
             }}
-          >
-            Media Details
-          </span>
-          <Badge variant="muted">{record.media_type}</Badge>
+          >{t('Media Details')}</span>
+          <Badge variant="muted">{t(record.media_type)}</Badge>
         </div>
         {isEditable && onEditMetadata && (
           <button
@@ -108,9 +107,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
               cursor: 'pointer',
               color: 'var(--color-ink)',
             }}
-          >
-            ✎ Edit Details
-          </button>
+          >{t('✎ Edit Details')}</button>
         )}
       </div>
 
@@ -123,10 +120,10 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
         }}
       >
         <div>
-          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Status</div>
+          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Status')}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 500 }} data-testid="media-status-text">
-              {record.status}
+              {t(record.status)}
             </span>
             {isEditable && onTransitionStatus && (
               <div style={{ display: 'flex', gap: '4px' }}>
@@ -145,9 +142,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                       borderRadius: 'var(--radius-sm)',
                       cursor: busy ? 'not-allowed' : 'pointer',
                     }}
-                  >
-                    ▶ Start
-                  </button>
+                  >{t('▶ Start')}</button>
                 )}
                 {record.status === 'in_progress' && (
                   <>
@@ -164,9 +159,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                         borderRadius: 'var(--radius-sm)',
                         cursor: busy ? 'not-allowed' : 'pointer',
                       }}
-                    >
-                      ⏸ Pause
-                    </button>
+                    >{t('⏸ Pause')}</button>
                     <button
                       type="button"
                       data-testid="media-action-complete"
@@ -181,9 +174,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                         borderRadius: 'var(--radius-sm)',
                         cursor: busy ? 'not-allowed' : 'pointer',
                       }}
-                    >
-                      ✓ Complete
-                    </button>
+                    >{t('✓ Complete')}</button>
                     <button
                       type="button"
                       data-testid="media-action-drop"
@@ -198,9 +189,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                         borderRadius: 'var(--radius-sm)',
                         cursor: busy ? 'not-allowed' : 'pointer',
                       }}
-                    >
-                      ✕ Drop
-                    </button>
+                    >{t('✕ Drop')}</button>
                   </>
                 )}
                 {record.status === 'paused' && (
@@ -219,9 +208,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                         borderRadius: 'var(--radius-sm)',
                         cursor: busy ? 'not-allowed' : 'pointer',
                       }}
-                    >
-                      ▶ Resume
-                    </button>
+                    >{t('▶ Resume')}</button>
                     <button
                       type="button"
                       data-testid="media-action-complete"
@@ -235,9 +222,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                         borderRadius: 'var(--radius-sm)',
                         cursor: busy ? 'not-allowed' : 'pointer',
                       }}
-                    >
-                      ✓ Complete
-                    </button>
+                    >{t('✓ Complete')}</button>
                     <button
                       type="button"
                       data-testid="media-action-drop"
@@ -252,9 +237,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                         borderRadius: 'var(--radius-sm)',
                         cursor: busy ? 'not-allowed' : 'pointer',
                       }}
-                    >
-                      ✕ Drop
-                    </button>
+                    >{t('✕ Drop')}</button>
                   </>
                 )}
                 {record.status === 'dropped' && (
@@ -271,9 +254,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                       borderRadius: 'var(--radius-sm)',
                       cursor: busy ? 'not-allowed' : 'pointer',
                     }}
-                  >
-                    ↺ Restart
-                  </button>
+                  >{t('↺ Restart')}</button>
                 )}
                 {record.status === 'completed' && (
                   <button
@@ -289,9 +270,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                       borderRadius: 'var(--radius-sm)',
                       cursor: busy ? 'not-allowed' : 'pointer',
                     }}
-                  >
-                    ↺ Reopen
-                  </button>
+                  >{t('↺ Reopen')}</button>
                 )}
               </div>
             )}
@@ -299,7 +278,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
         </div>
 
         <div>
-          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Rating</div>
+          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Rating')}</div>
           {editingRating ? (
             <form onSubmit={handleSaveRating} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               <input
@@ -318,16 +297,12 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                 data-testid="save-rating-button"
                 disabled={busy}
                 style={{ padding: '2px 6px', fontSize: '11px' }}
-              >
-                Save
-              </button>
+              >{t('Save')}</button>
               <button
                 type="button"
                 onClick={() => setEditingRating(false)}
                 style={{ padding: '2px 6px', fontSize: '11px' }}
-              >
-                Cancel
-              </button>
+              >{t('Cancel')}</button>
             </form>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -335,7 +310,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                 style={{ fontWeight: 600, color: 'var(--color-mesh)' }}
                 data-testid="media-rating-text"
               >
-                {record.rating != null ? `★ ${record.rating} / 10` : 'Unrated'}
+                {record.rating != null ? `★ ${record.rating} / 10` : t('Unrated')}
               </span>
               {isEditable && onRate && (
                 <button
@@ -353,9 +328,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                     color: 'var(--color-muted)',
                     textDecoration: 'underline',
                   }}
-                >
-                  Edit
-                </button>
+                >{t('Edit')}</button>
               )}
             </div>
           )}
@@ -363,14 +336,14 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
 
         {record.year != null && (
           <div>
-            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Year</div>
+            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Year')}</div>
             <div>{record.year}</div>
           </div>
         )}
 
         {record.platform && (
           <div>
-            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Platform</div>
+            <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Platform')}</div>
             <div>{record.platform}</div>
           </div>
         )}
@@ -391,7 +364,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
             marginBottom: '4px',
           }}
         >
-          <div style={{ color: 'var(--color-muted)' }}>Progress</div>
+          <div style={{ color: 'var(--color-muted)' }}>{t('Progress')}</div>
           {isEditable && onUpdateProgress && !editingProgress && (
             <button
               type="button"
@@ -410,9 +383,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                 color: 'var(--color-muted)',
                 textDecoration: 'underline',
               }}
-            >
-              Edit Progress
-            </button>
+            >{t('Edit Progress')}</button>
           )}
         </div>
 
@@ -430,9 +401,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
             }}
           >
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ fontSize: '11px' }}>
-                Current:
-                <input
+              <label style={{ fontSize: '11px' }}>{t('Current:')}<input
                   type="number"
                   min="0"
                   step="any"
@@ -444,9 +413,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                   style={{ width: '60px', marginLeft: '4px', padding: '2px 4px', fontSize: '11px' }}
                 />
               </label>
-              <label style={{ fontSize: '11px' }}>
-                Total:
-                <input
+              <label style={{ fontSize: '11px' }}>{t('Total:')}<input
                   type="number"
                   min="0"
                   step="any"
@@ -458,9 +425,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                   style={{ width: '60px', marginLeft: '4px', padding: '2px 4px', fontSize: '11px' }}
                 />
               </label>
-              <label style={{ fontSize: '11px' }}>
-                Unit:
-                <input
+              <label style={{ fontSize: '11px' }}>{t('Unit:')}<input
                   type="text"
                   data-testid="media-progress-unit-input"
                   value={progressUnit}
@@ -475,9 +440,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                 onClick={() => setEditingProgress(false)}
                 disabled={busy}
                 style={{ padding: '2px 8px', fontSize: '11px' }}
-              >
-                Cancel
-              </button>
+              >{t('Cancel')}</button>
               <button
                 type="submit"
                 data-testid="save-progress-button"
@@ -490,9 +453,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                   border: 'none',
                   borderRadius: 'var(--radius-sm)',
                 }}
-              >
-                Save Progress
-              </button>
+              >{t('Save Progress')}</button>
             </div>
           </form>
         ) : (
@@ -501,10 +462,10 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
               <span>
                 {record.progress.current}
                 {record.progress.total != null ? ` / ${record.progress.total}` : ''}{' '}
-                <span style={{ color: 'var(--color-muted)' }}>{record.progress.unit || 'units'}</span>
+                <span style={{ color: 'var(--color-muted)' }}>{record.progress.unit || t('units')}</span>
               </span>
             ) : (
-              <span style={{ color: 'var(--color-muted)' }}>No progress recorded</span>
+              <span style={{ color: 'var(--color-muted)' }}>{t('No progress recorded')}</span>
             )}
           </div>
         )}
@@ -518,7 +479,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
             fontSize: '12px',
           }}
         >
-          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>Notes</div>
+          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Notes')}</div>
           <p style={{ whiteSpace: 'pre-wrap', color: 'var(--color-ink)' }}>{record.notes}</p>
         </div>
       )}
@@ -534,8 +495,8 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
             color: 'var(--color-muted)',
           }}
         >
-          {record.started_at && <div>Started: {record.started_at.slice(0, 10)}</div>}
-          {record.completed_at && <div>Completed: {record.completed_at.slice(0, 10)}</div>}
+          {record.started_at && <div>{t('Started: ')}{record.started_at.slice(0, 10)}</div>}
+          {record.completed_at && <div>{t('Completed: ')}{record.completed_at.slice(0, 10)}</div>}
         </div>
       )}
     </div>

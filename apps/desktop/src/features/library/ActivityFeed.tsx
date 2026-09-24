@@ -7,6 +7,7 @@ import type {
   AppCapabilities,
   DesktopError,
 } from './types';
+import { localeTag, t } from '../../i18n';
 
 interface ActivityFeedProps {
   assetId?: string;
@@ -131,11 +132,9 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 margin: 0,
               }}
             >
-              {assetId ? 'Asset Activity History' : 'Global Activity Feed'}
+              {assetId ? t('Asset Activity History') : t('Global Activity Feed')}
             </h2>
-            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginTop: '2px' }}>
-              Append-only historical provenance across all asset lifecycle events
-            </div>
+            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginTop: '2px' }}>{t('Append-only historical provenance across all asset lifecycle events')}</div>
           </div>
           <button
             type="button"
@@ -152,7 +151,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
               color: 'var(--color-ink)',
             }}
           >
-            {loading ? 'Refreshing...' : '↻ Refresh'}
+            {loading ? t('Refreshing...') : t('↻ Refresh')}
           </button>
         </div>
 
@@ -168,9 +167,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
         >
           {/* Module filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <label htmlFor="activity-module-select" style={{ color: 'var(--color-muted)' }}>
-              Module:
-            </label>
+            <label htmlFor="activity-module-select" style={{ color: 'var(--color-muted)' }}>{t('Module:')}</label>
             <select
               id="activity-module-select"
               data-testid="activity-module-filter"
@@ -188,21 +185,19 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 color: 'var(--color-ink)',
               }}
             >
-              <option value="all">All Modules</option>
-              <option value="media">Media</option>
-              <option value="software">Software</option>
-              <option value="services">Services</option>
-              <option value="asset">Asset</option>
-              <option value="relation">Relation</option>
-              <option value="import">Import</option>
+              <option value="all">{t('All Modules')}</option>
+              <option value="media">{t('Media')}</option>
+              <option value="software">{t('Software')}</option>
+              <option value="services">{t('Services')}</option>
+              <option value="asset">{t('Asset')}</option>
+              <option value="relation">{t('Relation')}</option>
+              <option value="import">{t('Import')}</option>
             </select>
           </div>
 
           {/* Kind filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <label htmlFor="activity-kind-select" style={{ color: 'var(--color-muted)' }}>
-              Kind:
-            </label>
+            <label htmlFor="activity-kind-select" style={{ color: 'var(--color-muted)' }}>{t('Kind:')}</label>
             <select
               id="activity-kind-select"
               data-testid="activity-kind-filter"
@@ -220,10 +215,10 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 color: 'var(--color-ink)',
               }}
             >
-              <option value="all">All Kinds</option>
+              <option value="all">{t('All Kinds')}</option>
               {assetKinds.map((kind) => (
                 <option key={kind} value={kind}>
-                  {kind}
+                  {t(kind)}
                 </option>
               ))}
             </select>
@@ -231,14 +226,12 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
 
           {/* Event type filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <label htmlFor="activity-type-input" style={{ color: 'var(--color-muted)' }}>
-              Event:
-            </label>
+            <label htmlFor="activity-type-input" style={{ color: 'var(--color-muted)' }}>{t('Event:')}</label>
             <input
               id="activity-type-input"
               data-testid="activity-event-type-filter"
               type="text"
-              placeholder="e.g. asset.created"
+              placeholder={t('e.g. asset.created')}
               value={eventTypeFilter}
               onChange={(e) => {
                 setEventTypeFilter(e.target.value);
@@ -258,14 +251,12 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
 
           {/* Actor filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <label htmlFor="activity-actor-input" style={{ color: 'var(--color-muted)' }}>
-              Actor:
-            </label>
+            <label htmlFor="activity-actor-input" style={{ color: 'var(--color-muted)' }}>{t('Actor:')}</label>
             <input
               id="activity-actor-input"
               data-testid="activity-actor-filter"
               type="text"
-              placeholder="e.g. user"
+              placeholder={t('e.g. user')}
               value={actorFilter}
               onChange={(e) => {
                 setActorFilter(e.target.value);
@@ -297,9 +288,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 cursor: 'pointer',
                 textDecoration: 'underline',
               }}
-            >
-              Reset Filters
-            </button>
+            >{t('Reset Filters')}</button>
           )}
         </div>
       </div>
@@ -318,7 +307,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
             fontSize: '12px',
           }}
         >
-          <strong>Error [{error.category}]:</strong> {error.message}
+          <strong>{t('Error [')}{t(error.category)}]:</strong> {t(error.message)}
         </div>
       )}
 
@@ -334,9 +323,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
           <div
             data-testid="activity-loading-indicator"
             style={{ textAlign: 'center', padding: '32px', color: 'var(--color-muted)', fontSize: '13px' }}
-          >
-            Loading activity history...
-          </div>
+          >{t('Loading activity history...')}</div>
         ) : events.length === 0 ? (
           <div
             data-testid="activity-empty-state"
@@ -349,9 +336,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
               borderRadius: 'var(--radius-md)',
               border: '1px dashed var(--color-border)',
             }}
-          >
-            No activity events found matching the criteria.
-          </div>
+          >{t('No activity events found matching the criteria.')}</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {events.map((event) => {
@@ -387,10 +372,10 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                           color: 'var(--color-muted)',
                         }}
                       >
-                        {new Date(event.occurred_at).toLocaleString()}
+                        {new Date(event.occurred_at).toLocaleString(localeTag())}
                       </span>
-                      <Badge variant="mesh">{event.event_type}</Badge>
-                      {event.module && <Badge variant="muted">{event.module}</Badge>}
+                      <Badge variant="mesh">{t(event.event_type)}</Badge>
+                      {event.module && <Badge variant="muted">{t(event.module)}</Badge>}
                       <span
                         style={{
                           fontSize: '11px',
@@ -400,13 +385,13 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                           borderRadius: 'var(--radius-sm)',
                         }}
                       >
-                        by {event.actor}
+                        {t('by {actor}', { actor: event.actor })}
                       </span>
                     </div>
 
                     {event.asset_id && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--color-muted)' }}>Asset:</span>
+                        <span style={{ fontSize: '12px', color: 'var(--color-muted)' }}>{t('Asset:')}</span>
                         {onOpenAssetDetail ? (
                           <button
                             type="button"
@@ -451,7 +436,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                           textDecoration: 'underline',
                         }}
                       >
-                        {isExpanded ? '▾ Hide Details' : '▸ View Payload'}
+                        {isExpanded ? t('▾ Hide Details') : t('▸ View Payload')}
                       </button>
                       {isExpanded && (
                         <pre
@@ -496,18 +481,15 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
       >
         <div>
           {total != null ? (
-            <span>
-              Showing {events.length > 0 ? offset + 1 : 0}–{offset + events.length} of {total}
+            <span>{t('Showing ')}{events.length > 0 ? offset + 1 : 0}–{offset + events.length} of {total}
             </span>
           ) : (
-            <span>Showing {events.length} events</span>
+            <span>{t('Showing ')}{events.length}{t(' events')}</span>
           )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <label style={{ fontSize: '11px' }}>
-            Per Page:
-            <select
+          <label style={{ fontSize: '11px' }}>{t('Per Page:')}<select
               value={limit}
               onChange={(e) => {
                 setLimit(Number(e.target.value));
@@ -541,9 +523,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
               borderRadius: 'var(--radius-sm)',
               cursor: offset === 0 || loading ? 'not-allowed' : 'pointer',
             }}
-          >
-            ← Prev
-          </button>
+          >{t('← Prev')}</button>
           <button
             type="button"
             data-testid="activity-next-page"
@@ -560,9 +540,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   ? 'not-allowed'
                   : 'pointer',
             }}
-          >
-            Next →
-          </button>
+          >{t('Next →')}</button>
         </div>
       </div>
     </div>

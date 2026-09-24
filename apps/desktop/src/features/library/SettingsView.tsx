@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getTransport, normalizeDesktopError } from './transport';
+import { LANGUAGES, getLang, setLang, useT } from '../../i18n';
 import type { AppSettings, ThemePreference } from './types';
 
 interface SettingsViewProps {
@@ -8,6 +9,8 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThemeChange }) => {
+  const t = useT();
+  const lang = getLang();
   const transport = getTransport();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -64,16 +67,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
             margin: '0 0 4px 0',
           }}
         >
-          Settings & Environment
+          {t('Settings & Environment')}
         </h2>
         <div style={{ fontSize: '13px', color: 'var(--color-muted)' }}>
-          Real system and runtime configurations only. No mock toggles or speculative features.
+          {t(
+            'Real system and runtime configurations only. No mock toggles or speculative features.'
+          )}
         </div>
       </div>
 
       {isLoading && (
         <div style={{ padding: '20px', color: 'var(--color-muted)', fontSize: '13px' }}>
-          Loading environment and system settings...
+          {t('Loading environment and system settings...')}
         </div>
       )}
 
@@ -91,7 +96,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
             maxWidth: '700px',
           }}
         >
-          Failed to load settings: {error}
+          {t('Failed to load settings:')} {error}
         </div>
       )}
 
@@ -115,11 +120,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                 margin: '0 0 8px 0',
               }}
             >
-              Appearance & Theme
+              {t('Appearance & Theme')}
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>
-              Choose whether AssetMesh follows your operating system appearance or uses a fixed
-              light or dark palette.
+              {t(
+                'Choose whether AssetMesh follows your operating system appearance or uses a fixed light or dark palette.'
+              )}
             </p>
 
             <div style={{ display: 'flex', gap: '10px' }}>
@@ -138,7 +144,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                   border: `1px solid ${currentTheme === 'system' ? 'var(--color-mesh)' : 'var(--color-border)'}`,
                 }}
               >
-                System ({currentTheme === 'system' ? 'Active' : 'Select'})
+                {t('System ({state})', {
+                  state: currentTheme === 'system' ? t('Active') : t('Select'),
+                })}
               </button>
               <button
                 data-testid="theme-light"
@@ -155,7 +163,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                   border: `1px solid ${currentTheme === 'light' ? 'var(--color-mesh)' : 'var(--color-border)'}`,
                 }}
               >
-                Light
+                {t('Light')}
               </button>
               <button
                 data-testid="theme-dark"
@@ -172,8 +180,58 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                   border: `1px solid ${currentTheme === 'dark' ? 'var(--color-mesh)' : 'var(--color-border)'}`,
                 }}
               >
-                Dark
+                {t('Dark')}
               </button>
+            </div>
+          </div>
+
+
+          {/* Language Section */}
+          <div
+            data-testid="settings-language-section"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              padding: '20px',
+            }}
+          >
+            <h3
+              style={{
+                fontSize: '14px',
+                fontWeight: 600,
+                color: 'var(--color-ink)',
+                margin: '0 0 8px 0',
+              }}
+            >
+              {t('Language')}
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>
+              {t('Choose the language AssetMesh uses for its interface.')}
+            </p>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              {LANGUAGES.map((option) => (
+                <button
+                  key={option.id}
+                  data-testid={`lang-${option.id}`}
+                  aria-pressed={lang === option.id}
+                  onClick={() => setLang(option.id)}
+                  style={{
+                    cursor: 'pointer',
+                    padding: '8px 16px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '12px',
+                    fontWeight: lang === option.id ? 600 : 400,
+                    backgroundColor:
+                      lang === option.id ? 'var(--color-canvas)' : 'var(--color-surface)',
+                    color: lang === option.id ? 'var(--color-mesh)' : 'var(--color-ink)',
+                    border: `1px solid ${lang === option.id ? 'var(--color-mesh)' : 'var(--color-border)'}`,
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -195,17 +253,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                 margin: '0 0 8px 0',
               }}
             >
-              Local Database
+              {t('Local Database')}
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>
-              AssetMesh operates local-first over an embedded SQLite storage engine with WAL
-              concurrency and transactional integrity.
+              {t(
+                'AssetMesh operates local-first over an embedded SQLite storage engine with WAL concurrency and transactional integrity.'
+              )}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div>
                 <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}>
-                  Database Location:
+                  {t('Database Location:')}
                 </div>
                 <div
                   data-testid="settings-db-path"
@@ -220,7 +279,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                     color: 'var(--color-ink)',
                   }}
                 >
-                  {settings.db_path || 'In-Memory / Unset'}
+                  {settings.db_path || t('In-Memory / Unset')}
                 </div>
               </div>
 
@@ -234,12 +293,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                     borderRadius: 'var(--radius-sm)',
                   }}
                 >
-                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>Status</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{t('Status')}</div>
                   <div
                     data-testid="settings-db-status"
                     style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-mesh)' }}
                   >
-                    {settings.db_status}
+                    {t(settings.db_status)}
                   </div>
                 </div>
                 <div
@@ -251,9 +310,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                     borderRadius: 'var(--radius-sm)',
                   }}
                 >
-                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>Storage Engine</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{t('Storage Engine')}</div>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>
-                    SQLite 3 (WAL + FK)
+                    {t('SQLite 3 (WAL + FK)')}
                   </div>
                 </div>
               </div>
@@ -278,11 +337,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                 margin: '0 0 8px 0',
               }}
             >
-              Discovery Providers Setup Status
+              {t('Discovery Providers Setup Status')}
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>
-              Software discovery uses read-only, host-native discovery providers to scan candidate
-              applications and tools.
+              {t(
+                'Software discovery uses read-only, host-native discovery providers to scan candidate applications and tools.'
+              )}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -317,7 +377,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                         color: prov.available ? 'var(--color-mesh)' : 'var(--color-muted)',
                       }}
                     >
-                      {prov.available ? '● Available' : '○ Not Detected'}
+                      {prov.available ? t('● Available') : t('○ Not Detected')}
                     </span>
                   </div>
                   {prov.details && (
@@ -354,33 +414,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentTheme, onThem
                 margin: '0 0 8px 0',
               }}
             >
-              Application Capabilities
+              {t('Application Capabilities')}
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: '0 0 16px 0' }}>
-              Reflects the verified capabilities reported by the Phase 4/5 application core contract.
+              {t(
+                'Reflects the verified capabilities reported by the Phase 4/5 application core contract.'
+              )}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-muted)' }}>Desktop App Version:</span>
+                <span style={{ color: 'var(--color-muted)' }}>{t('Desktop App Version:')}</span>
                 <span style={{ fontWeight: 600, color: 'var(--color-ink)' }}>v{settings.app_version}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-muted)' }}>Core Protocol Version:</span>
+                <span style={{ color: 'var(--color-muted)' }}>{t('Core Protocol Version:')}</span>
                 <span style={{ fontWeight: 600, color: 'var(--color-ink)' }}>
                   v{settings.capabilities.version}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-muted)' }}>Active Modules:</span>
+                <span style={{ color: 'var(--color-muted)' }}>{t('Active Modules:')}</span>
                 <span style={{ fontWeight: 600, color: 'var(--color-mesh)' }}>
-                  {settings.capabilities.modules.join(', ')}
+                  {settings.capabilities.modules.map((m) => t(m)).join(', ')}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-muted)' }}>Storable Relation Types:</span>
+                <span style={{ color: 'var(--color-muted)' }}>{t('Storable Relation Types:')}</span>
                 <span style={{ fontWeight: 500, color: 'var(--color-ink)' }}>
-                  {settings.capabilities.storable_relation_types.length} types
+                  {t('{n} types', { n: settings.capabilities.storable_relation_types.length })}
                 </span>
               </div>
             </div>

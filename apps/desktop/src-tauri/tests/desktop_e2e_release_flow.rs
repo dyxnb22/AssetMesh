@@ -170,6 +170,12 @@ fn real_tauri_runtime_full_lifecycle_e2e_flow() {
         .to_string();
 
     // 6. Attach cross-module relation: Software uses Service
+    let sw_before_relation = app
+        .invoke("library_get", serde_json::json!({ "id": sw_id }))
+        .expect("software detail should succeed");
+    let svc_before_relation = app
+        .invoke("library_get", serde_json::json!({ "id": svc_id }))
+        .expect("service detail should succeed");
     let rel_res = app
         .invoke(
             "relation_attach",
@@ -178,7 +184,9 @@ fn real_tauri_runtime_full_lifecycle_e2e_flow() {
                     "source_asset_id": sw_id,
                     "target_asset_id": svc_id,
                     "relation_type": "uses",
-                    "note": "AI code completion engine"
+                    "note": "AI code completion engine",
+                    "expected_source_revision": sw_before_relation["revision"],
+                    "expected_target_revision": svc_before_relation["revision"]
                 }
             }),
         )

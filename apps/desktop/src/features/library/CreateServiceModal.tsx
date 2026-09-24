@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Badge } from '../../ui/Badge';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { DesktopError } from './types';
+import { t } from '../../i18n';
 
 interface CreateServiceModalProps {
   isOpen: boolean;
@@ -108,7 +109,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Add Service Asset"
+      aria-label={t('Add Service Asset')}
       style={{
         position: 'fixed',
         inset: 0,
@@ -150,15 +151,13 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Badge variant="mesh">Service</Badge>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>
-              Add Service Asset
-            </h3>
+            <Badge variant="mesh">{t('Service')}</Badge>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Add Service Asset')}</h3>
           </div>
           <button
             onClick={onClose}
             disabled={submitting}
-            aria-label="Close add service modal"
+            aria-label={t('Close add service modal')}
             style={{
               background: 'none',
               border: 'none',
@@ -195,8 +194,8 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 fontSize: '12px',
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: '2px' }}>{error.category}</div>
-              <div>{error.message}</div>
+              <div style={{ fontWeight: 600, marginBottom: '2px' }}>{t(error.category)}</div>
+              <div>{t(error.message)}</div>
             </div>
           )}
 
@@ -204,9 +203,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
             <label
               htmlFor="create-service-name"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Service Name *
-            </label>
+            >{t('Service Name *')}</label>
             <input
               id="create-service-name"
               data-testid="service-create-name-input"
@@ -215,7 +212,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={submitting}
-              placeholder="e.g. GitHub Copilot, AWS, Cloudflare"
+              placeholder={t('e.g. GitHub Copilot, AWS, Cloudflare')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -232,9 +229,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               <label
                 htmlFor="create-service-type"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Service Type
-              </label>
+              >{t('Service Type')}</label>
               <select
                 id="create-service-type"
                 data-testid="service-create-type-select"
@@ -251,11 +246,11 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="saas">SaaS</option>
-                <option value="api">API</option>
-                <option value="vps">VPS</option>
-                <option value="domain">Domain</option>
-                <option value="local">Local</option>
+                <option value="saas">{t('SaaS')}</option>
+                <option value="api">{t('API')}</option>
+                <option value="vps">{t('VPS')}</option>
+                <option value="domain">{t('Domain')}</option>
+                <option value="local">{t('Local')}</option>
               </select>
             </div>
 
@@ -263,9 +258,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               <label
                 htmlFor="create-service-provider"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Provider
-              </label>
+              >{t('Provider')}</label>
               <input
                 id="create-service-provider"
                 data-testid="service-create-provider-input"
@@ -273,7 +266,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 value={provider}
                 onChange={(e) => setProvider(e.target.value)}
                 disabled={submitting}
-                placeholder="e.g. OpenAI, GitHub, AWS"
+                placeholder={t('e.g. OpenAI, GitHub, AWS')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -291,9 +284,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               <label
                 htmlFor="create-service-plan"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Plan / Tier
-              </label>
+              >{t('Plan / Tier')}</label>
               <input
                 id="create-service-plan"
                 data-testid="service-create-plan-input"
@@ -301,7 +292,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 value={plan}
                 onChange={(e) => setPlan(e.target.value)}
                 disabled={submitting}
-                placeholder="e.g. Pro, Business, Pay-as-you-go"
+                placeholder={t('e.g. Pro, Business, Pay-as-you-go')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -317,9 +308,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               <label
                 htmlFor="create-service-account"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Account Label
-              </label>
+              >{t('Account Label')}</label>
               <input
                 id="create-service-account"
                 data-testid="service-create-account-input"
@@ -327,7 +316,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 value={accountLabel}
                 onChange={(e) => setAccountLabel(e.target.value)}
                 disabled={submitting}
-                placeholder="e.g. personal, work"
+                placeholder={t('e.g. personal, work')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -341,17 +330,13 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
           </div>
 
           <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '10px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-muted)', display: 'block', marginBottom: '8px' }}>
-              Subscription & Renewal
-            </span>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-muted)', display: 'block', marginBottom: '8px' }}>{t('Subscription & Renewal')}</span>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
               <div>
                 <label
                   htmlFor="create-service-cost"
                   style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                >
-                  Cost (Decimal string)
-                </label>
+                >{t('Cost (Decimal string)')}</label>
                 <input
                   id="create-service-cost"
                   data-testid="service-create-cost-input"
@@ -375,9 +360,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 <label
                   htmlFor="create-service-currency"
                   style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                >
-                  Currency
-                </label>
+                >{t('Currency')}</label>
                 <input
                   id="create-service-currency"
                   data-testid="service-create-currency-input"
@@ -385,7 +368,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value)}
                   disabled={submitting}
-                  placeholder="USD, EUR"
+                  placeholder={t('USD, EUR')}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -401,9 +384,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 <label
                   htmlFor="create-service-cadence"
                   style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                >
-                  Cadence
-                </label>
+                >{t('Cadence')}</label>
                 <select
                   id="create-service-cadence"
                   data-testid="service-create-cadence-select"
@@ -420,12 +401,12 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                     boxSizing: 'border-box',
                   }}
                 >
-                  <option value="monthly">Monthly</option>
-                  <option value="yearly">Yearly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="usage_based">Usage-based</option>
-                  <option value="one_time">One-time</option>
-                  <option value="other">Other</option>
+                  <option value="monthly">{t('Monthly')}</option>
+                  <option value="yearly">{t('Yearly')}</option>
+                  <option value="quarterly">{t('Quarterly')}</option>
+                  <option value="usage_based">{t('Usage-based')}</option>
+                  <option value="one_time">{t('One-time')}</option>
+                  <option value="other">{t('Other')}</option>
                 </select>
               </div>
             </div>
@@ -435,9 +416,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 <label
                   htmlFor="create-service-renews"
                   style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                >
-                  Next Renewal Date
-                </label>
+                >{t('Next Renewal Date')}</label>
                 <input
                   id="create-service-renews"
                   data-testid="service-create-renews-input"
@@ -468,9 +447,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 <label
                   htmlFor="create-service-autorenew"
                   style={{ fontSize: '12px', color: 'var(--color-ink)', cursor: 'pointer' }}
-                >
-                  Auto-renews automatically
-                </label>
+                >{t('Auto-renews automatically')}</label>
               </div>
             </div>
           </div>
@@ -480,9 +457,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               <label
                 htmlFor="create-service-url"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Dashboard URL
-              </label>
+              >{t('Dashboard URL')}</label>
               <input
                 id="create-service-url"
                 data-testid="service-create-url-input"
@@ -490,7 +465,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 value={dashboardUrl}
                 onChange={(e) => setDashboardUrl(e.target.value)}
                 disabled={submitting}
-                placeholder="https://dashboard.example.com"
+                placeholder={t('https://dashboard.example.com')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -506,9 +481,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               <label
                 htmlFor="create-service-domain"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Domain Name
-              </label>
+              >{t('Domain Name')}</label>
               <input
                 id="create-service-domain"
                 data-testid="service-create-domain-input"
@@ -516,7 +489,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 value={domainName}
                 onChange={(e) => setDomainName(e.target.value)}
                 disabled={submitting}
-                placeholder="example.com"
+                placeholder={t('example.com')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -533,9 +506,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
             <label
               htmlFor="create-service-tags"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Tags (comma separated)
-            </label>
+            >{t('Tags (comma separated)')}</label>
             <input
               id="create-service-tags"
               data-testid="service-create-tags-input"
@@ -543,7 +514,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               disabled={submitting}
-              placeholder="saas, cloud, infra"
+              placeholder={t('saas, cloud, infra')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -559,9 +530,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
             <label
               htmlFor="create-service-notes"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Notes
-            </label>
+            >{t('Notes')}</label>
             <textarea
               id="create-service-notes"
               data-testid="service-create-notes-input"
@@ -569,7 +538,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={submitting}
-              placeholder="Usage notes, renewal notes"
+              placeholder={t('Usage notes, renewal notes')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -595,9 +564,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 fontSize: '13px',
                 cursor: submitting ? 'not-allowed' : 'pointer',
               }}
-            >
-              Cancel
-            </button>
+            >{t('Cancel')}</button>
             <button
               type="submit"
               data-testid="submit-create-service-button"
@@ -613,7 +580,7 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 cursor: submitting ? 'not-allowed' : 'pointer',
               }}
             >
-              {submitting ? 'Creating...' : 'Create Service Asset'}
+              {submitting ? t('Creating...') : t('Create Service Asset')}
             </button>
           </div>
         </form>

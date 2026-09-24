@@ -138,8 +138,32 @@ fn software_workflow_update_metadata_and_conflict() {
         notes: None,
         architecture: None,
     };
+    let mut stale_noop = noop_cmd.clone();
+    if let SoftwareCommandDto::UpdateMetadata {
+        expected_revision, ..
+    } = &mut stale_noop
+    {
+        *expected_revision = Some(1);
+    }
+    assert_eq!(
+        software_command_impl(stale_noop, &state)
+            .unwrap_err()
+            .category,
+        "stale_revision"
+    );
+    let mut missing_noop = noop_cmd.clone();
+    if let SoftwareCommandDto::UpdateMetadata { asset_id, .. } = &mut missing_noop {
+        *asset_id = uuid::Uuid::now_v7().to_string();
+    }
+    assert_eq!(
+        software_command_impl(missing_noop, &state)
+            .unwrap_err()
+            .category,
+        "not_found"
+    );
     let noop_receipt = software_command_impl(noop_cmd, &state).expect("noop");
     assert!(!noop_receipt.changed);
+    assert_eq!(noop_receipt.revision, Some(2));
 }
 
 #[test]
@@ -191,6 +215,7 @@ fn software_workflow_adopt_candidate_preserves_user_purpose_and_notes() {
     let adopt_cmd = SoftwareCommandDto::AdoptCandidate {
         candidate: candidate_dto,
         target: Some("create_new".into()),
+        expected_revision: None,
         purpose: Some("Fast project code search".into()),
         notes: Some("Replaces ack and grep in daily workflow".into()),
         tags: vec!["cli".into(), "search".into()],
@@ -211,6 +236,61 @@ fn software_workflow_adopt_candidate_preserves_user_purpose_and_notes() {
     );
     assert_eq!(detail.details["version"], "14.1.0");
     assert_eq!(detail.details["install_source"], "homebrew_formula");
+}
+
+#[test]
+fn adoption_into_existing_requires_and_checks_observed_revision() {
+    let state = setup_test_state("adopt-revision");
+    let created = software_command_impl(
+        SoftwareCommandDto::Create {
+            name: "Existing tool".into(),
+            category: "cli".into(),
+            summary: None,
+            install_source: None,
+            version: None,
+            install_location: None,
+            executable_path: None,
+            purpose: None,
+            notes: None,
+            architecture: None,
+            tags: Vec::new(),
+        },
+        &state,
+    )
+    .unwrap();
+    let id = created.asset_ids[0].clone();
+    let candidate = SoftwareCandidateDto {
+        provider: "brew".into(),
+        display_name: "Existing tool".into(),
+        category: "cli".into(),
+        install_source: "homebrew_formula".into(),
+        version: Some("2.0".into()),
+        install_location: None,
+        executable_path: None,
+        external_refs: Vec::new(),
+        metadata: None,
+    };
+    let command = |expected_revision| SoftwareCommandDto::AdoptCandidate {
+        candidate: candidate.clone(),
+        target: Some(id.clone()),
+        expected_revision,
+        purpose: None,
+        notes: None,
+        tags: Vec::new(),
+    };
+    assert_eq!(
+        software_command_impl(command(None), &state)
+            .unwrap_err()
+            .category,
+        "invalid_input"
+    );
+    assert_eq!(
+        software_command_impl(command(Some(9)), &state)
+            .unwrap_err()
+            .category,
+        "stale_revision"
+    );
+    software_command_impl(command(Some(1)), &state).unwrap();
 }
 
 #[test]

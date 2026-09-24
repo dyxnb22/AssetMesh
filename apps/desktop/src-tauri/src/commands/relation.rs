@@ -133,6 +133,8 @@ pub fn relation_attach_impl(
     payload: RelationAttachDto,
     state: &DesktopState,
 ) -> Result<MutationReceiptDto, DesktopError> {
+    super::required_revision(payload.expected_source_revision, "expected_source_revision")?;
+    super::required_revision(payload.expected_target_revision, "expected_target_revision")?;
     let source = uuid::Uuid::parse_str(&payload.source_asset_id)
         .map(AssetId::from_uuid)
         .map_err(|e| DesktopError::invalid_input(format!("invalid source_asset_id: {e}")))?;
@@ -145,7 +147,7 @@ pub fn relation_attach_impl(
 
     state.with_modules(|modules| {
         let mut svc = modules.relation();
-        let relation = svc.attach_with_revisions(
+        let outcome = svc.attach_with_receipt(
             source,
             relation_type,
             target,
@@ -154,6 +156,7 @@ pub fn relation_attach_impl(
             payload.expected_source_revision,
             payload.expected_target_revision,
         )?;
+        let relation = outcome.relation;
 
         Ok(MutationReceiptDto {
             operation: "relation.attach".to_string(),
@@ -161,7 +164,7 @@ pub fn relation_attach_impl(
                 relation.source_asset_id.to_string(),
                 relation.target_asset_id.to_string(),
             ],
-            revision: None,
+            revision: Some(outcome.source_revision),
             changed: true,
             warnings: Vec::new(),
         })
@@ -172,6 +175,13 @@ pub fn relation_remove_impl(
     payload: RelationRemoveDto,
     state: &DesktopState,
 ) -> Result<MutationReceiptDto, DesktopError> {
+    if payload.context_asset_id.is_none() {
+        return Err(DesktopError::invalid_input("context_asset_id is required"));
+    }
+    super::required_revision(
+        payload.expected_context_revision,
+        "expected_context_revision",
+    )?;
     let relation_id = uuid::Uuid::parse_str(&payload.relation_id)
         .map(RelationId::from_uuid)
         .map_err(|e| DesktopError::invalid_input(format!("invalid relation_id: {e}")))?;
@@ -189,16 +199,25 @@ pub fn relation_remove_impl(
 
     state.with_modules(|modules| {
         let mut svc = modules.relation();
-        svc.remove_with_revision(
+        let outcome = svc.remove_with_receipt(
             relation_id,
             context_asset_id,
             payload.expected_context_revision,
         )?;
+        let revision = context_asset_id.map(|id| {
+            if id == outcome.source_asset_id {
+                outcome.source_revision
+            } else {
+                outcome.target_revision
+            }
+        });
 
         Ok(MutationReceiptDto {
             operation: "relation.remove".to_string(),
-            asset_ids: Vec::new(),
-            revision: None,
+            asset_ids: context_asset_id
+                .map(|id| vec![id.to_string()])
+                .unwrap_or_default(),
+            revision,
             changed: true,
             warnings: Vec::new(),
         })

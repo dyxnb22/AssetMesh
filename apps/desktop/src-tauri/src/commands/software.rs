@@ -72,6 +72,17 @@ pub fn software_command_impl(
     command: SoftwareCommandDto,
     state: &DesktopState,
 ) -> Result<MutationReceiptDto, DesktopError> {
+    match &command {
+        SoftwareCommandDto::UpdateMetadata {
+            expected_revision, ..
+        }
+        | SoftwareCommandDto::Archive {
+            expected_revision, ..
+        } => {
+            super::required_revision(*expected_revision, "expected_revision")?;
+        }
+        _ => {}
+    }
     match command {
         SoftwareCommandDto::Create {
             name,
@@ -151,12 +162,24 @@ pub fn software_command_impl(
                 && notes.is_none()
                 && architecture.is_none()
             {
-                return Ok(MutationReceiptDto {
-                    operation: "software.update_metadata".into(),
-                    asset_ids: vec![asset_id],
-                    revision: expected_revision,
-                    changed: false,
-                    warnings: vec!["No-op: no fields were updated".into()],
+                return state.with_modules(|modules| {
+                    let view = modules.software().get_software(id)?;
+                    view.entry.asset.ensure_mutable()?;
+                    let actual = view.entry.asset.revision;
+                    if let Some(expected) = expected_revision {
+                        if actual != expected {
+                            return Err(DesktopError::from(
+                                assetmesh_core::AppError::stale_revision(expected, actual),
+                            ));
+                        }
+                    }
+                    Ok(MutationReceiptDto {
+                        operation: "software.update_metadata".into(),
+                        asset_ids: vec![asset_id],
+                        revision: Some(actual),
+                        changed: false,
+                        warnings: vec!["No-op: no fields were updated".into()],
+                    })
                 });
             }
 
@@ -188,6 +211,7 @@ pub fn software_command_impl(
         SoftwareCommandDto::AdoptCandidate {
             candidate: candidate_dto,
             target,
+            expected_revision,
             purpose,
             notes,
             tags,
@@ -223,7 +247,8 @@ pub fn software_command_impl(
 
             state.with_modules(|modules| {
                 let mut svc = modules.software();
-                let outcome = svc.adopt_candidate(candidate, overrides)?;
+                let outcome =
+                    svc.adopt_candidate_with_revision(candidate, overrides, expected_revision)?;
                 Ok(MutationReceiptDto {
                     operation: "software.adopt".into(),
                     asset_ids: vec![outcome.asset_id.to_string()],

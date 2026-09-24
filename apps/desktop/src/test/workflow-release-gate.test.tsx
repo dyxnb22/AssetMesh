@@ -6,7 +6,9 @@
 //! real Tauri IPC: the adapter and storage contracts run in
 //! `apps/desktop/src-tauri/tests/` against real SQLite.
 //!
-//! `npm run test:e2e` runs this file only, so a release can be gated on the
+//! `npm run test:frontend-workflow` runs this file; the separate
+//! `npm run test:e2e` drives a real Tauri/WebKitGTK runtime on Linux.
+//! A release can be gated on the
 //! cross-workspace workflows surviving contact with each other. Unit tests live
 //! alongside their modules and run under `npm test`.
 

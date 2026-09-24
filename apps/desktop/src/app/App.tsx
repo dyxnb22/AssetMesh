@@ -12,7 +12,7 @@ import { ActivityFeed } from '../features/library/ActivityFeed';
 import { DuplicateReview } from '../features/library/DuplicateReview';
 import { ImportExportView } from '../features/library/ImportExportView';
 import { SettingsView } from '../features/library/SettingsView';
-import { getTransport } from '../features/library/transport';
+import { getTransport, normalizeDesktopError } from '../features/library/transport';
 import type {
   AppCapabilities,
   AppStatus,
@@ -24,10 +24,12 @@ import type {
   ThemePreference,
 } from '../features/library/types';
 import { useNavigation } from '../features/library/useNavigation';
+import { localeTag, t, useLang } from '../i18n';
 import { Badge } from '../ui/Badge';
 import '../ui/theme.css';
 
 export const App: React.FC = () => {
+  const lang = useLang();
   const [status, setStatus] = useState<AppStatus>({ status: 'loading' });
   const [capabilities, setCapabilities] = useState<AppCapabilities | null>(null);
   const [pageData, setPageData] = useState<Page<AssetSummary> | null>(null);
@@ -80,6 +82,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const root = document.documentElement;
+    root.lang = localeTag();
     if (theme === 'system') {
       const prefersDark =
         typeof window !== 'undefined' &&
@@ -89,7 +92,7 @@ export const App: React.FC = () => {
     } else {
       root.dataset.theme = theme;
     }
-  }, [theme]);
+  }, [theme, lang]);
 
   // Debounce search input changes (300ms) to update navigation state
   useEffect(() => {
@@ -163,9 +166,9 @@ export const App: React.FC = () => {
   );
 
   const chooseDatabaseFolder = useCallback(async () => {
-    const dir = await transport.pickDirectory('Choose a folder for the AssetMesh database');
+    const dir = await transport.pickDirectory(t('Choose a folder for the AssetMesh database'));
     if (dir) await retrySetup(`${dir}/assetmesh.db`);
-  }, [retrySetup, transport]);
+  }, [retrySetup, t, transport]);
 
   const selectedAssetIdRef = React.useRef<string | null>(nav.selectedAssetId);
   selectedAssetIdRef.current = nav.selectedAssetId;
@@ -225,10 +228,7 @@ export const App: React.FC = () => {
       }
     } catch (err: unknown) {
       if (currentSeq !== searchSeqRef.current) return;
-      setError({
-        category: 'LibraryQueryFailed',
-        message: err instanceof Error ? err.message : String(err),
-      });
+      setError(normalizeDesktopError(err));
     } finally {
       if (currentSeq === searchSeqRef.current) {
         setLoadingAssets(false);
@@ -279,7 +279,7 @@ export const App: React.FC = () => {
           >
             AssetMesh
           </div>
-          <div>Opening library and verifying state...</div>
+          <div>{t('Opening library and verifying state...')}</div>
         </div>
       </div>
     );
@@ -309,7 +309,7 @@ export const App: React.FC = () => {
           }}
         >
           <Badge variant="attention" className="mb-2">
-            Setup Required
+            {t('Setup Required')}
           </Badge>
           <h2
             style={{
@@ -319,7 +319,7 @@ export const App: React.FC = () => {
               color: 'var(--color-ink)',
             }}
           >
-            Unable to initialize database
+            {t('Unable to initialize database')}
           </h2>
           <p
             style={{
@@ -328,7 +328,7 @@ export const App: React.FC = () => {
               wordBreak: 'break-word',
             }}
           >
-            {status.message}
+            {t(status.message)}
           </p>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
@@ -344,7 +344,7 @@ export const App: React.FC = () => {
                 fontWeight: 500,
               }}
             >
-              Retry
+              {t('Retry')}
             </button>
             <button
               onClick={chooseDatabaseFolder}
@@ -359,7 +359,7 @@ export const App: React.FC = () => {
                 fontWeight: 500,
               }}
             >
-              Choose another folder…
+              {t('Choose another folder…')}
             </button>
           </div>
         </div>
@@ -391,7 +391,7 @@ export const App: React.FC = () => {
           }}
         >
           <Badge variant="danger" className="mb-2">
-            Corrupt Data
+            {t('Corrupt Data')}
           </Badge>
           <h2
             style={{
@@ -401,7 +401,7 @@ export const App: React.FC = () => {
               color: 'var(--color-danger)',
             }}
           >
-            Database Integrity Verification Failed
+            {t('Database Integrity Verification Failed')}
           </h2>
           <p
             style={{
@@ -410,11 +410,12 @@ export const App: React.FC = () => {
               wordBreak: 'break-word',
             }}
           >
-            {status.message}
+            {t(status.message)}
           </p>
           <p style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
-            AssetMesh refused to load this database because migrations or checksums do not match
-            expected canonical definitions.
+            {t(
+              'AssetMesh refused to load this database because migrations or checksums do not match expected canonical definitions.'
+            )}
           </p>
         </div>
       </div>
@@ -461,7 +462,9 @@ export const App: React.FC = () => {
                 color: 'var(--color-muted)',
               }}
             >
-              No asset selected. Select an asset from the library to explore relations and impact.
+              {t(
+                'No asset selected. Select an asset from the library to explore relations and impact.'
+              )}
             </div>
           )}
         </main>
@@ -565,7 +568,7 @@ export const App: React.FC = () => {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Asset Detail View"
+          aria-label={t('Asset Detail View')}
           style={{
             position: 'fixed',
             inset: 0,

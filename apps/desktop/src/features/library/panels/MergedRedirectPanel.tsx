@@ -1,6 +1,7 @@
 import React from 'react';
 import { Badge } from '../../../ui/Badge';
 import type { MergedRedirectDto } from '../types';
+import { t } from '../../../i18n';
 
 interface MergedRedirectPanelProps {
   record: MergedRedirectDto;
@@ -25,16 +26,11 @@ export const MergedRedirectPanel: React.FC<MergedRedirectPanelProps> = ({
       data-testid="merged-redirect-panel"
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <Badge variant="danger">Merged Redirect</Badge>
-        <span style={{ fontWeight: 600, color: 'var(--color-danger)' }}>
-          This asset was explicitly merged
-        </span>
+        <Badge variant="danger">{t('Merged Redirect')}</Badge>
+        <span style={{ fontWeight: 600, color: 'var(--color-danger)' }}>{t('This asset was explicitly merged')}</span>
       </div>
 
-      <p style={{ fontSize: '12px', color: 'var(--color-ink)' }}>
-        This record is a tombstone redirect. All canonical references and history belong to the
-        surviving asset.
-      </p>
+      <p style={{ fontSize: '12px', color: 'var(--color-ink)' }}>{t('This record is a tombstone redirect. All canonical references and history belong to the surviving asset.')}</p>
 
       <div
         style={{
@@ -48,7 +44,7 @@ export const MergedRedirectPanel: React.FC<MergedRedirectPanelProps> = ({
         }}
       >
         <div>
-          <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>Surviving Asset ID</div>
+          <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{t('Surviving Asset ID')}</div>
           <code style={{ fontSize: '11px' }}>{record.surviving_asset_id}</code>
         </div>
         <button
@@ -63,9 +59,7 @@ export const MergedRedirectPanel: React.FC<MergedRedirectPanelProps> = ({
             fontSize: '12px',
             fontWeight: 500,
           }}
-        >
-          View Survivor →
-        </button>
+        >{t('View Survivor →')}</button>
       </div>
     </div>
   );

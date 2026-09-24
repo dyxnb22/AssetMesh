@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ActiveModule, ActiveSection, AppCapabilities } from './types';
+import { t } from '../../i18n';
 
 interface NavigationRailProps {
   currentSection: ActiveSection;
@@ -21,7 +22,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
   return (
     <nav
-      aria-label="Library Navigation"
+      aria-label={t('Library Navigation')}
       className="nav-rail"
       style={{
         width: '200px',
@@ -53,7 +54,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
       <div
         role="tablist"
-        aria-label="Library Sections"
+        aria-label={t('Library Sections')}
         style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '2px' }}
       >
         <button
@@ -75,7 +76,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             justifyContent: 'space-between',
           }}
         >
-          <span>All Assets</span>
+          <span>{t('All Assets')}</span>
         </button>
 
         <button
@@ -93,9 +94,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             fontWeight: isModuleActive('media') ? 600 : 400,
             fontSize: '12px',
           }}
-        >
-          Media
-        </button>
+        >{t('Media')}</button>
 
         <button
           role="tab"
@@ -112,9 +111,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             fontWeight: isModuleActive('software') ? 600 : 400,
             fontSize: '12px',
           }}
-        >
-          Software
-        </button>
+        >{t('Software')}</button>
 
         <button
           role="tab"
@@ -131,9 +128,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             fontWeight: isModuleActive('services') ? 600 : 400,
             fontSize: '12px',
           }}
-        >
-          Services
-        </button>
+        >{t('Services')}</button>
 
         <div
           style={{
@@ -160,9 +155,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             fontWeight: currentSection === 'relations' ? 600 : 400,
             fontSize: '12px',
           }}
-        >
-          Relations
-        </button>
+        >{t('Relations')}</button>
 
         <button
           role="tab"
@@ -181,9 +174,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             fontWeight: currentSection === 'activity' ? 600 : 400,
             fontSize: '12px',
           }}
-        >
-          Activity
-        </button>
+        >{t('Activity')}</button>
 
         <button
           role="tab"
@@ -202,9 +193,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             fontWeight: currentSection === 'duplicates' ? 600 : 400,
             fontSize: '12px',
           }}
-        >
-          Duplicates
-        </button>
+        >{t('Duplicates')}</button>
 
         <div
           style={{
@@ -231,9 +220,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             fontWeight: currentSection === 'import-export' ? 600 : 400,
             fontSize: '12px',
           }}
-        >
-          Portable Data
-        </button>
+        >{t('Portable Data')}</button>
 
         <button
           role="tab"
@@ -252,9 +239,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             fontWeight: currentSection === 'settings' ? 600 : 400,
             fontSize: '12px',
           }}
-        >
-          Settings
-        </button>
+        >{t('Settings')}</button>
       </div>
     </nav>
   );

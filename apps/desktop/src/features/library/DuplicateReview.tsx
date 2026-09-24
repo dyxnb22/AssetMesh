@@ -9,6 +9,7 @@ import type {
   DuplicateQuery,
   MutationReceiptDto,
 } from './types';
+import { t } from '../../i18n';
 
 interface DuplicateReviewProps {
   capabilities: AppCapabilities | null;
@@ -76,7 +77,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
   };
 
   const handleMerged = (receipt: MutationReceiptDto, winnerId: string) => {
-    setReceiptNotice(`Successfully merged assets into ${winnerId}`);
+    setReceiptNotice(t('Successfully merged assets into {id}', { id: winnerId }));
     onAssetMerged?.(receipt, winnerId);
     loadCandidates();
   };
@@ -108,14 +109,14 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h2 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>
-                Duplicate Review
-              </h2>
-              {total != null && <Badge variant="muted">{total} candidate{total === 1 ? '' : 's'}</Badge>}
+              <h2 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>{t('Duplicate Review')}</h2>
+              {total != null && (
+                <Badge variant="muted">
+                  {t(total === 1 ? '{n} candidate' : '{n} candidates', { n: total })}
+                </Badge>
+              )}
             </div>
-            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginTop: '2px' }}>
-              Deterministic evidence-based candidates. Review and merge explicitly without automated winner selection.
-            </div>
+            <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginTop: '2px' }}>{t('Deterministic evidence-based candidates. Review and merge explicitly without automated winner selection.')}</div>
           </div>
           <button
             type="button"
@@ -132,7 +133,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
               color: 'var(--color-ink)',
             }}
           >
-            {loading ? 'Refreshing...' : '↻ Refresh'}
+            {loading ? t('Refreshing...') : t('↻ Refresh')}
           </button>
         </div>
 
@@ -148,9 +149,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
         >
           {/* Kind Filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <label htmlFor="dup-kind-select" style={{ color: 'var(--color-muted)' }}>
-              Kind:
-            </label>
+            <label htmlFor="dup-kind-select" style={{ color: 'var(--color-muted)' }}>{t('Kind:')}</label>
             <select
               id="dup-kind-select"
               data-testid="duplicate-kind-filter"
@@ -165,10 +164,10 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
                 color: 'var(--color-ink)',
               }}
             >
-              <option value="all">All Kinds</option>
+              <option value="all">{t('All Kinds')}</option>
               {capabilities?.asset_kinds.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {t(k)}
                 </option>
               ))}
             </select>
@@ -184,9 +183,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
               onChange={(e) => setIncludeArchived(e.target.checked)}
               style={{ cursor: 'pointer' }}
             />
-            <label htmlFor="include-archived-dup" style={{ cursor: 'pointer', color: 'var(--color-ink)' }}>
-              Include Archived Assets
-            </label>
+            <label htmlFor="include-archived-dup" style={{ cursor: 'pointer', color: 'var(--color-ink)' }}>{t('Include Archived Assets')}</label>
           </div>
 
           {dismissedPairs.size > 0 && (
@@ -203,9 +200,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
                 cursor: 'pointer',
                 textDecoration: 'underline',
               }}
-            >
-              Reset {dismissedPairs.size} dismissed
-            </button>
+            >{t('Reset ')}{dismissedPairs.size}{t(' dismissed')}</button>
           )}
         </div>
       </div>
@@ -227,7 +222,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
             justifyContent: 'space-between',
           }}
         >
-          <span>✓ {receiptNotice}</span>
+          <span>✓ {t(receiptNotice)}</span>
           <button
             type="button"
             onClick={() => setReceiptNotice(null)}
@@ -252,7 +247,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
             fontSize: '12px',
           }}
         >
-          <strong>Error [{error.category}]:</strong> {error.message}
+          <strong>{t('Error [')}{t(error.category)}]:</strong> {t(error.message)}
         </div>
       )}
 
@@ -268,9 +263,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
           <div
             data-testid="duplicate-loading-indicator"
             style={{ textAlign: 'center', padding: '32px', color: 'var(--color-muted)', fontSize: '13px' }}
-          >
-            Scanning library for duplicate candidate pairs...
-          </div>
+          >{t('Scanning library for duplicate candidate pairs...')}</div>
         ) : visibleCandidates.length === 0 ? (
           <div
             data-testid="duplicate-empty-state"
@@ -283,9 +276,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
               borderRadius: 'var(--radius-md)',
               border: '1px dashed var(--color-border)',
             }}
-          >
-            No duplicate candidates detected.
-          </div>
+          >{t('No duplicate candidates detected.')}</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {visibleCandidates.map((cand) => {
@@ -322,9 +313,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
                           fontWeight: 600,
                           color: 'var(--color-muted)',
                         }}
-                      >
-                        Evidence
-                      </span>
+                      >{t('Evidence')}</span>
                       {cand.evidence_labels.map((lbl, idx) => (
                         <span
                           key={idx}
@@ -358,9 +347,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
                           cursor: 'pointer',
                           color: 'var(--color-muted)',
                         }}
-                      >
-                        Dismiss
-                      </button>
+                      >{t('Dismiss')}</button>
                       <button
                         type="button"
                         data-testid={`review-merge-${k}`}
@@ -375,9 +362,7 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
                           borderRadius: 'var(--radius-sm)',
                           cursor: 'pointer',
                         }}
-                      >
-                        Review & Merge
-                      </button>
+                      >{t('Review & Merge')}</button>
                     </div>
                   </div>
 
@@ -420,10 +405,10 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
                             {cand.left.name}
                           </span>
                         )}
-                        <Badge variant="muted">{cand.left.lifecycle}</Badge>
+                        <Badge variant="muted">{t(cand.left.lifecycle)}</Badge>
                       </div>
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        <Badge variant="mesh">{cand.left.kind}</Badge>
+                        <Badge variant="mesh">{t(cand.left.kind)}</Badge>
                         <span
                           style={{
                             fontSize: '10px',
@@ -487,10 +472,10 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
                             {cand.right.name}
                           </span>
                         )}
-                        <Badge variant="muted">{cand.right.lifecycle}</Badge>
+                        <Badge variant="muted">{t(cand.right.lifecycle)}</Badge>
                       </div>
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        <Badge variant="mesh">{cand.right.kind}</Badge>
+                        <Badge variant="mesh">{t(cand.right.kind)}</Badge>
                         <span
                           style={{
                             fontSize: '10px',

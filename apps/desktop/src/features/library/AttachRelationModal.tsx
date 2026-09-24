@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Badge } from '../../ui/Badge';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { AppCapabilities, AssetSummary, DesktopError, MutationReceiptDto } from './types';
+import { t } from '../../i18n';
 
 interface AttachRelationModalProps {
   isOpen: boolean;
@@ -112,6 +113,10 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
       });
       return;
     }
+    if (sourceAsset.revision === undefined || selectedTarget.revision === undefined) {
+      setError({ category: 'invalid_input', message: 'Reload both assets before attaching a relation.' });
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -139,7 +144,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Add Relation"
+      aria-label={t('Add Relation')}
       style={{
         position: 'fixed',
         inset: 0,
@@ -181,15 +186,14 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Badge variant="mesh">Relation</Badge>
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--color-ink)' }}>
-              Add Relation from {sourceAsset.name}
+            <Badge variant="mesh">{t('Relation')}</Badge>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Add Relation from ')}{sourceAsset.name}
             </h3>
           </div>
           <button
             onClick={onClose}
             disabled={submitting}
-            aria-label="Close modal"
+            aria-label={t('Close modal')}
             style={{
               background: 'none',
               border: 'none',
@@ -226,8 +230,8 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
                 fontSize: '12px',
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: '2px' }}>{error.category}</div>
-              <div>{error.message}</div>
+              <div style={{ fontWeight: 600, marginBottom: '2px' }}>{t(error.category)}</div>
+              <div>{t(error.message)}</div>
             </div>
           )}
 
@@ -235,9 +239,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
             <label
               htmlFor="attach-relation-type"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Relation Type *
-            </label>
+            >{t('Relation Type *')}</label>
             <select
               id="attach-relation-type"
               data-testid="attach-relation-type-select"
@@ -254,9 +256,9 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
                 boxSizing: 'border-box',
               }}
             >
-              {availableTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {availableTypes.map((type) => (
+                <option key={type} value={type}>
+                  {t(type)}
                 </option>
               ))}
             </select>
@@ -266,9 +268,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
             <label
               htmlFor="attach-target-search"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Select Target Asset *
-            </label>
+            >{t('Select Target Asset *')}</label>
             <input
               id="attach-target-search"
               data-testid="attach-target-search-input"
@@ -276,7 +276,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
               value={searchTargetText}
               onChange={(e) => setSearchTargetText(e.target.value)}
               disabled={submitting}
-              placeholder="Search target asset by name or tag..."
+              placeholder={t('Search target asset by name or tag...')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -304,7 +304,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
                 }}
               >
                 <span>
-                  <strong>Selected:</strong> {selectedTarget.name} ({selectedTarget.kind})
+                  <strong>{t('Selected:')}</strong> {selectedTarget.name} ({t(selectedTarget.kind)})
                 </span>
                 <button
                   type="button"
@@ -316,9 +316,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
                     cursor: 'pointer',
                     fontWeight: 600,
                   }}
-                >
-                  Change
-                </button>
+                >{t('Change')}</button>
               </div>
             )}
 
@@ -335,14 +333,10 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
                 }}
               >
                 {searching && (
-                  <div style={{ padding: '8px', fontSize: '12px', color: 'var(--color-muted)' }}>
-                    Searching...
-                  </div>
+                  <div style={{ padding: '8px', fontSize: '12px', color: 'var(--color-muted)' }}>{t('Searching...')}</div>
                 )}
                 {!searching && targetSearchResults.length === 0 && (
-                  <div style={{ padding: '8px', fontSize: '12px', color: 'var(--color-muted)' }}>
-                    No matching assets found.
-                  </div>
+                  <div style={{ padding: '8px', fontSize: '12px', color: 'var(--color-muted)' }}>{t('No matching assets found.')}</div>
                 )}
                 {!searching &&
                   targetSearchResults.map((asset) => (
@@ -368,7 +362,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
                       }}
                     >
                       <span style={{ fontWeight: 500, color: 'var(--color-ink)' }}>{asset.name}</span>
-                      <Badge variant="muted">{asset.kind}</Badge>
+                      <Badge variant="muted">{t(asset.kind)}</Badge>
                     </button>
                   ))}
               </div>
@@ -379,9 +373,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
             <label
               htmlFor="attach-relation-note"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Note (Optional)
-            </label>
+            >{t('Note (Optional)')}</label>
             <input
               id="attach-relation-note"
               data-testid="attach-relation-note-input"
@@ -389,7 +381,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               disabled={submitting}
-              placeholder="e.g. Depends on runtime for execution"
+              placeholder={t('e.g. Depends on runtime for execution')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -415,9 +407,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
                 fontSize: '13px',
                 cursor: submitting ? 'not-allowed' : 'pointer',
               }}
-            >
-              Cancel
-            </button>
+            >{t('Cancel')}</button>
             <button
               type="submit"
               data-testid="submit-attach-relation-button"
@@ -434,7 +424,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
                 opacity: submitting || !selectedTarget ? 0.7 : 1,
               }}
             >
-              {submitting ? 'Connecting...' : 'Attach Relation'}
+              {submitting ? t('Connecting...') : t('Attach Relation')}
             </button>
           </div>
         </form>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Badge } from '../../ui/Badge';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { DesktopError } from './types';
+import { t } from '../../i18n';
 
 interface CreateMediaModalProps {
   isOpen: boolean;
@@ -96,7 +97,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Add Media Asset"
+      aria-label={t('Add Media Asset')}
       style={{
         position: 'fixed',
         inset: 0,
@@ -138,15 +139,13 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Badge variant="mesh">Media</Badge>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>
-              Add Media Asset
-            </h3>
+            <Badge variant="mesh">{t('Media')}</Badge>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Add Media Asset')}</h3>
           </div>
           <button
             onClick={onClose}
             disabled={submitting}
-            aria-label="Close add media modal"
+            aria-label={t('Close add media modal')}
             style={{
               background: 'none',
               border: 'none',
@@ -183,8 +182,8 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                 fontSize: '12px',
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: '2px' }}>{error.category}</div>
-              <div>{error.message}</div>
+              <div style={{ fontWeight: 600, marginBottom: '2px' }}>{t(error.category)}</div>
+              <div>{t(error.message)}</div>
             </div>
           )}
 
@@ -192,9 +191,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
             <label
               htmlFor="create-title"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Title *
-            </label>
+            >{t('Title *')}</label>
             <input
               id="create-title"
               data-testid="media-create-title-input"
@@ -203,7 +200,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={submitting}
-              placeholder="e.g. Frieren: Beyond Journey's End"
+              placeholder={t("e.g. Frieren: Beyond Journey's End")}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -220,9 +217,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               <label
                 htmlFor="create-type"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Media Type
-              </label>
+              >{t('Media Type')}</label>
               <select
                 id="create-type"
                 data-testid="media-create-type-select"
@@ -239,10 +234,10 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="anime">Anime</option>
-                <option value="movie">Movie</option>
-                <option value="tv">TV</option>
-                <option value="game">Game</option>
+                <option value="anime">{t('Anime')}</option>
+                <option value="movie">{t('Movie')}</option>
+                <option value="tv">{t('TV')}</option>
+                <option value="game">{t('Game')}</option>
               </select>
             </div>
 
@@ -250,9 +245,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               <label
                 htmlFor="create-status"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Status
-              </label>
+              >{t('Status')}</label>
               <select
                 id="create-status"
                 data-testid="media-create-status-select"
@@ -269,11 +262,11 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="planned">Planned</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-                <option value="paused">Paused</option>
-                <option value="dropped">Dropped</option>
+                <option value="planned">{t('Planned')}</option>
+                <option value="in_progress">{t('In Progress')}</option>
+                <option value="completed">{t('Completed')}</option>
+                <option value="paused">{t('Paused')}</option>
+                <option value="dropped">{t('Dropped')}</option>
               </select>
             </div>
           </div>
@@ -282,9 +275,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
             <label
               htmlFor="create-summary"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Summary
-            </label>
+            >{t('Summary')}</label>
             <input
               id="create-summary"
               data-testid="media-create-summary-input"
@@ -292,7 +283,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
               disabled={submitting}
-              placeholder="Short tagline or premise"
+              placeholder={t('Short tagline or premise')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -309,9 +300,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               <label
                 htmlFor="create-rating"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Rating (0-10)
-              </label>
+              >{t('Rating (0-10)')}</label>
               <input
                 id="create-rating"
                 data-testid="media-create-rating-input"
@@ -338,9 +327,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               <label
                 htmlFor="create-year"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Year
-              </label>
+              >{t('Year')}</label>
               <input
                 id="create-year"
                 data-testid="media-create-year-input"
@@ -364,9 +351,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               <label
                 htmlFor="create-platform"
                 style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >
-                Platform
-              </label>
+              >{t('Platform')}</label>
               <input
                 id="create-platform"
                 data-testid="media-create-platform-input"
@@ -374,7 +359,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                 value={platform}
                 onChange={(e) => setPlatform(e.target.value)}
                 disabled={submitting}
-                placeholder="e.g. Crunchyroll"
+                placeholder={t('e.g. Crunchyroll')}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
@@ -388,17 +373,13 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
           </div>
 
           <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '10px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-muted)', display: 'block', marginBottom: '8px' }}>
-              Progress (Optional)
-            </span>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-muted)', display: 'block', marginBottom: '8px' }}>{t('Progress (Optional)')}</span>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
               <div>
                 <label
                   htmlFor="create-unit"
                   style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                >
-                  Unit
-                </label>
+                >{t('Unit')}</label>
                 <input
                   id="create-unit"
                   data-testid="media-create-unit-input"
@@ -406,7 +387,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                   value={progressUnit}
                   onChange={(e) => setProgressUnit(e.target.value)}
                   disabled={submitting}
-                  placeholder="episodes, chapters"
+                  placeholder={t('episodes, chapters')}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -422,9 +403,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                 <label
                   htmlFor="create-current"
                   style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                >
-                  Current
-                </label>
+                >{t('Current')}</label>
                 <input
                   id="create-current"
                   data-testid="media-create-current-input"
@@ -450,9 +429,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                 <label
                   htmlFor="create-total"
                   style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                >
-                  Total
-                </label>
+                >{t('Total')}</label>
                 <input
                   id="create-total"
                   data-testid="media-create-total-input"
@@ -480,9 +457,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
             <label
               htmlFor="create-tags"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Tags (comma separated)
-            </label>
+            >{t('Tags (comma separated)')}</label>
             <input
               id="create-tags"
               data-testid="media-create-tags-input"
@@ -490,7 +465,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               disabled={submitting}
-              placeholder="anime, fantasy, masterpiece"
+              placeholder={t('anime, fantasy, masterpiece')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -506,9 +481,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
             <label
               htmlFor="create-notes"
               style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >
-              Notes
-            </label>
+            >{t('Notes')}</label>
             <textarea
               id="create-notes"
               data-testid="media-create-notes-input"
@@ -516,7 +489,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={submitting}
-              placeholder="Personal reflections or initial notes"
+              placeholder={t('Personal reflections or initial notes')}
               style={{
                 width: '100%',
                 padding: '8px 10px',
@@ -542,9 +515,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                 fontSize: '13px',
                 cursor: submitting ? 'not-allowed' : 'pointer',
               }}
-            >
-              Cancel
-            </button>
+            >{t('Cancel')}</button>
             <button
               type="submit"
               data-testid="submit-create-media-button"
@@ -560,7 +531,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                 cursor: submitting ? 'not-allowed' : 'pointer',
               }}
             >
-              {submitting ? 'Creating...' : 'Create Media Asset'}
+              {submitting ? t('Creating...') : t('Create Media Asset')}
             </button>
           </div>
         </form>

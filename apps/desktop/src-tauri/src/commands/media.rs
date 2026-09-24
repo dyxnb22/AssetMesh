@@ -21,6 +21,26 @@ pub fn media_command_impl(
     command: MediaCommandDto,
     state: &DesktopState,
 ) -> Result<MutationReceiptDto, DesktopError> {
+    match &command {
+        MediaCommandDto::Create { .. } => {}
+        MediaCommandDto::UpdateMetadata {
+            expected_revision, ..
+        }
+        | MediaCommandDto::TransitionStatus {
+            expected_revision, ..
+        }
+        | MediaCommandDto::UpdateProgress {
+            expected_revision, ..
+        }
+        | MediaCommandDto::Rate {
+            expected_revision, ..
+        }
+        | MediaCommandDto::Archive {
+            expected_revision, ..
+        } => {
+            super::required_revision(*expected_revision, "expected_revision")?;
+        }
+    }
     match command {
         MediaCommandDto::Create {
             title,
@@ -109,12 +129,25 @@ pub fn media_command_impl(
                 && platform.is_none()
                 && notes.is_none()
             {
-                return Ok(MutationReceiptDto {
-                    operation: "media.update_metadata".into(),
-                    asset_ids: vec![asset_id],
-                    revision: expected_revision,
-                    changed: false,
-                    warnings: vec!["No-op: no fields were updated".into()],
+                return state.with_modules(|modules| {
+                    let mut svc = modules.media();
+                    let view = svc.get_media(id)?;
+                    view.entry.asset.ensure_mutable()?;
+                    let actual = view.entry.asset.revision;
+                    if let Some(expected) = expected_revision {
+                        if actual != expected {
+                            return Err(DesktopError::from(
+                                assetmesh_core::AppError::stale_revision(expected, actual),
+                            ));
+                        }
+                    }
+                    Ok(MutationReceiptDto {
+                        operation: "media.update_metadata".into(),
+                        asset_ids: vec![asset_id],
+                        revision: Some(actual),
+                        changed: false,
+                        warnings: vec!["No-op: no fields were updated".into()],
+                    })
                 });
             }
 

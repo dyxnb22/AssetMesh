@@ -164,8 +164,8 @@ describe('Desktop Mutation Pattern & Receipts (P5-05)', () => {
 
   it('Path 4 (Transaction Failure): internal error banner displayed -> draft preserved', async () => {
     vi.spyOn(fakeTransport, 'softwareCommand').mockRejectedValueOnce({
-      category: 'internal_error',
-      message: 'database locked or disk I/O error occurred',
+      category: 'unavailable',
+      message: 'Storage is currently busy; retry later.',
     });
 
     render(<AssetDetailView assetId="asset-sw-001" />);
@@ -179,7 +179,7 @@ describe('Desktop Mutation Pattern & Receipts (P5-05)', () => {
     fireEvent.click(screen.getByTestId('save-software-button'));
 
     const errorBanner = await screen.findByTestId('mutation-error-banner');
-    expect(errorBanner).toHaveTextContent('database locked or disk I/O error occurred');
+    expect(errorBanner).toHaveTextContent('Storage is currently busy; retry later.');
 
     // Draft is preserved
     expect(purposeInput.value).toBe('New purpose attempt');

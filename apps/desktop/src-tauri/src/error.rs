@@ -13,10 +13,11 @@ pub enum DesktopErrorCategory {
     Conflict,
     StaleRevision,
     SetupRequired,
-    StorageBusy,
     Unavailable,
     PermissionDenied,
     Unsupported,
+    Timeout,
+    RateLimited,
     CorruptData,
     Internal,
 }
@@ -29,10 +30,11 @@ impl DesktopErrorCategory {
             Self::Conflict => "conflict",
             Self::StaleRevision => "stale_revision",
             Self::SetupRequired => "setup_required",
-            Self::StorageBusy => "storage_busy",
             Self::Unavailable => "unavailable",
             Self::PermissionDenied => "permission_denied",
             Self::Unsupported => "unsupported",
+            Self::Timeout => "timeout",
+            Self::RateLimited => "rate_limited",
             Self::CorruptData => "corrupt_data",
             Self::Internal => "internal",
         }
@@ -42,13 +44,6 @@ impl DesktopErrorCategory {
 impl PartialEq<&str> for DesktopErrorCategory {
     fn eq(&self, other: &&str) -> bool {
         self.as_str() == *other
-            || (matches!(self, Self::InvalidInput)
-                && (*other == "validation" || *other == "invalid_input"))
-            || (matches!(self, Self::StorageBusy)
-                && (*other == "storageBusy" || *other == "storage_busy"))
-            || (matches!(self, Self::CorruptData)
-                && (*other == "corruptData" || *other == "corrupt_data"))
-            || (matches!(self, Self::NotFound) && (*other == "notFound" || *other == "not_found"))
     }
 }
 
@@ -61,13 +56,6 @@ impl PartialEq<DesktopErrorCategory> for &str {
 impl PartialEq<str> for DesktopErrorCategory {
     fn eq(&self, other: &str) -> bool {
         self.as_str() == other
-            || (matches!(self, Self::InvalidInput)
-                && (other == "validation" || other == "invalid_input"))
-            || (matches!(self, Self::StorageBusy)
-                && (other == "storageBusy" || other == "storage_busy"))
-            || (matches!(self, Self::CorruptData)
-                && (other == "corruptData" || other == "corrupt_data"))
-            || (matches!(self, Self::NotFound) && (other == "notFound" || other == "not_found"))
     }
 }
 
@@ -111,9 +99,9 @@ impl From<assetmesh_core::AppError> for DesktopError {
                 category: DesktopErrorCategory::StaleRevision,
                 message: format!("expected revision {expected}, found {found}"),
             },
-            AppError::SetupRequired { message } => DesktopError {
+            AppError::SetupRequired { .. } => DesktopError {
                 category: DesktopErrorCategory::SetupRequired,
-                message,
+                message: "Application setup is required.".to_string(),
             },
             AppError::ProviderUnavailable { .. } => DesktopError {
                 category: DesktopErrorCategory::Unavailable,
@@ -124,16 +112,12 @@ impl From<assetmesh_core::AppError> for DesktopError {
                 message: "Permission denied.".to_string(),
             },
             AppError::StorageBusy { .. } => DesktopError {
-                category: DesktopErrorCategory::StorageBusy,
+                category: DesktopErrorCategory::Unavailable,
                 message: "Storage is currently busy; retry later.".to_string(),
             },
-            AppError::UnsupportedSchemaVersion {
-                context,
-                found,
-                supported,
-            } => DesktopError {
+            AppError::UnsupportedSchemaVersion { .. } => DesktopError {
                 category: DesktopErrorCategory::Unsupported,
-                message: format!("{context}: found {found}, supported {supported}"),
+                message: "Database schema version is unsupported.".to_string(),
             },
             AppError::CorruptData { .. } => DesktopError {
                 category: DesktopErrorCategory::CorruptData,
@@ -160,7 +144,7 @@ impl DesktopError {
 
     pub fn storage_busy(msg: impl Into<String>) -> Self {
         DesktopError {
-            category: DesktopErrorCategory::StorageBusy,
+            category: DesktopErrorCategory::Unavailable,
             message: msg.into(),
         }
     }

@@ -140,6 +140,8 @@ pub struct LibraryQuery {
 
 pub trait LibraryReadPort {
     fn query_library(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>>;
+    /// Hydrate only the indexed candidates, never the whole library.
+    fn hydrate_candidates(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetSummary>>;
 }
 
 /// Filter for base-asset listing.

@@ -312,7 +312,7 @@ describe('App Desktop Shell', () => {
     const fake = new FakeDesktopTransport(sampleAssets);
     // Make listAssets fail
     fake.listAssets = async () => {
-      throw new Error('Database locked');
+      throw { category: 'unavailable', message: 'Storage is currently busy; retry later.' };
     };
     setTransport(fake);
 
@@ -321,7 +321,7 @@ describe('App Desktop Shell', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
       expect(screen.getByText('Query Execution Failed')).toBeInTheDocument();
-      expect(screen.getByText('Database locked')).toBeInTheDocument();
+      expect(screen.getByText('Storage is currently busy; retry later.')).toBeInTheDocument();
     });
 
     // Fix error and click retry

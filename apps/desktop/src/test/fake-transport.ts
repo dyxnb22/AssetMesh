@@ -115,8 +115,8 @@ export class FakeDesktopTransport implements DesktopTransport {
   activityEvents: ActivityViewDto[] = [];
 
   constructor(assets: AssetSummary[] = []) {
-    this.assets = [...assets];
-    for (const a of assets) {
+    this.assets = assets.map((asset) => ({ ...asset, revision: asset.revision ?? 1 }));
+    for (const a of this.assets) {
       const mod = a.kind.split('.')[0] || 'asset';
       this.activityEvents.push({
         id: 'act-' + (this.activityEvents.length + 1),
@@ -456,6 +456,7 @@ export class FakeDesktopTransport implements DesktopTransport {
         lifecycle: 'active',
         subtitle: newDetail.summary,
         tags: newDetail.tags,
+        revision: 1,
         updated_at: now,
       });
 
@@ -485,6 +486,12 @@ export class FakeDesktopTransport implements DesktopTransport {
       }
 
       const existingDetail = !isNew ? await this.getAsset(assetId) : null;
+      if (existingDetail && command.expected_revision === undefined) {
+        throw { category: 'invalid_input', message: 'expected_revision is required when adopting into an existing asset' };
+      }
+      if (existingDetail && existingDetail.revision !== command.expected_revision) {
+        throw { category: 'stale_revision', message: `expected revision ${command.expected_revision}, found ${existingDetail.revision}` };
+      }
       const rev = existingDetail ? existingDetail.revision + 1 : 1;
       const kind = `software.${c.category === 'application' ? 'app' : c.category}`;
 
@@ -548,12 +555,14 @@ export class FakeDesktopTransport implements DesktopTransport {
           lifecycle: 'active',
           subtitle: newDetail.summary,
           tags: newDetail.tags,
+          revision: rev,
           updated_at: now,
         });
       } else {
         const summary = this.assets.find((a) => a.id === assetId);
         if (summary) {
           summary.name = newDetail.name;
+          summary.revision = rev;
           summary.updated_at = now;
         }
       }
@@ -591,6 +600,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       const summary = this.assets.find((a) => a.id === command.asset_id);
       if (summary) {
         summary.lifecycle = 'archived';
+        summary.revision = updatedRev;
         summary.updated_at = updatedDetail.updated_at;
       }
 
@@ -682,6 +692,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       // Also update summary
       summary.name = updatedDetail.name;
       summary.subtitle = updatedDetail.summary;
+      summary.revision = updatedRev;
       summary.updated_at = updatedDetail.updated_at;
 
       return {
@@ -754,6 +765,7 @@ export class FakeDesktopTransport implements DesktopTransport {
         lifecycle: 'active',
         subtitle: newDetail.summary,
         tags: newDetail.tags,
+        revision: 1,
         updated_at: now,
       });
 
@@ -814,6 +826,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       if (summary) {
         summary.name = updatedDetail.name;
         summary.subtitle = updatedDetail.summary;
+        summary.revision = updatedRev;
         summary.updated_at = updatedDetail.updated_at;
       }
 
@@ -853,6 +866,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       this.details.set(command.asset_id, updatedDetail);
       const summary = this.assets.find((a) => a.id === command.asset_id);
       if (summary) {
+        summary.revision = updatedRev;
         summary.updated_at = updatedDetail.updated_at;
       }
 
@@ -903,6 +917,9 @@ export class FakeDesktopTransport implements DesktopTransport {
 
       this.details.set(command.asset_id, updatedDetail);
 
+      const progressSummary = this.assets.find((asset) => asset.id === command.asset_id);
+      if (progressSummary) progressSummary.revision = updatedRev;
+
       return {
         operation: 'media.update_progress',
         asset_ids: [command.asset_id],
@@ -944,6 +961,9 @@ export class FakeDesktopTransport implements DesktopTransport {
 
       this.details.set(command.asset_id, updatedDetail);
 
+      const ratingSummary = this.assets.find((asset) => asset.id === command.asset_id);
+      if (ratingSummary) ratingSummary.revision = updatedRev;
+
       return {
         operation: 'media.rate',
         asset_ids: [command.asset_id],
@@ -977,6 +997,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       const summary = this.assets.find((a) => a.id === command.asset_id);
       if (summary) {
         summary.lifecycle = 'archived';
+        summary.revision = updatedRev;
         summary.updated_at = updatedDetail.updated_at;
       }
 
@@ -1067,6 +1088,7 @@ export class FakeDesktopTransport implements DesktopTransport {
         lifecycle: 'active',
         subtitle: newDetail.summary,
         tags: newDetail.tags,
+        revision: 1,
         updated_at: now,
       });
 
@@ -1168,6 +1190,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       this.details.set(command.asset_id, updatedDetail);
       summary.name = updatedDetail.name;
       summary.subtitle = updatedDetail.summary;
+      summary.revision = updatedRev;
       summary.updated_at = updatedDetail.updated_at;
 
       return {
@@ -1211,6 +1234,9 @@ export class FakeDesktopTransport implements DesktopTransport {
 
       this.details.set(command.asset_id, updatedDetail);
 
+      const renewalSummary = this.assets.find((asset) => asset.id === command.asset_id);
+      if (renewalSummary) renewalSummary.revision = updatedRev;
+
       return {
         operation: 'service.record_renewal',
         asset_ids: [command.asset_id],
@@ -1244,6 +1270,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       const summary = this.assets.find((a) => a.id === command.asset_id);
       if (summary) {
         summary.lifecycle = 'archived';
+        summary.revision = updatedRev;
         summary.updated_at = updatedDetail.updated_at;
       }
 
@@ -1551,7 +1578,7 @@ export class FakeDesktopTransport implements DesktopTransport {
     return {
       operation: 'relation.attach',
       asset_ids: [payload.source_asset_id, payload.target_asset_id],
-      revision: null,
+      revision: nextSourceRev,
       changed: true,
       warnings: [],
     };
@@ -1567,34 +1594,31 @@ export class FakeDesktopTransport implements DesktopTransport {
       throw err;
     }
 
-    if (payload.context_asset_id) {
-      const contextAsset = this.assets.find((a) => a.id === payload.context_asset_id);
-      if (
-        contextAsset &&
-        payload.expected_context_revision !== undefined &&
-        payload.expected_context_revision !== null
-      ) {
-        if (contextAsset.revision !== payload.expected_context_revision) {
-          const err = new Error(
-            `asset revision mismatch for context ${contextAsset.id}: expected ${payload.expected_context_revision}, found ${contextAsset.revision}`
-          ) as Error & { category?: string };
-          err.category = 'stale_revision';
-          throw err;
-        }
-      }
-      if (contextAsset) {
-        const nextRev = (contextAsset.revision ?? 1) + 1;
-        contextAsset.revision = nextRev;
-        const cDetail = this.details.get(contextAsset.id);
-        if (cDetail) cDetail.revision = nextRev;
+    const relation = this.storedRelations[idx];
+    if (payload.context_asset_id !== relation.source && payload.context_asset_id !== relation.target) {
+      throw { category: 'invalid_input', message: 'Context asset does not touch the relation.' };
+    }
+    const contextAsset = this.assets.find((a) => a.id === payload.context_asset_id);
+    if (!contextAsset) {
+      throw { category: 'not_found', message: 'Context asset was not found.' };
+    }
+    if (contextAsset.revision !== payload.expected_context_revision) {
+      throw { category: 'stale_revision', message: `expected revision ${payload.expected_context_revision}, found ${contextAsset.revision}` };
+    }
+    for (const endpoint of [relation.source, relation.target]) {
+      const asset = this.assets.find((item) => item.id === endpoint);
+      if (asset) {
+        asset.revision = (asset.revision ?? 1) + 1;
+        const detail = this.details.get(endpoint);
+        if (detail) detail.revision = asset.revision;
       }
     }
 
     this.storedRelations.splice(idx, 1);
     return {
       operation: 'relation.remove',
-      asset_ids: [],
-      revision: null,
+      asset_ids: [payload.context_asset_id],
+      revision: contextAsset.revision,
       changed: true,
       warnings: [],
     };
@@ -2241,4 +2265,3 @@ export class FakeDesktopTransport implements DesktopTransport {
     };
   }
 }
-

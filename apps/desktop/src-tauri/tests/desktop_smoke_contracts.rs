@@ -100,10 +100,7 @@ fn diverged_migration_checksum_classifies_as_corrupt_failure() {
     let status = state.initialize(&db_path).unwrap();
     match status {
         AppStatus::CorruptFailure { message } => {
-            assert!(
-                message.contains("checksum"),
-                "message should name the checksum mismatch: {message}"
-            );
+            assert_eq!(message, "Underlying data is corrupt.");
         }
         AppStatus::SetupFailure { message } => {
             panic!("a diverged migration must be corrupt_failure, not setup_failure: {message}")
@@ -112,6 +109,32 @@ fn diverged_migration_checksum_classifies_as_corrupt_failure() {
     }
 
     let _ = std::fs::remove_file(&db_path);
+}
+
+#[test]
+fn failed_reinitialization_clears_the_old_database_and_sanitizes_status() {
+    let db_path = temp_db_path("reinit-ready");
+    let bad_path = temp_db_path("reinit-secret-path");
+    let state = DesktopState::new();
+    assert!(matches!(
+        state.initialize(&db_path).unwrap(),
+        AppStatus::Ready { .. }
+    ));
+    assert!(state.modules().is_ok());
+
+    std::fs::write(&bad_path, b"not a valid sqlite file").unwrap();
+    let failed = state.initialize(&bad_path).unwrap();
+    assert!(matches!(failed, AppStatus::SetupFailure { .. }));
+    assert!(
+        state.modules().is_err(),
+        "a failed switch must not keep the old connection live"
+    );
+    let serialized = serde_json::to_string(&state.get_status()).unwrap();
+    assert!(!serialized.contains("reinit-secret-path"));
+    assert!(!serialized.contains("sqlite"));
+
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(&bad_path);
 }
 
 #[test]

@@ -49,7 +49,7 @@ graph TD
 ```text
 AssetMesh
 ├── apps/
-│   ├── desktop/        # Phase 5: future Tauri + React desktop client
+│   ├── desktop/        # Phase 5: Tauri + React desktop client
 │   └── web/            # optional future web client
 ├── crates/
 │   ├── core/           # kernel + domain modules + application services + ports
@@ -111,11 +111,11 @@ Deliberately **not** implemented or frozen yet:
 
 ## Current status
 
-**Phase 3 — Services and Subscriptions is complete, Phase 4 — Unified Library Core is complete (4A–4D), and Phase 5 — Application Shell / Desktop UI is complete through P5-10 (hardening and release gate).**
+**Phase 3 — Services and Subscriptions, Phase 4 — Unified Library Core (4A–4D), and Phase 5 — Application Shell / Desktop UI through P5-10 are implemented.** The Linux real-window WebDriver gate is configured; its first CI run still needs confirmation.
 
 Phase 4 did not add another asset domain. It turned the existing Media, Software, and Services vertical slices into one stable, transport-neutral application-facing library: unified list/detail/search DTOs, cross-module relation traversal and impact queries with explainable paths, cross-module activity querying, and deterministic review-only duplicate detection. See [docs/11-unified-library-core.md](docs/11-unified-library-core.md).
 
-Phase 5 added two adapters over that same application layer with no new business rules: the CLI (below) and a Tauri desktop app in `apps/desktop`. Every desktop command calls an application service — the invariant in [CONTRIBUTING.md](CONTRIBUTING.md) — so the repository and SQLite reads live in the core, and a command's job is to parse input, build a query, and shape the result. The review paths that the Phase 5 UI needed (a merged tombstone, a merge preview) became core use cases for exactly that reason.
+Phase 5 added a Tauri desktop app in `apps/desktop` alongside the existing CLI, both over the same application layer and without a second set of business rules. Every desktop command calls an application service — the invariant in [CONTRIBUTING.md](CONTRIBUTING.md) — so repository and SQLite reads stay behind the core boundary. The review paths that the UI needed (a merged tombstone, a merge preview) became core use cases for exactly that reason.
 
 ```text
 AssetMesh/
@@ -129,7 +129,7 @@ AssetMesh/
 └── migrations/           # checksummed, ordered SQL migrations
 ```
 
-The frontend gate is separate from the Rust one: `npm run test` runs the unit suite in jsdom against a fake transport, and `npm run test:e2e` runs the release gate — a walk through the whole frontend stack (App shell → features → transport) across the cross-workspace workflows. It is end-to-end over the frontend, not over a browser binary and the real Tauri IPC; those contracts run in `apps/desktop/src-tauri/tests/` against real SQLite.
+The frontend gate is separate from the Rust one: `npm test` runs the unit suite in jsdom against a fake transport; `npm run test:frontend-workflow` walks through cross-workspace UI workflows in jsdom. On Linux, `npm run test:e2e` drives the real Tauri window through WebKitGTK and IPC into SQLite via `tauri-driver`. The desktop Rust contracts run separately against real SQLite.
 
 What works today:
 
@@ -152,12 +152,12 @@ What works today:
 - JSON/CSV legacy import with dry-run, matching precedence, and non-merging conflict reports;
 - portable export/import with independent DB / export / module-schema versions, round-trip tests, and backward-compatible handling for bundles that predate newer modules;
 - migration 0003 verified against a real database written by the Phase 2 binary, so historical Media/Software/Relation data is proven to survive the upgrade; migration 0004 widens the stored relation-type CHECK to the Phase 3 service types (`hosted_on`, `points_to`) while leaving already-applied migrations immutable;
-- CLI exercising the same application layer future desktop, HTTP, or agent adapters can call: `assetmesh library list|get|search`, `assetmesh relation neighbors|dependencies|dependents|impact|traverse`, `assetmesh activity list`, and `assetmesh duplicates list` — all thin adapters that only parse input, build an application query, and format output;
+- CLI and desktop exercising the same application layer that future HTTP or agent adapters can call: `assetmesh library list|get|search`, `assetmesh relation neighbors|dependencies|dependents|impact|traverse`, `assetmesh activity list`, and `assetmesh duplicates list` — thin adapters that parse input, build an application query, and format output;
 - **a Tauri desktop app over the same application layer** (`apps/desktop`) — library ledger with unified search and filters, per-module creation and mutation flows, relation explorer, activity history, duplicate review with an explicit merge preview, and portable import/export with a mandatory preflight before any mutation; every command goes through an application service, and the merge review never preselects a survivor;
 - module list queries load a whole page's tags in one statement rather than one per row, pinned by a query-count contract so a listing does not silently get slower as the library grows.
 
 Services round-trip through the portable bundle via `modules/services.jsonl`: the manifest's `services` declaration is authoritative, so a bundle that predates Phase 3 leaves the destination's services untouched while a section file without its declaration is treated as corruption. Nothing in Phase 3 remains pending.
 
-Run `cargo test --workspace` for the Rust contracts, and `npm run typecheck && npm run lint && npm test && npm run test:e2e && npm run build` (via the workspace scripts) for the desktop app. See [DEVELOPMENT.md](DEVELOPMENT.md) for setup, commands, and the contracts the implementation established.
+Run `cargo test --workspace` for Rust contracts, and `npm run typecheck && npm run lint && npm test && npm run test:frontend-workflow && npm run build` for the desktop app. Linux CI additionally builds the Tauri binary and runs `xvfb-run -a npm run test:e2e` against the real window. See [DEVELOPMENT.md](DEVELOPMENT.md) for setup.
 
 Still deliberately absent: HTTP/MCP servers, runtime discovery/monitoring (Phase 6), attachments/blobs (boundary defined by ADR 0009 only), sync, plugins, durable background jobs, and persistent discovery snapshots.

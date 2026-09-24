@@ -8,6 +8,7 @@ import type {
   NeighborViewDto,
   TraversalViewDto,
 } from './types';
+import { t } from '../../i18n';
 
 interface RelationExplorerProps {
   rootAsset: { id: string; name: string; kind?: string; lifecycle?: string; revision?: number };
@@ -78,6 +79,10 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
   }, [loadData]);
 
   const handleRemoveRelation = async (relationId: string) => {
+    if (rootAsset.revision === undefined) {
+      setError({ category: 'invalid_input', message: 'Reload the asset before removing a relation.' });
+      return;
+    }
     setDeleting(true);
     try {
       await transport.relationRemove({
@@ -119,9 +124,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>
-            Relations & Impact Explorer
-          </span>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Relations & Impact Explorer')}</span>
           <Badge variant="mesh">{rootAsset.name}</Badge>
         </div>
 
@@ -141,9 +144,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                 fontWeight: 500,
                 cursor: 'pointer',
               }}
-            >
-              + Add Relation
-            </button>
+            >{t('+ Add Relation')}</button>
           )}
 
           <div
@@ -168,9 +169,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                 cursor: 'pointer',
                 fontWeight: viewMode === 'list' ? 600 : 400,
               }}
-            >
-              ≡ List
-            </button>
+            >{t('≡ List')}</button>
             <button
               type="button"
               data-testid="toggle-graph-view"
@@ -185,9 +184,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                 cursor: 'pointer',
                 fontWeight: viewMode === 'graph' ? 600 : 400,
               }}
-            >
-              ☊ Graph
-            </button>
+            >{t('☊ Graph')}</button>
           </div>
         </div>
       </div>
@@ -207,7 +204,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ color: 'var(--color-muted)', fontWeight: 500 }}>Mode:</span>
+          <span style={{ color: 'var(--color-muted)', fontWeight: 500 }}>{t('Mode:')}</span>
           <select
             data-testid="relation-mode-select"
             value={mode}
@@ -229,17 +226,17 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
               backgroundColor: 'var(--color-surface)',
             }}
           >
-            <option value="neighbors">Direct Neighbors</option>
-            <option value="impact">Impact Analysis</option>
-            <option value="dependencies">Dependencies (Outgoing)</option>
-            <option value="dependents">Dependents (Incoming)</option>
-            <option value="traverse">Full Traversal</option>
+            <option value="neighbors">{t('Direct Neighbors')}</option>
+            <option value="impact">{t('Impact Analysis')}</option>
+            <option value="dependencies">{t('Dependencies (Outgoing)')}</option>
+            <option value="dependents">{t('Dependents (Incoming)')}</option>
+            <option value="traverse">{t('Full Traversal')}</option>
           </select>
         </div>
 
         {(mode === 'neighbors' || mode === 'traverse') && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ color: 'var(--color-muted)' }}>Direction:</span>
+            <span style={{ color: 'var(--color-muted)' }}>{t('Direction:')}</span>
             <select
               data-testid="relation-direction-select"
               value={direction}
@@ -254,16 +251,16 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                 backgroundColor: 'var(--color-surface)',
               }}
             >
-              <option value="both">Both</option>
-              <option value="outgoing">Outgoing</option>
-              <option value="incoming">Incoming</option>
+              <option value="both">{t('Both')}</option>
+              <option value="outgoing">{t('Outgoing')}</option>
+              <option value="incoming">{t('Incoming')}</option>
             </select>
           </div>
         )}
 
         {mode !== 'neighbors' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ color: 'var(--color-muted)' }}>Max Depth:</span>
+            <span style={{ color: 'var(--color-muted)' }}>{t('Max Depth:')}</span>
             <input
               type="number"
               data-testid="relation-depth-input"
@@ -290,9 +287,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
             checked={includeArchived}
             onChange={(e) => setIncludeArchived(e.target.checked)}
           />
-          <label htmlFor="include-archived-rel" style={{ cursor: 'pointer', color: 'var(--color-ink)' }}>
-            Include Archived
-          </label>
+          <label htmlFor="include-archived-rel" style={{ cursor: 'pointer', color: 'var(--color-ink)' }}>{t('Include Archived')}</label>
         </div>
       </div>
 
@@ -310,16 +305,14 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
             fontSize: '12px',
           }}
         >
-          <div style={{ fontWeight: 600 }}>{error.category}</div>
-          <div>{error.message}</div>
+          <div style={{ fontWeight: 600 }}>{t(error.category)}</div>
+          <div>{t(error.message)}</div>
         </div>
       )}
 
       {/* Loading state */}
       {loading && (
-        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>
-          Loading relations...
-        </div>
+        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>{t('Loading relations...')}</div>
       )}
 
       {/* Content Area */}
@@ -329,9 +322,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
           {mode === 'neighbors' && neighbors && (
             <div data-testid="neighbors-list-container">
               {neighbors.length === 0 ? (
-                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '12px' }}>
-                  No relations found matching the criteria.
-                </div>
+                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '12px' }}>{t('No relations found matching the criteria.')}</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {neighbors.map((n) => (
@@ -370,9 +361,9 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                           {n.asset.name}
                         </button>
 
-                        <Badge variant="muted">{n.asset.kind}</Badge>
+                        <Badge variant="muted">{t(n.asset.kind)}</Badge>
                         {n.asset.lifecycle !== 'active' && (
-                          <Badge variant="attention">{n.asset.lifecycle}</Badge>
+                          <Badge variant="attention">{t(n.asset.lifecycle)}</Badge>
                         )}
                         {n.edge.note && (
                           <span style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
@@ -387,9 +378,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                             data-testid="remove-confirm-box"
                             style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                           >
-                            <span style={{ fontSize: '11px', color: 'var(--color-danger)' }}>
-                              Confirm?
-                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--color-danger)' }}>{t('Confirm?')}</span>
                             <button
                               type="button"
                               data-testid="confirm-remove-relation-button"
@@ -404,9 +393,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                                 fontSize: '11px',
                                 cursor: deleting ? 'not-allowed' : 'pointer',
                               }}
-                            >
-                              Yes
-                            </button>
+                            >{t('Yes')}</button>
                             <button
                               type="button"
                               onClick={() => setDeletingRelationId(null)}
@@ -438,9 +425,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                                 color: 'var(--color-muted)',
                                 cursor: 'pointer',
                               }}
-                            >
-                              Remove
-                            </button>
+                            >{t('Remove')}</button>
                           )
                         )}
                       </div>
@@ -466,19 +451,14 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                 }}
               >
                 <div>
-                  <strong>{traversal.nodes.length}</strong> reachable assets found
-                </div>
+                  <strong>{traversal.nodes.length}</strong>{t(' reachable assets found')}</div>
                 {traversal.truncated && (
-                  <Badge variant="attention">
-                    Depth limit ({maxDepth}) reached; deeper nodes omitted
-                  </Badge>
+                  <Badge variant="attention">{t('Depth limit (')}{maxDepth}{t(') reached; deeper nodes omitted')}</Badge>
                 )}
               </div>
 
               {traversal.nodes.length === 0 ? (
-                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '12px' }}>
-                  No transitive {mode === 'impact' ? 'dependents' : mode} found.
-                </div>
+                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '12px' }}>{t('No transitive ')}{mode === 'impact' ? t('dependents') : mode}{t(' found.')}</div>
               ) : viewMode === 'list' ? (
                 /* Accessible List View */
                 <div
@@ -510,8 +490,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                               borderRadius: 'var(--radius-sm)',
                               fontWeight: 600,
                             }}
-                          >
-                            Depth {node.depth}
+                          >{t('Depth ')}{node.depth}
                           </span>
 
                           <button
@@ -530,9 +509,9 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                             {node.asset.name}
                           </button>
 
-                          <Badge variant="muted">{node.asset.kind}</Badge>
+                          <Badge variant="muted">{t(node.asset.kind)}</Badge>
                           {node.asset.lifecycle !== 'active' && (
-                            <Badge variant="attention">{node.asset.lifecycle}</Badge>
+                            <Badge variant="attention">{t(node.asset.lifecycle)}</Badge>
                           )}
                         </div>
                       </div>
@@ -553,12 +532,12 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                           borderRadius: 'var(--radius-sm)',
                         }}
                       >
-                        <span style={{ fontWeight: 600 }}>Path:</span>
+                        <span style={{ fontWeight: 600 }}>{t('Path:')}</span>
                         <span>{rootAsset.name}</span>
                         {node.path.map((hop, i) => (
                           <React.Fragment key={i}>
                             <span style={{ color: 'var(--color-mesh)' }}>
-                              ──[{hop.relation_type}]──▶
+                              ──[{t(hop.relation_type)}]──▶
                             </span>
                             <span>{i === node.path.length - 1 ? node.asset.name : hop.to_asset_id.slice(0, 8)}</span>
                           </React.Fragment>
@@ -610,9 +589,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
                         fill="#fff"
                         fontSize="10"
                         fontWeight="bold"
-                      >
-                        ROOT
-                      </text>
+                      >{t('ROOT')}</text>
                       <text
                         textAnchor="middle"
                         y="34"

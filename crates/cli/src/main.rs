@@ -1,5 +1,5 @@
 //! AssetMesh CLI — a thin adapter over the same application services the
-//! future desktop UI will use (ADR 0001). Business rules live in
+//! desktop UI uses (ADR 0001). Business rules live in
 //! `assetmesh-core`; this crate only translates arguments and formats output.
 
 mod format;

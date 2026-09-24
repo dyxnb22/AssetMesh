@@ -1,6 +1,7 @@
 import React from 'react';
 import { Badge } from '../../ui/Badge';
 import type { AssetSummary } from './types';
+import { t } from '../../i18n';
 
 interface AssetInspectorProps {
   asset: AssetSummary | null;
@@ -17,7 +18,7 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
 }) => {
   return (
     <aside
-      aria-label="Asset Inspector"
+      aria-label={t('Asset Inspector')}
       className="inspector-panel"
       style={{
         width: '360px',
@@ -46,13 +47,11 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
             color: 'var(--color-muted)',
             fontWeight: 600,
           }}
-        >
-          Inspector
-        </span>
+        >{t('Inspector')}</span>
         {onClose && (
           <button
             onClick={onClose}
-            aria-label="Close Inspector"
+            aria-label={t('Close Inspector')}
             style={{
               background: 'none',
               border: 'none',
@@ -72,10 +71,10 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Badge variant="mesh">{asset.kind}</Badge>
+              <Badge variant="mesh">{t(asset.kind)}</Badge>
               {asset.lifecycle !== 'active' && (
                 <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>
-                  {asset.lifecycle}
+                  {t(asset.lifecycle)}
                 </Badge>
               )}
             </div>
@@ -107,7 +106,7 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
               fontSize: '12px',
             }}
           >
-            <div style={{ color: 'var(--color-muted)', marginBottom: '4px' }}>Asset ID</div>
+            <div style={{ color: 'var(--color-muted)', marginBottom: '4px' }}>{t('Asset ID')}</div>
             <code
               style={{
                 fontSize: '11px',
@@ -121,14 +120,10 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
               {asset.id}
             </code>
 
-            <div style={{ color: 'var(--color-muted)', marginTop: '10px', marginBottom: '4px' }}>
-              Lifecycle Status
-            </div>
-            <div style={{ fontWeight: 500 }}>{asset.lifecycle}</div>
+            <div style={{ color: 'var(--color-muted)', marginTop: '10px', marginBottom: '4px' }}>{t('Lifecycle Status')}</div>
+            <div style={{ fontWeight: 500 }}>{t(asset.lifecycle)}</div>
 
-            <div style={{ color: 'var(--color-muted)', marginTop: '10px', marginBottom: '4px' }}>
-              Last Updated
-            </div>
+            <div style={{ color: 'var(--color-muted)', marginTop: '10px', marginBottom: '4px' }}>{t('Last Updated')}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
               {asset.updated_at}
             </div>
@@ -143,21 +138,19 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
                   color: 'var(--color-ink)',
                   marginBottom: '6px',
                 }}
-              >
-                Tags
-              </div>
+              >{t('Tags')}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                {asset.tags.map((t) => (
+                {asset.tags.map((tag) => (
                   <button
-                    key={t}
-                    onClick={() => onSelectTag?.(t)}
-                    title={`Filter by tag #${t}`}
+                    key={tag}
+                    onClick={() => onSelectTag?.(tag)}
+                    title={t('Filter by #{tag}', { tag })}
                     style={{
                       all: 'unset',
                       cursor: onSelectTag ? 'pointer' : 'default',
                     }}
                   >
-                    <Badge variant="muted">#{t}</Badge>
+                    <Badge variant="muted">#{tag}</Badge>
                   </button>
                 ))}
               </div>
@@ -167,7 +160,7 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
           {onOpenDetail && (
             <button
               onClick={() => onOpenDetail(asset.id)}
-              aria-label="View Full Details"
+              aria-label={t('View Full Details')}
               style={{
                 marginTop: '4px',
                 padding: '8px 12px',
@@ -184,15 +177,11 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
                 justifyContent: 'center',
                 gap: '6px',
               }}
-            >
-              View Full Details →
-            </button>
+            >{t('View Full Details →')}</button>
           )}
         </div>
       ) : (
-        <div style={{ color: 'var(--color-muted)', textAlign: 'center', marginTop: '48px' }}>
-          Select an asset to view details.
-        </div>
+        <div style={{ color: 'var(--color-muted)', textAlign: 'center', marginTop: '48px' }}>{t('Select an asset to view details.')}</div>
       )}
     </aside>
   );

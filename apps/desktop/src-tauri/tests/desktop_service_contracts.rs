@@ -170,8 +170,32 @@ fn service_workflow_update_metadata_and_conflict() {
         auto_renew: None,
         notes: None,
     };
+    let mut stale_noop = noop_cmd.clone();
+    if let ServiceCommandDto::Update {
+        expected_revision, ..
+    } = &mut stale_noop
+    {
+        *expected_revision = Some(1);
+    }
+    assert_eq!(
+        service_command_impl(stale_noop, &state)
+            .unwrap_err()
+            .category,
+        "stale_revision"
+    );
+    let mut missing_noop = noop_cmd.clone();
+    if let ServiceCommandDto::Update { asset_id, .. } = &mut missing_noop {
+        *asset_id = uuid::Uuid::now_v7().to_string();
+    }
+    assert_eq!(
+        service_command_impl(missing_noop, &state)
+            .unwrap_err()
+            .category,
+        "not_found"
+    );
     let noop_receipt = service_command_impl(noop_cmd, &state).expect("noop");
     assert!(!noop_receipt.changed);
+    assert_eq!(noop_receipt.revision, Some(2));
 }
 
 #[test]

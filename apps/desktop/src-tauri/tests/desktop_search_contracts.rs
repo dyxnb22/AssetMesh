@@ -40,7 +40,7 @@ fn desktop_search_contracts_cover_cjk_substring_archived_merged_and_filters() {
 
     let clock = Arc::new(SystemClock);
     let ids = Arc::new(UuidV7Generator);
-    let factory = state.factory.read().unwrap().clone().unwrap();
+    let factory = state.modules().unwrap().factory().clone();
 
     let mut media_svc = MediaService::new(factory.clone(), clock.clone(), ids.clone());
     let mut software_svc = SoftwareService::new(factory.clone(), clock.clone(), ids.clone());

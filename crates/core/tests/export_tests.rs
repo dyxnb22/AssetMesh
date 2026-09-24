@@ -275,6 +275,28 @@ fn filesystem_bundle_round_trip() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[cfg(unix)]
+#[test]
+fn read_only_bundle_import_does_not_need_a_sibling_write_lock() {
+    use std::os::unix::fs::PermissionsExt;
+    let parent = std::env::temp_dir().join(format!("assetmesh-readonly-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&parent).unwrap();
+    let target = parent.join("bundle");
+    let bundle = test_env().export_service().export("readonly-test").unwrap();
+    write_bundle_to_directory(&bundle, &target).unwrap();
+    let lock = parent.join(".bundle.lock");
+    std::fs::remove_file(&lock).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let imported = assetmesh_core::application::portable::read_bundle_from_directory(&target);
+    assert!(
+        imported.is_ok(),
+        "read-only bundle should be readable: {imported:?}"
+    );
+    assert!(!lock.exists(), "read must not create a sibling lock");
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::remove_dir_all(parent).unwrap();
+}
+
 #[test]
 fn future_module_version_is_rejected_before_mutation() {
     let env = test_env();

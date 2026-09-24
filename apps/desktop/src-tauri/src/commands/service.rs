@@ -39,6 +39,20 @@ pub fn service_command_impl(
     command: ServiceCommandDto,
     state: &DesktopState,
 ) -> Result<MutationReceiptDto, DesktopError> {
+    match &command {
+        ServiceCommandDto::Create { .. } => {}
+        ServiceCommandDto::Update {
+            expected_revision, ..
+        }
+        | ServiceCommandDto::RecordRenewal {
+            expected_revision, ..
+        }
+        | ServiceCommandDto::Archive {
+            expected_revision, ..
+        } => {
+            super::required_revision(*expected_revision, "expected_revision")?;
+        }
+    }
     match command {
         ServiceCommandDto::Create {
             name,
@@ -157,12 +171,24 @@ pub fn service_command_impl(
                 && auto_renew.is_none()
                 && notes.is_none()
             {
-                return Ok(MutationReceiptDto {
-                    operation: "service.update".into(),
-                    asset_ids: vec![asset_id],
-                    revision: expected_revision,
-                    changed: false,
-                    warnings: vec!["No-op: no fields were updated".into()],
+                return state.with_modules(|modules| {
+                    let view = modules.service().get_service(id)?;
+                    view.entry.asset.ensure_mutable()?;
+                    let actual = view.entry.asset.revision;
+                    if let Some(expected) = expected_revision {
+                        if actual != expected {
+                            return Err(DesktopError::from(
+                                assetmesh_core::AppError::stale_revision(expected, actual),
+                            ));
+                        }
+                    }
+                    Ok(MutationReceiptDto {
+                        operation: "service.update".into(),
+                        asset_ids: vec![asset_id],
+                        revision: Some(actual),
+                        changed: false,
+                        warnings: vec!["No-op: no fields were updated".into()],
+                    })
                 });
             }
 

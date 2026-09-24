@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Badge } from '../../ui/Badge';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { ClassifiedCandidateDto, DesktopError, MutationReceiptDto } from './types';
+import { t } from '../../i18n';
 
 interface SoftwareDiscoveryModalProps {
   isOpen: boolean;
@@ -79,10 +80,16 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
       .filter((t) => t.length > 0);
 
     try {
+      const existingId = target === 'auto' && selectedCandidate.disposition === 'exact_match'
+        ? selectedCandidate.matched_asset_ids[0] : undefined;
+      const expectedRevision = existingId
+        ? (await transport.getAsset(existingId)).revision
+        : undefined;
       const result = await transport.softwareCommand({
         action: 'adopt_candidate',
         candidate: selectedCandidate.candidate,
         target,
+        expected_revision: expectedRevision,
         purpose: purpose.trim() || undefined,
         notes: notes.trim() || undefined,
         tags: tags.length > 0 ? tags : undefined,
@@ -103,7 +110,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Software Discovery & Adoption"
+      aria-label={t('Software Discovery & Adoption')}
       style={{
         position: 'fixed',
         inset: 0,
@@ -146,10 +153,8 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Badge variant="mesh">Discovery</Badge>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>
-              Software Discovery & Adoption
-            </h3>
+            <Badge variant="mesh">{t('Discovery')}</Badge>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Software Discovery & Adoption')}</h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
@@ -165,12 +170,12 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                 cursor: loading || adopting ? 'not-allowed' : 'pointer',
               }}
             >
-              {loading ? 'Scanning...' : 'Rescan'}
+              {loading ? t('Scanning...') : t('Rescan')}
             </button>
             <button
               onClick={onClose}
               disabled={adopting}
-              aria-label="Close discovery modal"
+              aria-label={t('Close discovery modal')}
               style={{
                 background: 'none',
                 border: 'none',
@@ -204,20 +209,15 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                 color: 'var(--color-muted)',
                 fontWeight: 500,
               }}
-            >
-              Discovered Candidates ({candidates.length})
+            >{t('Discovered Candidates (')}{candidates.length})
             </div>
 
             {loading && (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>
-                Scanning system providers (macOS Apps, Homebrew, CLI tools)...
-              </div>
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>{t('Scanning system providers (macOS Apps, Homebrew, CLI tools)...')}</div>
             )}
 
             {!loading && candidates.length === 0 && (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>
-                No software candidates discovered.
-              </div>
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>{t('No software candidates discovered.')}</div>
             )}
 
             {!loading &&
@@ -252,7 +252,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                     <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>
                       <span>{c.candidate.provider}</span>
                       {c.candidate.version && <span> · v{c.candidate.version}</span>}
-                      <span> · {c.candidate.category}</span>
+                      <span> · {t(c.candidate.category)}</span>
                     </div>
                   </div>
                 );
@@ -267,12 +267,10 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                   <h4 style={{ margin: '0 0 4px', fontSize: '15px', color: 'var(--color-ink)' }}>
                     {selectedCandidate.candidate.display_name}
                   </h4>
-                  <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
-                    Provider: {selectedCandidate.candidate.provider} | Source: {selectedCandidate.candidate.install_source}
+                  <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>{t('Provider: ')}{selectedCandidate.candidate.provider}{t(' | Source: ')}{selectedCandidate.candidate.install_source}
                   </div>
                   {selectedCandidate.candidate.install_location && (
-                    <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '2px', wordBreak: 'break-all' }}>
-                      Location: {selectedCandidate.candidate.install_location}
+                    <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '2px', wordBreak: 'break-all' }}>{t('Location: ')}{selectedCandidate.candidate.install_location}
                     </div>
                   )}
                 </div>
@@ -291,8 +289,8 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                       marginBottom: '12px',
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>{error.category}</div>
-                    <div>{error.message}</div>
+                    <div style={{ fontWeight: 600 }}>{t(error.category)}</div>
+                    <div>{t(error.message)}</div>
                   </div>
                 )}
 
@@ -310,9 +308,9 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                       marginBottom: '12px',
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>Successfully Adopted!</div>
-                    <div>Operation: {receipt.operation}</div>
-                    <div>Asset ID: {receipt.asset_ids.join(', ')}</div>
+                    <div style={{ fontWeight: 600 }}>{t('Successfully Adopted!')}</div>
+                    <div>{t('Operation: ')}{receipt.operation}</div>
+                    <div>{t('Asset ID: ')}{receipt.asset_ids.join(', ')}</div>
                   </div>
                 )}
 
@@ -321,9 +319,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                     <label
                       htmlFor="adopt-target"
                       style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                    >
-                      Adoption Target
-                    </label>
+                    >{t('Adoption Target')}</label>
                     <select
                       id="adopt-target"
                       data-testid="adopt-target-select"
@@ -340,8 +336,8 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                         boxSizing: 'border-box',
                       }}
                     >
-                      <option value="auto">Auto (Match existing or create new)</option>
-                      <option value="create_new">Explicitly Create New Asset</option>
+                      <option value="auto">{t('Auto (Match existing or create new)')}</option>
+                      <option value="create_new">{t('Explicitly Create New Asset')}</option>
                     </select>
                   </div>
 
@@ -349,9 +345,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                     <label
                       htmlFor="adopt-purpose"
                       style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                    >
-                      Purpose (User Defined)
-                    </label>
+                    >{t('Purpose (User Defined)')}</label>
                     <input
                       id="adopt-purpose"
                       data-testid="adopt-purpose-input"
@@ -359,7 +353,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                       value={purpose}
                       onChange={(e) => setPurpose(e.target.value)}
                       disabled={adopting}
-                      placeholder="Why this software is used"
+                      placeholder={t('Why this software is used')}
                       style={{
                         width: '100%',
                         padding: '8px 10px',
@@ -375,9 +369,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                     <label
                       htmlFor="adopt-tags"
                       style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                    >
-                      Tags (comma separated)
-                    </label>
+                    >{t('Tags (comma separated)')}</label>
                     <input
                       id="adopt-tags"
                       data-testid="adopt-tags-input"
@@ -385,7 +377,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                       value={tagsInput}
                       onChange={(e) => setTagsInput(e.target.value)}
                       disabled={adopting}
-                      placeholder="cli, dev, tool"
+                      placeholder={t('cli, dev, tool')}
                       style={{
                         width: '100%',
                         padding: '8px 10px',
@@ -401,9 +393,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                     <label
                       htmlFor="adopt-notes"
                       style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                    >
-                      Notes
-                    </label>
+                    >{t('Notes')}</label>
                     <textarea
                       id="adopt-notes"
                       data-testid="adopt-notes-input"
@@ -411,7 +401,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       disabled={adopting}
-                      placeholder="User notes or configuration"
+                      placeholder={t('User notes or configuration')}
                       style={{
                         width: '100%',
                         padding: '8px 10px',
@@ -440,15 +430,13 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                         cursor: adopting ? 'not-allowed' : 'pointer',
                       }}
                     >
-                      {adopting ? 'Adopting...' : 'Adopt into Library'}
+                      {adopting ? t('Adopting...') : t('Adopt into Library')}
                     </button>
                   </div>
                 </div>
               </form>
             ) : (
-              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>
-                Select a candidate from the left to view details and adopt.
-              </div>
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>{t('Select a candidate from the left to view details and adopt.')}</div>
             )}
           </div>
         </div>

@@ -40,6 +40,7 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
+            webkit2gtk-driver \
             xvfb
 
       - name: Install npm dependencies
@@ -53,7 +54,7 @@ jobs:
       - name: Frontend unit & release gate tests
         run: |
           npm test
-          npm run test:e2e
+          npm run test:frontend-workflow
 
       - name: Frontend build
         run: npm run build
@@ -63,6 +64,12 @@ jobs:
 
       - name: Cargo test workspace under Xvfb
         run: xvfb-run cargo test --workspace -- --nocapture
+
+      - name: Real Tauri WebDriver E2E under Xvfb
+        run: |
+          cargo install tauri-driver --locked
+          cargo build -p assetmesh-desktop
+          xvfb-run -a npm run test:e2e
 
       - name: 50k Scale Performance Benchmark Gate
         run: npm run test:scale
@@ -97,7 +104,7 @@ jobs:
       - name: Frontend unit & release gate tests
         run: |
           npm test
-          npm run test:e2e
+          npm run test:frontend-workflow
 
       - name: Frontend build
         run: npm run build

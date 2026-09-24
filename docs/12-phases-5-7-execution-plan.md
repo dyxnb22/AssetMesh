@@ -1,6 +1,6 @@
 # Phase 5–7 产品、架构与执行手册
 
-状态：**Phase 5 完成（含 R1–R6 remediation 闭环），Phase 6 待启动**
+状态：**Phase 5 功能已交付；真实 Linux Tauri/WebKitGTK E2E 已接入 CI，首次绿灯待验证。Phase 6 待启动。**
 适用范围：Phase 5 Desktop（已完成）、Phase 6 Runtime Enrichment（待启动）、Phase 7 Personal Modules
 目标读者：开发者，以及上下文较短、推理能力有限但能可靠执行明确任务的编码模型
 

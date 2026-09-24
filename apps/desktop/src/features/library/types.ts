@@ -62,15 +62,16 @@ export type DesktopErrorCategory =
   | 'conflict'
   | 'stale_revision'
   | 'setup_required'
-  | 'storage_busy'
   | 'unavailable'
   | 'permission_denied'
   | 'unsupported'
+  | 'timeout'
+  | 'rate_limited'
   | 'corrupt_data'
   | 'internal';
 
 export interface DesktopError {
-  category: DesktopErrorCategory | string;
+  category: DesktopErrorCategory;
   message: string;
 }
 
@@ -239,7 +240,7 @@ export type SoftwareCommand =
   | {
       action: 'update_metadata';
       asset_id: string;
-      expected_revision?: number | null;
+      expected_revision: number;
       name?: string | null;
       summary?: string | null;
       version?: string | null;
@@ -253,6 +254,7 @@ export type SoftwareCommand =
       action: 'adopt_candidate';
       candidate: SoftwareCandidateDto;
       target?: string | null;
+      expected_revision?: number;
       purpose?: string | null;
       notes?: string | null;
       tags?: string[];
@@ -260,7 +262,7 @@ export type SoftwareCommand =
   | {
       action: 'archive';
       asset_id: string;
-      expected_revision?: number | null;
+      expected_revision: number;
     };
 
 export type MediaCommand =
@@ -282,7 +284,7 @@ export type MediaCommand =
   | {
       action: 'update_metadata';
       asset_id: string;
-      expected_revision?: number | null;
+      expected_revision: number;
       title?: string | null;
       summary?: string | null;
       year?: number | null;
@@ -293,7 +295,7 @@ export type MediaCommand =
       action: 'transition_status';
       asset_id: string;
       status: string;
-      expected_revision?: number | null;
+      expected_revision: number;
     }
   | {
       action: 'update_progress';
@@ -301,18 +303,18 @@ export type MediaCommand =
       unit?: string | null;
       current?: number | null;
       total?: number | null;
-      expected_revision?: number | null;
+      expected_revision: number;
     }
   | {
       action: 'rate';
       asset_id: string;
       rating: number;
-      expected_revision?: number | null;
+      expected_revision: number;
     }
   | {
       action: 'archive';
       asset_id: string;
-      expected_revision?: number | null;
+      expected_revision: number;
     };
 
 export type ServiceCommand =
@@ -339,7 +341,7 @@ export type ServiceCommand =
   | {
       action: 'update';
       asset_id: string;
-      expected_revision?: number | null;
+      expected_revision: number;
       name?: string | null;
       summary?: string | null;
       provider?: string | null;
@@ -364,12 +366,12 @@ export type ServiceCommand =
       currency?: string | null;
       next_renews_at?: string | null;
       next_expires_at?: string | null;
-      expected_revision?: number | null;
+      expected_revision: number;
     }
   | {
       action: 'archive';
       asset_id: string;
-      expected_revision?: number | null;
+      expected_revision: number;
     };
 
 export interface RelationViewDto {
@@ -427,14 +429,14 @@ export interface RelationAttachPayload {
   relation_type: string;
   target_asset_id: string;
   note?: string;
-  expected_source_revision?: number | null;
-  expected_target_revision?: number | null;
+  expected_source_revision: number;
+  expected_target_revision: number;
 }
 
 export interface RelationRemovePayload {
   relation_id: string;
-  context_asset_id?: string | null;
-  expected_context_revision?: number | null;
+  context_asset_id: string;
+  expected_context_revision: number;
 }
 
 // =========================================================================
@@ -505,8 +507,8 @@ export interface MergePreviewDto {
 export interface MergeApplyCommand {
   winner_id: string;
   loser_id: string;
-  expected_winner_revision?: number;
-  expected_loser_revision?: number;
+  expected_winner_revision: number;
+  expected_loser_revision: number;
 }
 
 // =========================================================================
@@ -577,4 +579,3 @@ export interface AppSettings {
   providers: ProviderStatus[];
   capabilities: AppCapabilities;
 }
-

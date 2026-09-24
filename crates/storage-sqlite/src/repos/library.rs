@@ -49,6 +49,32 @@ pub struct SqliteLibraryRepo<'conn> {
 
 impl LibraryReadPort for SqliteLibraryRepo<'_> {
     fn query_library(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>> {
+        self.query_with_ids(query, None)
+    }
+
+    fn hydrate_candidates(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetSummary>> {
+        let mut items = Vec::new();
+        for chunk in ids.chunks(200) {
+            let query = LibraryQuery {
+                lifecycle: LifecycleFilter::All,
+                page: assetmesh_core::ports::repos::PageRequest {
+                    limit: chunk.len(),
+                    offset: 0,
+                },
+                ..LibraryQuery::default()
+            };
+            items.extend(self.query_with_ids(&query, Some(chunk))?.items);
+        }
+        Ok(items)
+    }
+}
+
+impl SqliteLibraryRepo<'_> {
+    fn query_with_ids(
+        &mut self,
+        query: &LibraryQuery,
+        ids: Option<&[AssetId]>,
+    ) -> AppResult<Page<AssetSummary>> {
         let limit = query.page.effective_limit();
         let offset = query.page.offset;
 
@@ -57,9 +83,20 @@ impl LibraryReadPort for SqliteLibraryRepo<'_> {
         if allowed_kinds.is_empty() {
             return Ok(Page::empty(&query.page));
         }
+        if ids.is_some_and(|ids| ids.is_empty()) {
+            return Ok(Page::empty(&query.page));
+        }
 
         let mut where_clauses = Vec::new();
         let mut count_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(ids) = ids {
+            let placeholders = vec!["?"; ids.len()].join(", ");
+            where_clauses.push(format!("a.id IN ({placeholders})"));
+            for id in ids {
+                count_params.push(Box::new(uuid_to_string(id.as_uuid())));
+            }
+        }
 
         // 1. Merged tombstones are never in the library under any filter
         match query.lifecycle {
@@ -136,9 +173,9 @@ impl LibraryReadPort for SqliteLibraryRepo<'_> {
         let order_by = match query.sort {
             LibrarySort::UpdatedDesc => "ORDER BY a.updated_at DESC, a.id ASC",
             LibrarySort::UpdatedAsc => "ORDER BY a.updated_at ASC, a.id ASC",
-            LibrarySort::NameAsc => "ORDER BY LOWER(a.name) ASC, a.id ASC",
-            LibrarySort::NameDesc => "ORDER BY LOWER(a.name) DESC, a.id ASC",
-            LibrarySort::KindAsc => "ORDER BY a.kind ASC, LOWER(a.name) ASC, a.id ASC",
+            LibrarySort::NameAsc => "ORDER BY assetmesh_casefold(a.name) ASC, a.id ASC",
+            LibrarySort::NameDesc => "ORDER BY assetmesh_casefold(a.name) DESC, a.id ASC",
+            LibrarySort::KindAsc => "ORDER BY a.kind ASC, assetmesh_casefold(a.name) ASC, a.id ASC",
         };
 
         let page_sql = format!(

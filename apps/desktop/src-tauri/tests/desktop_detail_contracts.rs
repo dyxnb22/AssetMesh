@@ -37,7 +37,7 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
     let clock = Arc::new(SystemClock);
     let ids = Arc::new(UuidV7Generator);
 
-    let factory = state.factory.read().unwrap().clone().unwrap();
+    let factory = state.modules().unwrap().factory().clone();
 
     let mut media_svc = MediaService::new(factory.clone(), clock.clone(), ids.clone());
     let mut software_svc = SoftwareService::new(factory.clone(), clock.clone(), ids.clone());

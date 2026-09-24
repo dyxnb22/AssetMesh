@@ -302,10 +302,6 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
         }
 
         self.factory.read(&mut |q| {
-            let rows = load_library_rows(q, &modules)?;
-            let by_asset: HashMap<AssetId, &LibraryRow> =
-                rows.iter().map(|row| (row.asset.id, row)).collect();
-
             // The index is asked for a growing window, but each hit is hydrated
             // exactly once: hits for a larger limit are a prefix of the hits
             // for a smaller one, so only the new tail is processed.
@@ -314,20 +310,29 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
             let mut window = needed.min(MAX_SEARCH_WINDOW);
             let exhausted = loop {
                 let hits = q.search_index().search(&text, window)?;
+                let fresh_ids: Vec<_> =
+                    hits.iter().skip(hydrated).map(|hit| hit.asset_id).collect();
+                let candidates: HashMap<_, _> = q
+                    .library()
+                    .hydrate_candidates(&fresh_ids)?
+                    .into_iter()
+                    .map(|item| (item.id, item))
+                    .collect();
                 for hit in hits.iter().skip(hydrated) {
                     hydrated += 1;
                     // A projection row without a module detail is stale
                     // derived state, not a library entry.
-                    let Some(row) = by_asset.get(&hit.asset_id) else {
+                    let Some(row) = candidates.get(&hit.asset_id) else {
                         continue;
                     };
-                    if !matches_lifecycle(query.lifecycle, row)
-                        || !matches_kinds(&query.kinds, row)
-                        || !matches_tags(&query.tags, row)
+                    if !modules.contains(&LibraryModule::of_kind(row.kind))
+                        || !matches_summary_lifecycle(query.lifecycle, row)
+                        || (!query.kinds.is_empty() && !query.kinds.contains(&row.kind))
+                        || !matches_summary_tags(&query.tags, row)
                     {
                         continue;
                     }
-                    matched.push(summarize_row(row));
+                    matched.push(row.clone());
                 }
                 let exhausted = hits.len() < window;
                 if exhausted || window >= MAX_SEARCH_WINDOW {
@@ -504,6 +509,18 @@ pub fn matches_kinds(kinds: &[AssetKind], row: &LibraryRow) -> bool {
 /// Tag filtering requires every requested tag, compared case-insensitively —
 /// the same tag semantics the module filters use.
 pub fn matches_tags(tags: &[String], row: &LibraryRow) -> bool {
+    tags.iter().all(|wanted| {
+        let wanted = wanted.trim();
+        row.tags.iter().any(|tag| tag.eq_ignore_ascii_case(wanted))
+    })
+}
+
+fn matches_summary_lifecycle(lifecycle: LifecycleFilter, row: &AssetSummary) -> bool {
+    row.lifecycle != LifecycleState::Merged
+        && (lifecycle != LifecycleFilter::Active || row.lifecycle == LifecycleState::Active)
+}
+
+fn matches_summary_tags(tags: &[String], row: &AssetSummary) -> bool {
     tags.iter().all(|wanted| {
         let wanted = wanted.trim();
         row.tags.iter().any(|tag| tag.eq_ignore_ascii_case(wanted))

@@ -9,6 +9,7 @@ import type {
   Page,
   SortOption,
 } from './types';
+import { t } from '../../i18n';
 
 interface AssetLedgerProps {
   module: ActiveModule;
@@ -90,12 +91,12 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
 
   const title =
     module === 'all'
-      ? 'All Assets'
+      ? t('All Assets')
       : module === 'media'
-      ? 'Media Library'
+      ? t('Media Library')
       : module === 'software'
-      ? 'Software Inventory'
-      : 'Services & Subscriptions';
+      ? t('Software Inventory')
+      : t('Services & Subscriptions');
 
   // Filter available kinds by active module
   const availableKinds =
@@ -170,12 +171,19 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             </h2>
             <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
               {loading
-                ? 'Loading assets...'
+                ? t('Loading assets...')
                 : searchQuery.trim()
-                ? `${totalItems} result${totalItems === 1 ? '' : 's'} for "${searchQuery.trim()}"`
+                ? t(
+                    totalItems === 1
+                      ? '{n} result for "{q}"'
+                      : '{n} results for "{q}"',
+                    { n: totalItems, q: searchQuery.trim() }
+                  )
                 : data
-                ? `${totalItems} asset${totalItems === 1 ? '' : 's'} recorded`
-                : 'No assets'}
+                ? t(totalItems === 1 ? '{n} asset recorded' : '{n} assets recorded', {
+                    n: totalItems,
+                  })
+                : t('No assets')}
             </div>
           </div>
 
@@ -198,9 +206,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   alignItems: 'center',
                   gap: '4px',
                 }}
-              >
-                🔍 Scan System
-              </button>
+              >{t('🔍 Scan System')}</button>
             )}
 
             {onNewAsset && (
@@ -224,12 +230,12 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
               >
                 +{' '}
                 {module === 'media'
-                  ? 'Add Media'
+                  ? t('Add Media')
                   : module === 'software'
-                  ? 'Add Software'
+                  ? t('Add Software')
                   : module === 'services'
-                  ? 'Add Service'
-                  : 'New Asset'}
+                  ? t('Add Service')
+                  : t('New Asset')}
               </button>
             )}
           </div>
@@ -272,8 +278,8 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             <input
               ref={searchInputRef}
               type="search"
-              aria-label="Search library assets"
-              placeholder="Search assets (Cmd+K)..."
+              aria-label={t('Search library assets')}
+              placeholder={t('Search assets (Cmd+K)...')}
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               onKeyDown={(e) => {
@@ -299,7 +305,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             {searchQuery ? (
               <button
                 onClick={() => onSearchChange('')}
-                aria-label="Clear search"
+                aria-label={t('Clear search')}
                 style={{
                   position: 'absolute',
                   right: '8px',
@@ -338,7 +344,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             {/* Lifecycle Selector */}
             <select
-              aria-label="Filter by lifecycle"
+              aria-label={t('Filter by lifecycle')}
               value={lifecycle}
               onChange={(e) => onSelectLifecycle(e.target.value as LifecycleOption)}
               style={{
@@ -351,15 +357,15 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 cursor: 'pointer',
               }}
             >
-              <option value="active">Active Only</option>
-              <option value="active_or_archived">Active + Archived</option>
-              <option value="all">All (incl. Merged)</option>
+              <option value="active">{t('Active Only')}</option>
+              <option value="active_or_archived">{t('Active + Archived')}</option>
+              <option value="all">{t('All (incl. Merged)')}</option>
             </select>
 
             {/* Kind Selector */}
             {availableKinds.length > 0 && (
               <select
-                aria-label="Filter by kind"
+                aria-label={t('Filter by kind')}
                 value={selectedKind || ''}
                 onChange={(e) => onSelectKind(e.target.value || null)}
                 style={{
@@ -372,10 +378,10 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                <option value="">All Kinds</option>
+                <option value="">{t('All Kinds')}</option>
                 {availableKinds.map((k) => (
                   <option key={k} value={k}>
-                    {k}
+                    {t(k)}
                   </option>
                 ))}
               </select>
@@ -383,7 +389,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
 
             {/* Sort Selector */}
             <select
-              aria-label="Sort assets"
+              aria-label={t('Sort assets')}
               value={sort}
               onChange={(e) => onSelectSort(e.target.value as SortOption)}
               style={{
@@ -396,11 +402,11 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 cursor: 'pointer',
               }}
             >
-              <option value="updated_desc">Recently Updated</option>
-              <option value="updated_asc">Oldest Updated</option>
-              <option value="name_asc">Name (A-Z)</option>
-              <option value="name_desc">Name (Z-A)</option>
-              <option value="kind_asc">Asset Kind</option>
+              <option value="updated_desc">{t('Recently Updated')}</option>
+              <option value="updated_asc">{t('Oldest Updated')}</option>
+              <option value="name_asc">{t('Name (A-Z)')}</option>
+              <option value="name_desc">{t('Name (Z-A)')}</option>
+              <option value="kind_asc">{t('Asset Kind')}</option>
             </select>
           </div>
         </div>
@@ -423,10 +429,10 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   fontWeight: 500,
                 }}
               >
-                query: &quot;{searchQuery.trim()}&quot;
+                {t('query: "{q}"', { q: searchQuery.trim() })}
                 <button
                   onClick={() => onSearchChange('')}
-                  aria-label="Remove search filter"
+                  aria-label={t('Remove search filter')}
                   style={{
                     border: 'none',
                     background: 'none',
@@ -454,10 +460,10 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   color: 'var(--color-ink)',
                 }}
               >
-                tag: #{selectedTag}
+                {t('tag: #{tag}', { tag: selectedTag })}
                 <button
                   onClick={() => onSelectTag(null)}
-                  aria-label="Remove tag filter"
+                  aria-label={t('Remove tag filter')}
                   style={{
                     border: 'none',
                     background: 'none',
@@ -486,10 +492,10 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   color: 'var(--color-ink)',
                 }}
               >
-                kind: {selectedKind}
+                {t('kind: {kind}', { kind: t(selectedKind) })}
                 <button
                   onClick={() => onSelectKind(null)}
-                  aria-label="Remove kind filter"
+                  aria-label={t('Remove kind filter')}
                   style={{
                     border: 'none',
                     background: 'none',
@@ -517,9 +523,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   textDecoration: 'underline',
                   padding: '2px 4px',
                 }}
-              >
-                Reset filters
-              </button>
+              >{t('Reset filters')}</button>
             )}
           </div>
         )}
@@ -538,13 +542,11 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Badge variant="danger">{error.category}</Badge>
-            <span style={{ fontWeight: 600, color: 'var(--color-danger)' }}>
-              Query Execution Failed
-            </span>
+            <Badge variant="danger">{t(error.category)}</Badge>
+            <span style={{ fontWeight: 600, color: 'var(--color-danger)' }}>{t('Query Execution Failed')}</span>
           </div>
           <p style={{ color: 'var(--color-ink)', fontSize: '12px', marginBottom: '12px' }}>
-            {error.message}
+            {t(error.message)}
           </p>
           <button
             onClick={onRetry}
@@ -558,9 +560,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
               fontSize: '12px',
               fontWeight: 500,
             }}
-          >
-            Retry
-          </button>
+          >{t('Retry')}</button>
         </div>
       )}
 
@@ -569,7 +569,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
         ref={tableRef}
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        aria-label="Asset Ledger"
+        aria-label={t('Asset Ledger')}
         style={{
           flex: 1,
           overflowY: 'auto',
@@ -585,12 +585,12 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             }}
           >
             <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-ink)', marginBottom: '4px' }}>
-              {searchQuery.trim() ? 'No matching assets found' : 'No assets found'}
+              {searchQuery.trim() ? t('No matching assets found') : t('No assets found')}
             </div>
             <p style={{ fontSize: '12px', marginBottom: '16px' }}>
               {searchQuery.trim()
                 ? `No assets found matching "${searchQuery.trim()}". Try different keywords or reset filters.`
-                : 'No assets match the current view and filter criteria.'}
+                : t('No assets match the current view and filter criteria.')}
             </p>
             {isFiltered && (
               <button
@@ -605,13 +605,11 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   fontWeight: 500,
                   fontSize: '12px',
                 }}
-              >
-                Reset All Filters
-              </button>
+              >{t('Reset All Filters')}</button>
             )}
           </div>
         ) : (
-          <div role="table" aria-label="Assets">
+          <div role="table" aria-label={t('Assets')}>
             {data?.items.map((asset) => {
               const isSelected = asset.id === selectedAssetId;
               return (
@@ -661,10 +659,10 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                       >
                         {asset.name}
                       </span>
-                      <Badge variant="muted">{asset.kind}</Badge>
+                      <Badge variant="muted">{t(asset.kind)}</Badge>
                       {asset.lifecycle !== 'active' && (
                         <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>
-                          {asset.lifecycle}
+                          {t(asset.lifecycle)}
                         </Badge>
                       )}
                     </div>
@@ -692,14 +690,14 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                       flexShrink: 0,
                     }}
                   >
-                    {asset.tags.map((t) => (
+                    {asset.tags.map((tag) => (
                       <button
-                        key={t}
+                        key={tag}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onSelectTag(t);
+                          onSelectTag(tag);
                         }}
-                        title={`Filter by #${t}`}
+                        title={t('Filter by #{tag}', { tag })}
                         style={{
                           all: 'unset',
                           cursor: 'pointer',
@@ -710,7 +708,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                           borderRadius: 'var(--radius-sm)',
                         }}
                       >
-                        #{t}
+                        #{tag}
                       </button>
                     ))}
                     <span
@@ -746,15 +744,15 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
           }}
         >
           <div>
-            Page {page} of {totalPages}
-            {totalItems > 0 && ` (${totalItems} total)`}
+            {t('Page {page} of {total}', { page, total: totalPages })}
+            {totalItems > 0 && ` ${t('({n} total)', { n: totalItems })}`}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               onClick={() => onSelectPage(page - 1)}
               disabled={!hasPrevPage}
-              aria-label="Previous Page"
+              aria-label={t('Previous Page')}
               style={{
                 padding: '4px 10px',
                 borderRadius: 'var(--radius-sm)',
@@ -764,13 +762,11 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 cursor: hasPrevPage ? 'pointer' : 'not-allowed',
                 opacity: hasPrevPage ? 1 : 0.5,
               }}
-            >
-              Previous
-            </button>
+            >{t('Previous')}</button>
             <button
               onClick={() => onSelectPage(page + 1)}
               disabled={!hasNextPage}
-              aria-label="Next Page"
+              aria-label={t('Next Page')}
               style={{
                 padding: '4px 10px',
                 borderRadius: 'var(--radius-sm)',
@@ -780,9 +776,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 cursor: hasNextPage ? 'pointer' : 'not-allowed',
                 opacity: hasNextPage ? 1 : 0.5,
               }}
-            >
-              Next
-            </button>
+            >{t('Next')}</button>
           </div>
         </footer>
       )}

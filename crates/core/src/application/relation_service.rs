@@ -3,6 +3,7 @@
 //! no module-private table coupling. The Phase 4 relation query/explorer
 //! layer stays out of scope here.
 
+use crate::application::asset_service::refresh_projection;
 use crate::application::shared::load_active_asset;
 use crate::application::{SharedClock, SharedIdGenerator};
 use crate::domain::activity::{actors, event_types, ActivityEvent};
@@ -27,6 +28,23 @@ pub struct RelationView {
     pub note: Option<String>,
     pub provenance: RelationProvenance,
     pub created_at: Timestamp,
+}
+
+/// Committed endpoint revisions, captured inside the same transaction as the
+/// relation write so adapters never race a second read to build a receipt.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelationMutation {
+    pub relation: Relation,
+    pub source_revision: i64,
+    pub target_revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelationRemoval {
+    pub source_asset_id: AssetId,
+    pub target_asset_id: AssetId,
+    pub source_revision: i64,
+    pub target_revision: i64,
 }
 
 pub struct RelationService<F: UnitOfWorkFactory> {
@@ -72,16 +90,39 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
         expected_source_revision: Option<i64>,
         expected_target_revision: Option<i64>,
     ) -> AppResult<Relation> {
+        self.attach_with_receipt(
+            source,
+            relation_type,
+            target,
+            note,
+            provenance,
+            expected_source_revision,
+            expected_target_revision,
+        )
+        .map(|outcome| outcome.relation)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn attach_with_receipt(
+        &mut self,
+        source: AssetId,
+        relation_type: RelationType,
+        target: AssetId,
+        note: Option<String>,
+        provenance: RelationProvenance,
+        expected_source_revision: Option<i64>,
+        expected_target_revision: Option<i64>,
+    ) -> AppResult<RelationMutation> {
         let now = self.clock.now();
         let note = crate::domain::validation::optional_text(&note, "note")?;
         let relation_id = RelationId::from_uuid(self.ids.new_id());
 
         self.factory.transact(&mut |uow| {
-            let source_asset = load_active_asset(uow, source)?;
+            let mut source_asset = load_active_asset(uow, source)?;
             if let Some(expected) = expected_source_revision {
                 crate::application::shared::check_asset_revision(&source_asset, expected)?;
             }
-            let target_asset = load_active_asset(uow, target)?;
+            let mut target_asset = load_active_asset(uow, target)?;
             if let Some(expected) = expected_target_revision {
                 crate::application::shared::check_asset_revision(&target_asset, expected)?;
             }
@@ -104,6 +145,12 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
             }
 
             uow.relations().insert(&relation)?;
+            source_asset.touch(now);
+            target_asset.touch(now);
+            uow.assets().update(&source_asset)?;
+            uow.assets().update(&target_asset)?;
+            refresh_projection(uow, &source_asset)?;
+            refresh_projection(uow, &target_asset)?;
             uow.activity().append(&ActivityEvent::new(
                 event_types::RELATION_CREATED,
                 Some(relation.source_asset_id),
@@ -116,7 +163,11 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
                 }),
                 now,
             ))?;
-            Ok(relation)
+            Ok(RelationMutation {
+                relation,
+                source_revision: source_asset.revision,
+                target_revision: target_asset.revision,
+            })
         })
     }
 
@@ -136,6 +187,16 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
         context_asset_id: Option<AssetId>,
         expected_context_revision: Option<i64>,
     ) -> AppResult<()> {
+        self.remove_with_receipt(relation_id, context_asset_id, expected_context_revision)
+            .map(|_| ())
+    }
+
+    pub fn remove_with_receipt(
+        &mut self,
+        relation_id: RelationId,
+        context_asset_id: Option<AssetId>,
+        expected_context_revision: Option<i64>,
+    ) -> AppResult<RelationRemoval> {
         let now = self.clock.now();
 
         self.factory.transact(&mut |uow| {
@@ -158,6 +219,20 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
             }
 
             uow.relations().delete(relation_id)?;
+            let mut revisions = [0_i64; 2];
+            for (index, endpoint) in [relation.source_asset_id, relation.target_asset_id]
+                .into_iter()
+                .enumerate()
+            {
+                let mut asset = uow
+                    .assets()
+                    .get(endpoint)?
+                    .ok_or_else(|| AppError::not_found("asset", endpoint))?;
+                asset.touch(now);
+                revisions[index] = asset.revision;
+                uow.assets().update(&asset)?;
+                refresh_projection(uow, &asset)?;
+            }
             uow.activity().append(&ActivityEvent::new(
                 event_types::RELATION_REMOVED,
                 Some(relation.source_asset_id),
@@ -169,7 +244,12 @@ impl<F: UnitOfWorkFactory> RelationService<F> {
                 }),
                 now,
             ))?;
-            Ok(())
+            Ok(RelationRemoval {
+                source_asset_id: relation.source_asset_id,
+                target_asset_id: relation.target_asset_id,
+                source_revision: revisions[0],
+                target_revision: revisions[1],
+            })
         })
     }
 }

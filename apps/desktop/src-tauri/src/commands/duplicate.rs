@@ -74,6 +74,8 @@ pub fn merge_apply_impl(
     input: MergeApplyDto,
     state: &DesktopState,
 ) -> Result<MutationReceiptDto, DesktopError> {
+    super::required_revision(input.expected_winner_revision, "expected_winner_revision")?;
+    super::required_revision(input.expected_loser_revision, "expected_loser_revision")?;
     let winner_id = uuid::Uuid::parse_str(&input.winner_id)
         .map(AssetId::from_uuid)
         .map_err(|e| DesktopError::invalid_input(format!("invalid winner_id: {e}")))?;

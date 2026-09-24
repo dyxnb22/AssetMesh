@@ -38,6 +38,32 @@ fn env() -> TestSqlite {
     }
 }
 
+#[test]
+fn sqlite_name_order_uses_the_same_unicode_lowercase_as_core() {
+    let test = env();
+    for name in ["Älpha", "älpha", "Zulu"] {
+        test.media_service()
+            .create_media(media_cmd(name, MediaType::Movie, &[]))
+            .unwrap();
+    }
+    let actual = test
+        .library_service()
+        .list_assets(&LibraryQuery {
+            sort: LibrarySort::NameAsc,
+            ..LibraryQuery::default()
+        })
+        .unwrap()
+        .items;
+    let mut expected = actual.clone();
+    expected.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    assert_eq!(actual, expected);
+}
+
 struct TestSqlite {
     factory: SharedSqlite,
     clock: SharedClock,

@@ -913,26 +913,45 @@ pub fn write_bundle_to_directory(bundle: &PortableBundle, target: &Path) -> AppR
 /// happens under the same exclusive lock a write takes: without it, a reader
 /// in one process could delete the staging directory of a writer in another.
 pub fn read_bundle_from_directory(source: &Path) -> AppResult<PortableBundle> {
+    // A bundle on read-only media cannot create the sibling lock file. It
+    // also cannot be replaced by a cooperating writer on that media. Never
+    // attempt recovery here: an interrupted swap needs a writable parent.
+    let parent = source.parent().unwrap_or_else(|| Path::new("."));
+    if fs::metadata(parent)
+        .map_err(fs_error)?
+        .permissions()
+        .readonly()
+    {
+        if swap_dir(source).exists() {
+            return Err(AppError::storage_busy(
+                "a read-only bundle has an interrupted export; copy it to writable storage to recover",
+            ));
+        }
+        return read_bundle_files(source);
+    }
     with_bundle_lock(source, || {
         recover_interrupted_swap(source)?;
-        let manifest_text = fs::read_to_string(source.join("manifest.json")).map_err(fs_error)?;
-        let manifest: PortableManifest =
-            serde_json::from_str(&manifest_text).map_err(json_error)?;
-
-        let mut files = Vec::new();
-        for path in V1_FILE_PATHS {
-            let path_buf = source.join(path);
-            if path_buf.exists() {
-                let content = fs::read_to_string(&path_buf).map_err(fs_error)?;
-                files.push(ExportFile {
-                    path: path.into(),
-                    content,
-                });
-            }
-        }
-
-        Ok(PortableBundle { manifest, files })
+        read_bundle_files(source)
     })
+}
+
+fn read_bundle_files(source: &Path) -> AppResult<PortableBundle> {
+    let manifest_text = fs::read_to_string(source.join("manifest.json")).map_err(fs_error)?;
+    let manifest: PortableManifest = serde_json::from_str(&manifest_text).map_err(json_error)?;
+
+    let mut files = Vec::new();
+    for path in V1_FILE_PATHS {
+        let path_buf = source.join(path);
+        if path_buf.exists() {
+            let content = fs::read_to_string(&path_buf).map_err(fs_error)?;
+            files.push(ExportFile {
+                path: path.into(),
+                content,
+            });
+        }
+    }
+
+    Ok(PortableBundle { manifest, files })
 }
 
 /// Deterministic staging location: `<parent>/.<name>.swap/` with `new/` and

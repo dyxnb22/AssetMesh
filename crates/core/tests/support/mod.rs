@@ -873,6 +873,16 @@ impl QueryUnitOfWork for MemStore {
 }
 
 impl LibraryReadPort for MemStore {
+    fn hydrate_candidates(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetSummary>> {
+        use assetmesh_core::application::library_service::{load_library_rows, summarize_row};
+        let rows = load_library_rows(self, &assetmesh_core::ports::repos::LibraryModule::ALL)?;
+        Ok(rows
+            .into_iter()
+            .filter(|row| ids.contains(&row.asset.id))
+            .map(|row| summarize_row(&row))
+            .collect())
+    }
+
     fn query_library(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>> {
         use assetmesh_core::application::library_service::{
             load_library_rows, matches_kinds, matches_lifecycle, matches_tags, selected_modules,

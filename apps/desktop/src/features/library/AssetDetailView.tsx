@@ -19,6 +19,7 @@ import type {
   SoftwareRecordDto,
   UnknownDetailsDto,
 } from './types';
+import { t } from '../../i18n';
 
 interface AssetDetailViewProps {
   assetId: string;
@@ -135,9 +136,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
           textAlign: 'center',
           color: 'var(--color-muted)',
         }}
-      >
-        Loading asset details...
-      </div>
+      >{t('Loading asset details...')}</div>
     );
   }
 
@@ -153,13 +152,11 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-          <Badge variant="danger">{error?.category || 'Error'}</Badge>
-          <span style={{ fontWeight: 600, color: 'var(--color-danger)' }}>
-            Failed to load asset details
-          </span>
+          <Badge variant="danger">{error?.category || t('Error')}</Badge>
+          <span style={{ fontWeight: 600, color: 'var(--color-danger)' }}>{t('Failed to load asset details')}</span>
         </div>
         <p style={{ fontSize: '12px', color: 'var(--color-ink)' }}>
-          {error?.message || 'Asset could not be found.'}
+          {error?.message || t('Asset could not be found.')}
         </p>
       </div>
     );
@@ -209,7 +206,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
       setIsEditingSoftware(false);
       setReceiptNotice(
         receipt.changed
-          ? `Saved successfully (rev ${receipt.revision})`
+          ? t('Saved successfully (rev {rev})', { rev: receipt.revision })
           : 'No changes detected'
       );
       onAssetUpdated?.(receipt);
@@ -287,7 +284,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
       setIsEditingMedia(false);
       setReceiptNotice(
         receipt.changed
-          ? `Saved successfully (rev ${receipt.revision})`
+          ? t('Saved successfully (rev {rev})', { rev: receipt.revision })
           : 'No changes detected'
       );
       onAssetUpdated?.(receipt);
@@ -318,7 +315,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
       });
       const freshDetail = await transport.getAsset(detail.id);
       setDetail(freshDetail);
-      setReceiptNotice(`Status updated to ${status}`);
+      setReceiptNotice(t('Status updated to {status}', { status: t(status) }));
       onAssetUpdated?.(receipt);
     } catch (err: unknown) {
       setMutationError(normalizeDesktopError(err));
@@ -372,7 +369,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
       });
       const freshDetail = await transport.getAsset(detail.id);
       setDetail(freshDetail);
-      setReceiptNotice(`Rating updated to ${rating}`);
+      setReceiptNotice(t('Rating updated to {rating}', { rating }));
       onAssetUpdated?.(receipt);
     } catch (err: unknown) {
       setMutationError(normalizeDesktopError(err));
@@ -585,10 +582,8 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     color: 'var(--color-muted)',
                     fontWeight: 600,
                   }}
-                >
-                  Edit Media Metadata
-                </span>
-                <Badge variant="mesh">rev {detail.revision}</Badge>
+                >{t('Edit Media Metadata')}</span>
+                <Badge variant="mesh">{t('rev ')}{detail.revision}</Badge>
               </div>
 
               <div>
@@ -601,9 +596,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     marginBottom: '4px',
                     color: 'var(--color-ink)',
                   }}
-                >
-                  Title
-                </label>
+                >{t('Title')}</label>
                 <input
                   id="media-title"
                   data-testid="media-title-input"
@@ -634,9 +627,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     marginBottom: '4px',
                     color: 'var(--color-ink)',
                   }}
-                >
-                  Summary
-                </label>
+                >{t('Summary')}</label>
                 <input
                   id="media-summary"
                   data-testid="media-summary-input"
@@ -644,7 +635,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   value={draftMediaSummary}
                   onChange={(e) => setDraftMediaSummary(e.target.value)}
                   disabled={submitting}
-                  placeholder="Short tagline or subtitle"
+                  placeholder={t('Short tagline or subtitle')}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -669,9 +660,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                       marginBottom: '4px',
                       color: 'var(--color-ink)',
                     }}
-                  >
-                    Release Year
-                  </label>
+                  >{t('Release Year')}</label>
                   <input
                     id="media-year"
                     data-testid="media-year-input"
@@ -705,9 +694,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                       marginBottom: '4px',
                       color: 'var(--color-ink)',
                     }}
-                  >
-                    Platform
-                  </label>
+                  >{t('Platform')}</label>
                   <input
                     id="media-platform"
                     data-testid="media-platform-input"
@@ -715,7 +702,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     value={draftMediaPlatform}
                     onChange={(e) => setDraftMediaPlatform(e.target.value)}
                     disabled={submitting}
-                    placeholder="e.g. Steam, Crunchyroll"
+                    placeholder={t('e.g. Steam, Crunchyroll')}
                     style={{
                       width: '100%',
                       padding: '6px 10px',
@@ -740,9 +727,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     marginBottom: '4px',
                     color: 'var(--color-ink)',
                   }}
-                >
-                  Notes
-                </label>
+                >{t('Notes')}</label>
                 <textarea
                   id="media-notes"
                   data-testid="media-notes-input"
@@ -750,7 +735,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   value={draftMediaNotes}
                   onChange={(e) => setDraftMediaNotes(e.target.value)}
                   disabled={submitting}
-                  placeholder="Personal reflections, notes, etc."
+                  placeholder={t('Personal reflections, notes, etc.')}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -780,9 +765,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     cursor: submitting ? 'not-allowed' : 'pointer',
                     color: 'var(--color-ink)',
                   }}
-                >
-                  Cancel
-                </button>
+                >{t('Cancel')}</button>
                 <button
                   type="submit"
                   data-testid="save-media-button"
@@ -798,7 +781,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     cursor: submitting ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  {submitting ? 'Saving...' : 'Save Changes'}
+                  {submitting ? t('Saving...') : t('Save Changes')}
                 </button>
               </div>
             </form>
@@ -838,10 +821,8 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     color: 'var(--color-muted)',
                     fontWeight: 600,
                   }}
-                >
-                  Edit Software Metadata
-                </span>
-                <Badge variant="mesh">rev {detail.revision}</Badge>
+                >{t('Edit Software Metadata')}</span>
+                <Badge variant="mesh">{t('rev ')}{detail.revision}</Badge>
               </div>
 
               <div>
@@ -854,9 +835,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     marginBottom: '4px',
                     color: 'var(--color-ink)',
                   }}
-                >
-                  Purpose
-                </label>
+                >{t('Purpose')}</label>
                 <input
                   id="software-purpose"
                   data-testid="software-purpose-input"
@@ -864,7 +843,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   value={draftPurpose}
                   onChange={(e) => setDraftPurpose(e.target.value)}
                   disabled={submitting}
-                  placeholder="e.g. CLI tool for git repository management"
+                  placeholder={t('e.g. CLI tool for git repository management')}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -888,9 +867,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     marginBottom: '4px',
                     color: 'var(--color-ink)',
                   }}
-                >
-                  Notes
-                </label>
+                >{t('Notes')}</label>
                 <textarea
                   id="software-notes"
                   data-testid="software-notes-input"
@@ -898,7 +875,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   value={draftNotes}
                   onChange={(e) => setDraftNotes(e.target.value)}
                   disabled={submitting}
-                  placeholder="Personal usage notes, configuration tips, etc."
+                  placeholder={t('Personal usage notes, configuration tips, etc.')}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -928,9 +905,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     cursor: submitting ? 'not-allowed' : 'pointer',
                     color: 'var(--color-ink)',
                   }}
-                >
-                  Cancel
-                </button>
+                >{t('Cancel')}</button>
                 <button
                   type="submit"
                   data-testid="save-software-button"
@@ -946,7 +921,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     cursor: submitting ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  {submitting ? 'Saving...' : 'Save Changes'}
+                  {submitting ? t('Saving...') : t('Save Changes')}
                 </button>
               </div>
             </form>
@@ -982,19 +957,15 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     color: 'var(--color-muted)',
                     fontWeight: 600,
                   }}
-                >
-                  Edit Service Subscription
-                </span>
-                <Badge variant="mesh">rev {detail.revision}</Badge>
+                >{t('Edit Service Subscription')}</span>
+                <Badge variant="mesh">{t('rev ')}{detail.revision}</Badge>
               </div>
 
               <div>
                 <label
                   htmlFor="service-edit-name"
                   style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                >
-                  Name *
-                </label>
+                >{t('Name *')}</label>
                 <input
                   id="service-edit-name"
                   data-testid="service-name-input"
@@ -1019,9 +990,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="service-edit-provider"
                     style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                  >
-                    Provider
-                  </label>
+                  >{t('Provider')}</label>
                   <input
                     id="service-edit-provider"
                     data-testid="service-provider-input"
@@ -1045,9 +1014,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="service-edit-plan"
                     style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                  >
-                    Plan / Tier
-                  </label>
+                  >{t('Plan / Tier')}</label>
                   <input
                     id="service-edit-plan"
                     data-testid="service-plan-input"
@@ -1073,9 +1040,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="service-edit-cost"
                     style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >
-                    Cost (Decimal)
-                  </label>
+                  >{t('Cost (Decimal)')}</label>
                   <input
                     id="service-edit-cost"
                     data-testid="service-cost-input"
@@ -1100,9 +1065,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="service-edit-currency"
                     style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >
-                    Currency
-                  </label>
+                  >{t('Currency')}</label>
                   <input
                     id="service-edit-currency"
                     data-testid="service-currency-input"
@@ -1110,7 +1073,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     value={draftServiceCurrency}
                     onChange={(e) => setDraftServiceCurrency(e.target.value)}
                     disabled={submitting}
-                    placeholder="USD"
+                    placeholder={t('USD')}
                     style={{
                       width: '100%',
                       padding: '6px 10px',
@@ -1127,9 +1090,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="service-edit-cadence"
                     style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >
-                    Cadence
-                  </label>
+                  >{t('Cadence')}</label>
                   <select
                     id="service-edit-cadence"
                     data-testid="service-cadence-select"
@@ -1146,12 +1107,12 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                       backgroundColor: 'var(--color-canvas)',
                     }}
                   >
-                    <option value="monthly">Monthly</option>
-                    <option value="yearly">Yearly</option>
-                    <option value="quarterly">Quarterly</option>
-                    <option value="usage_based">Usage-based</option>
-                    <option value="one_time">One-time</option>
-                    <option value="other">Other</option>
+                    <option value="monthly">{t('Monthly')}</option>
+                    <option value="yearly">{t('Yearly')}</option>
+                    <option value="quarterly">{t('Quarterly')}</option>
+                    <option value="usage_based">{t('Usage-based')}</option>
+                    <option value="one_time">{t('One-time')}</option>
+                    <option value="other">{t('Other')}</option>
                   </select>
                 </div>
               </div>
@@ -1161,9 +1122,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="service-edit-renews"
                     style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >
-                    Next Renewal Date
-                  </label>
+                  >{t('Next Renewal Date')}</label>
                   <input
                     id="service-edit-renews"
                     data-testid="service-renews-input"
@@ -1195,9 +1154,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="service-edit-autorenew"
                     style={{ fontSize: '12px', color: 'var(--color-ink)', cursor: 'pointer' }}
-                  >
-                    Auto-renewing
-                  </label>
+                  >{t('Auto-renewing')}</label>
                 </div>
               </div>
 
@@ -1205,9 +1162,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                 <label
                   htmlFor="service-edit-notes"
                   style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                >
-                  Notes
-                </label>
+                >{t('Notes')}</label>
                 <textarea
                   id="service-edit-notes"
                   data-testid="service-notes-input"
@@ -1215,7 +1170,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   value={draftServiceNotes}
                   onChange={(e) => setDraftServiceNotes(e.target.value)}
                   disabled={submitting}
-                  placeholder="Notes about billing, plans, or license"
+                  placeholder={t('Notes about billing, plans, or license')}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -1243,9 +1198,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     fontSize: '12px',
                     cursor: submitting ? 'not-allowed' : 'pointer',
                   }}
-                >
-                  Cancel
-                </button>
+                >{t('Cancel')}</button>
                 <button
                   type="submit"
                   data-testid="save-service-button"
@@ -1261,7 +1214,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     cursor: submitting ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  {submitting ? 'Saving...' : 'Save Changes'}
+                  {submitting ? t('Saving...') : t('Save Changes')}
                 </button>
               </div>
             </form>
@@ -1291,10 +1244,8 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     color: 'var(--color-muted)',
                     fontWeight: 600,
                   }}
-                >
-                  Record Explicit Renewal
-                </span>
-                <Badge variant="mesh">rev {detail.revision}</Badge>
+                >{t('Record Explicit Renewal')}</span>
+                <Badge variant="mesh">{t('rev ')}{detail.revision}</Badge>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -1302,9 +1253,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="renewal-date"
                     style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >
-                    Renewal Occurred At *
-                  </label>
+                  >{t('Renewal Occurred At *')}</label>
                   <input
                     id="renewal-date"
                     data-testid="renewal-date-input"
@@ -1329,9 +1278,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="renewal-next-date"
                     style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >
-                    Next Renewal Date (Optional)
-                  </label>
+                  >{t('Next Renewal Date (Optional)')}</label>
                   <input
                     id="renewal-next-date"
                     data-testid="renewal-next-date-input"
@@ -1357,9 +1304,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="renewal-cost"
                     style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >
-                    Charged Cost (Optional)
-                  </label>
+                  >{t('Charged Cost (Optional)')}</label>
                   <input
                     id="renewal-cost"
                     data-testid="renewal-cost-input"
@@ -1384,9 +1329,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   <label
                     htmlFor="renewal-currency"
                     style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >
-                    Currency
-                  </label>
+                  >{t('Currency')}</label>
                   <input
                     id="renewal-currency"
                     data-testid="renewal-currency-input"
@@ -1394,7 +1337,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     value={renewalCurrency}
                     onChange={(e) => setRenewalCurrency(e.target.value)}
                     disabled={submitting}
-                    placeholder="USD"
+                    placeholder={t('USD')}
                     style={{
                       width: '100%',
                       padding: '6px 10px',
@@ -1422,9 +1365,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     fontSize: '12px',
                     cursor: submitting ? 'not-allowed' : 'pointer',
                   }}
-                >
-                  Cancel
-                </button>
+                >{t('Cancel')}</button>
                 <button
                   type="submit"
                   data-testid="submit-renewal-button"
@@ -1440,7 +1381,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                     cursor: submitting ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  {submitting ? 'Recording...' : 'Record Renewal'}
+                  {submitting ? t('Recording...') : t('Record Renewal')}
                 </button>
               </div>
             </form>
@@ -1489,10 +1430,10 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <Badge variant="mesh">{detail.kind}</Badge>
+            <Badge variant="mesh">{t(detail.kind)}</Badge>
             {detail.lifecycle !== 'active' && (
               <Badge variant={detail.lifecycle === 'archived' ? 'attention' : 'danger'}>
-                {detail.lifecycle}
+                {t(detail.lifecycle)}
               </Badge>
             )}
             <span
@@ -1504,9 +1445,8 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                 padding: '2px 6px',
                 borderRadius: 'var(--radius-sm)',
               }}
-              title="Optimistic concurrency revision"
-            >
-              rev {detail.revision}
+              title={t('Optimistic concurrency revision')}
+            >{t('rev ')}{detail.revision}
             </span>
             {detail.lifecycle === 'active' && !confirmingArchive && (
               <button
@@ -1522,16 +1462,14 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                   color: 'var(--color-muted)',
                   cursor: 'pointer',
                 }}
-              >
-                Archive
-              </button>
+              >{t('Archive')}</button>
             )}
           </div>
 
           {onClose && (
             <button
               onClick={onClose}
-              aria-label="Close detail view"
+              aria-label={t('Close detail view')}
               style={{
                 background: 'none',
                 border: 'none',
@@ -1582,8 +1520,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
           }}
         >
           <div>
-            <strong>Confirm Archive:</strong> Are you sure you want to archive <em>{detail.name}</em>? Archived assets become read-only.
-          </div>
+            <strong>{t('Confirm Archive:')}</strong>{t(' Are you sure you want to archive ')}<em>{detail.name}</em>{t('? Archived assets become read-only.')}</div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
               type="button"
@@ -1600,7 +1537,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                 cursor: submitting ? 'not-allowed' : 'pointer',
               }}
             >
-              {submitting ? 'Archiving...' : 'Yes, Archive'}
+              {submitting ? t('Archiving...') : t('Yes, Archive')}
             </button>
             <button
               type="button"
@@ -1616,9 +1553,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                 cursor: submitting ? 'not-allowed' : 'pointer',
                 color: 'var(--color-ink)',
               }}
-            >
-              Cancel
-            </button>
+            >{t('Cancel')}</button>
           </div>
         </div>
       )}
@@ -1635,8 +1570,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
             color: 'var(--color-attention)',
           }}
         >
-          <strong>Archived Asset:</strong> This asset is preserved in read-only state.
-          {detail.archived_at && ` Archived on ${detail.archived_at.slice(0, 10)}.`}
+          <strong>{t('Archived Asset:')}</strong>{t(' This asset is preserved in read-only state.')}{detail.archived_at && ` ${t('Archived on {date}.', { date: detail.archived_at.slice(0, 10) })}`}
         </div>
       )}
 
@@ -1657,11 +1591,11 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
             justifyContent: 'space-between',
           }}
         >
-          <span>✓ {receiptNotice}</span>
+          <span>✓ {t(receiptNotice)}</span>
           <button
             type="button"
             onClick={() => setReceiptNotice(null)}
-            aria-label="Dismiss notice"
+            aria-label={t('Dismiss notice')}
             style={{
               background: 'none',
               border: 'none',
@@ -1693,12 +1627,16 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Badge variant="danger">stale_revision</Badge>
-            <strong>Edit Conflict Detected</strong>
+            <Badge variant="danger">{t('stale_revision')}</Badge>
+            <strong>{t('Edit Conflict Detected')}</strong>
           </div>
           <div>
-            {mutationError?.message ||
-              `This asset has been modified elsewhere (expected rev ${detail.revision}). Your edits have been preserved, but were not saved.`}
+            {mutationError?.message
+              ? t(mutationError.message)
+              : t(
+                  'This asset has been modified elsewhere (expected rev {rev}). Your edits have been preserved, but were not saved.',
+                  { rev: detail.revision }
+                )}
           </div>
           <div>
             <button
@@ -1715,9 +1653,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                 fontWeight: 500,
                 color: 'var(--color-ink)',
               }}
-            >
-              Discard Draft & Reload Latest
-            </button>
+            >{t('Discard Draft & Reload Latest')}</button>
           </div>
         </div>
       )}
@@ -1741,14 +1677,14 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <Badge variant="danger">{mutationError.category}</Badge>
+            <Badge variant="danger">{t(mutationError.category)}</Badge>
             <strong>
               {mutationError.category === 'invalid_input'
-                ? 'Validation Error'
-                : 'Mutation Failed'}
+                ? t('Validation Error')
+                : t('Mutation Failed')}
             </strong>
           </div>
-          <div>{mutationError.message}</div>
+          <div>{t(mutationError.message)}</div>
         </div>
       )}
 
@@ -1776,12 +1712,10 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
             fontWeight: 600,
             marginBottom: '2px',
           }}
-        >
-          Canonical Identity
-        </div>
+        >{t('Canonical Identity')}</div>
 
         <div>
-          <div style={{ color: 'var(--color-muted)', fontSize: '11px' }}>Asset ID</div>
+          <div style={{ color: 'var(--color-muted)', fontSize: '11px' }}>{t('Asset ID')}</div>
           <code
             style={{
               fontSize: '11px',
@@ -1798,13 +1732,13 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
           <div>
-            <div style={{ color: 'var(--color-muted)', fontSize: '11px' }}>Created</div>
+            <div style={{ color: 'var(--color-muted)', fontSize: '11px' }}>{t('Created')}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
               {detail.created_at.slice(0, 19).replace('T', ' ')}
             </div>
           </div>
           <div>
-            <div style={{ color: 'var(--color-muted)', fontSize: '11px' }}>Updated</div>
+            <div style={{ color: 'var(--color-muted)', fontSize: '11px' }}>{t('Updated')}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
               {detail.updated_at.slice(0, 19).replace('T', ' ')}
             </div>
@@ -1830,21 +1764,20 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
               fontWeight: 600,
               marginBottom: '8px',
             }}
-          >
-            Tags ({detail.tags.length})
+          >{t('Tags (')}{detail.tags.length})
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {detail.tags.map((t) => (
+            {detail.tags.map((tag) => (
               <button
-                key={t}
-                onClick={() => onSelectTag?.(t)}
-                title={`Filter by tag #${t}`}
+                key={tag}
+                onClick={() => onSelectTag?.(tag)}
+                title={t('Filter by #{tag}', { tag })}
                 style={{
                   all: 'unset',
                   cursor: onSelectTag ? 'pointer' : 'default',
                 }}
               >
-                <Badge variant="muted">#{t}</Badge>
+                <Badge variant="muted">#{tag}</Badge>
               </button>
             ))}
           </div>
@@ -1890,9 +1823,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
               color: 'var(--color-muted)',
               fontWeight: 600,
             }}
-          >
-            Activity History
-          </span>
+          >{t('Activity History')}</span>
           <button
             type="button"
             data-testid="toggle-asset-activity-button"
@@ -1906,7 +1837,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
               textDecoration: 'underline',
             }}
           >
-            {showActivity ? 'Hide History' : 'Show History'}
+            {showActivity ? t('Hide History') : t('Show History')}
           </button>
         </div>
         {showActivity && (

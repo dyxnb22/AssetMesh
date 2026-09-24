@@ -9,8 +9,8 @@ use std::sync::Arc;
 use assetmesh_core::ports::{SystemClock, UuidV7Generator};
 use assetmesh_desktop_lib::commands::{
     activity_query_impl, duplicate_candidates_impl, library_get_impl, media_command_impl,
-    merge_apply_impl, merge_preview_impl, relation_attach_impl, service_command_impl,
-    software_command_impl,
+    merge_apply_impl as raw_merge_apply_impl, merge_preview_impl,
+    relation_attach_impl as raw_relation_attach_impl, service_command_impl, software_command_impl,
 };
 use assetmesh_desktop_lib::dto::{
     ActivityQueryDto, DuplicateQueryDto, MediaCommandDto, MergeApplyDto, MergePreviewQueryDto,
@@ -31,6 +31,46 @@ fn setup_test_state(name: &str) -> DesktopState {
     let state = DesktopState::with_clock_and_ids(Arc::new(SystemClock), Arc::new(UuidV7Generator));
     state.initialize(&db_path).expect("initialize");
     state
+}
+
+fn relation_attach_impl(
+    mut payload: RelationAttachDto,
+    state: &DesktopState,
+) -> Result<
+    assetmesh_desktop_lib::dto::MutationReceiptDto,
+    assetmesh_desktop_lib::error::DesktopError,
+> {
+    payload.expected_source_revision.get_or_insert_with(|| {
+        library_get_impl(&payload.source_asset_id, state)
+            .map(|view| view.revision)
+            .unwrap_or(1)
+    });
+    payload.expected_target_revision.get_or_insert_with(|| {
+        library_get_impl(&payload.target_asset_id, state)
+            .map(|view| view.revision)
+            .unwrap_or(1)
+    });
+    raw_relation_attach_impl(payload, state)
+}
+
+fn merge_apply_impl(
+    mut input: MergeApplyDto,
+    state: &DesktopState,
+) -> Result<
+    assetmesh_desktop_lib::dto::MutationReceiptDto,
+    assetmesh_desktop_lib::error::DesktopError,
+> {
+    input.expected_winner_revision.get_or_insert_with(|| {
+        library_get_impl(&input.winner_id, state)
+            .map(|view| view.revision)
+            .unwrap_or(1)
+    });
+    input.expected_loser_revision.get_or_insert_with(|| {
+        library_get_impl(&input.loser_id, state)
+            .map(|view| view.revision)
+            .unwrap_or(1)
+    });
+    raw_merge_apply_impl(input, state)
 }
 
 fn create_software(name: &str, state: &DesktopState) -> String {
@@ -432,7 +472,7 @@ fn merge_workflow_preview_and_successful_apply() {
     assert_eq!(preview.transferred_relations_count, 1);
     assert_eq!(preview.redundant_relations_count, 0);
     assert_eq!(preview.winner_revision, 1);
-    assert_eq!(preview.loser_revision, 1);
+    assert_eq!(preview.loser_revision, 2);
 
     // Apply merge with preview revisions
     let receipt = merge_apply_impl(
@@ -551,6 +591,51 @@ fn merge_stale_revisions_are_rejected_with_stale_revision_and_rolled_back() {
 }
 
 #[test]
+fn relation_change_invalidates_a_previously_reviewed_merge_preview() {
+    let state = setup_test_state("merge-relation-stale");
+    let winner = create_software("Merge Pair", &state);
+    let loser = create_software("Merge Pair", &state);
+    let dependency = create_software("Dependency", &state);
+    let preview = merge_preview_impl(
+        MergePreviewQueryDto {
+            winner_id: winner.clone(),
+            loser_id: loser.clone(),
+        },
+        &state,
+    )
+    .unwrap();
+    assert!(preview.can_merge);
+    relation_attach_impl(
+        RelationAttachDto {
+            source_asset_id: loser.clone(),
+            target_asset_id: dependency,
+            relation_type: "depends_on".into(),
+            note: None,
+            expected_source_revision: Some(preview.loser_revision),
+            expected_target_revision: Some(1),
+        },
+        &state,
+    )
+    .unwrap();
+
+    let stale = merge_apply_impl(
+        MergeApplyDto {
+            winner_id: winner.clone(),
+            loser_id: loser.clone(),
+            expected_winner_revision: Some(preview.winner_revision),
+            expected_loser_revision: Some(preview.loser_revision),
+        },
+        &state,
+    )
+    .unwrap_err();
+    assert_eq!(stale.category, "stale_revision");
+    assert_eq!(
+        library_get_impl(&loser, &state).unwrap().lifecycle,
+        "active"
+    );
+}
+
+#[test]
 fn relation_mutations_enforce_optimistic_concurrency() {
     use assetmesh_desktop_lib::commands::{relation_list_impl, relation_remove_impl};
     use assetmesh_desktop_lib::dto::RelationRemoveDto;
@@ -616,7 +701,7 @@ fn relation_mutations_enforce_optimistic_concurrency() {
         RelationRemoveDto {
             relation_id: rel_id,
             context_asset_id: Some(src_id.clone()),
-            expected_context_revision: Some(1),
+            expected_context_revision: Some(2),
         },
         &state,
     )

@@ -110,11 +110,41 @@ impl DesktopModules {
 }
 
 pub struct DesktopState {
-    pub status: RwLock<AppStatus>,
-    pub factory: RwLock<Option<SharedSqlite>>,
+    runtime: RwLock<RuntimeState>,
     default_db_path: RwLock<Option<PathBuf>>,
     pub clock: SharedClock,
     pub ids: SharedIdGenerator,
+}
+
+enum RuntimeState {
+    Loading,
+    Ready {
+        db_path: String,
+        modules: DesktopModules,
+    },
+    SetupFailure {
+        message: String,
+    },
+    CorruptFailure {
+        message: String,
+    },
+}
+
+impl RuntimeState {
+    fn status(&self) -> AppStatus {
+        match self {
+            Self::Loading => AppStatus::Loading,
+            Self::Ready { db_path, .. } => AppStatus::Ready {
+                db_path: db_path.clone(),
+            },
+            Self::SetupFailure { message } => AppStatus::SetupFailure {
+                message: message.clone(),
+            },
+            Self::CorruptFailure { message } => AppStatus::CorruptFailure {
+                message: message.clone(),
+            },
+        }
+    }
 }
 
 impl Default for DesktopState {
@@ -126,8 +156,7 @@ impl Default for DesktopState {
 impl DesktopState {
     pub fn new() -> Self {
         Self {
-            status: RwLock::new(AppStatus::Loading),
-            factory: RwLock::new(None),
+            runtime: RwLock::new(RuntimeState::Loading),
             default_db_path: RwLock::new(None),
             clock: Arc::new(SystemClock),
             ids: Arc::new(UuidV7Generator),
@@ -136,8 +165,7 @@ impl DesktopState {
 
     pub fn with_clock_and_ids(clock: SharedClock, ids: SharedIdGenerator) -> Self {
         Self {
-            status: RwLock::new(AppStatus::Loading),
-            factory: RwLock::new(None),
+            runtime: RwLock::new(RuntimeState::Loading),
             default_db_path: RwLock::new(None),
             clock,
             ids,
@@ -163,19 +191,13 @@ impl DesktopState {
         if let Ok(mut guard) = self.default_db_path.write() {
             *guard = Some(db_path.to_path_buf());
         }
-        match assetmesh_storage_sqlite::open(&path_str) {
+        let next = match assetmesh_storage_sqlite::open(&path_str) {
             Ok(sqlite_factory) => {
                 let shared = SharedSqlite(Arc::new(sqlite_factory));
-                *self
-                    .factory
-                    .write()
-                    .map_err(|_| DesktopError::internal("Lock poisoned"))? = Some(shared);
-                let status = AppStatus::Ready { db_path: path_str };
-                *self
-                    .status
-                    .write()
-                    .map_err(|_| DesktopError::internal("Lock poisoned"))? = status.clone();
-                Ok(status)
+                RuntimeState::Ready {
+                    db_path: path_str,
+                    modules: DesktopModules::new(shared, self.clock.clone(), self.ids.clone()),
+                }
             }
             Err(err) => {
                 let corrupt = matches!(
@@ -183,31 +205,29 @@ impl DesktopState {
                     assetmesh_core::AppError::CorruptData { .. }
                         | assetmesh_core::AppError::UnsupportedSchemaVersion { .. }
                 );
-                // Neither the reason nor the path belongs in a setup failure that
-                // crosses into the webview, so both stay on stderr here.
+                // The underlying reason and path stay on stderr: `AppStatus` crosses
+                // into the webview, and its message is tested to carry neither.
                 eprintln!("[assetmesh] database initialization failed: {err} (path: {path_str})");
-                let status = if corrupt {
-                    AppStatus::CorruptFailure {
-                        message: err.message(),
-                    }
+                let message = DesktopError::from(err).message;
+                if corrupt {
+                    RuntimeState::CorruptFailure { message }
                 } else {
-                    AppStatus::SetupFailure {
-                        message: DesktopError::from(err).message,
-                    }
-                };
-                *self
-                    .status
-                    .write()
-                    .map_err(|_| DesktopError::internal("Lock poisoned"))? = status.clone();
-                Ok(status)
+                    RuntimeState::SetupFailure { message }
+                }
             }
-        }
+        };
+        let status = next.status();
+        *self
+            .runtime
+            .write()
+            .map_err(|_| DesktopError::internal("Lock poisoned"))? = next;
+        Ok(status)
     }
 
     pub fn get_status(&self) -> AppStatus {
-        self.status
+        self.runtime
             .read()
-            .map(|s| s.clone())
+            .map(|s| s.status())
             .unwrap_or(AppStatus::SetupFailure {
                 message: "Internal lock failure".into(),
             })
@@ -221,17 +241,13 @@ impl DesktopState {
     /// without mutex lock contention.
     pub fn modules(&self) -> Result<DesktopModules, DesktopError> {
         let guard = self
-            .factory
+            .runtime
             .read()
             .map_err(|_| DesktopError::internal("Lock poisoned"))?;
-        let factory = guard
-            .as_ref()
-            .ok_or_else(|| DesktopError::setup_required("Database is not initialized"))?;
-        Ok(DesktopModules::new(
-            factory.clone(),
-            self.clock.clone(),
-            self.ids.clone(),
-        ))
+        match &*guard {
+            RuntimeState::Ready { modules, .. } => Ok(modules.clone()),
+            _ => Err(DesktopError::setup_required("Database is not initialized")),
+        }
     }
 
     /// Executes a closure against centralized [`DesktopModules`].
@@ -251,16 +267,7 @@ impl DesktopState {
         &self,
         f: impl FnOnce(&mut SharedSqlite) -> Result<R, DesktopError>,
     ) -> Result<R, DesktopError> {
-        let mut factory = {
-            let guard = self
-                .factory
-                .read()
-                .map_err(|_| DesktopError::internal("Lock poisoned"))?;
-            guard
-                .as_ref()
-                .ok_or_else(|| DesktopError::setup_required("Database is not initialized"))?
-                .clone()
-        };
+        let mut factory = self.modules()?.factory().clone();
         f(&mut factory)
     }
 }

@@ -322,6 +322,27 @@ impl<F: UnitOfWorkFactory> SoftwareService<F> {
         candidate: SoftwareCandidate,
         overrides: AdoptOverrides,
     ) -> AppResult<AdoptionOutcome> {
+        self.adopt_candidate_internal(candidate, overrides, None, false)
+    }
+
+    /// Desktop write path: an adoption that resolves to an existing asset
+    /// must prove which revision was reviewed. New-record adoption needs none.
+    pub fn adopt_candidate_with_revision(
+        &mut self,
+        candidate: SoftwareCandidate,
+        overrides: AdoptOverrides,
+        expected_revision: Option<i64>,
+    ) -> AppResult<AdoptionOutcome> {
+        self.adopt_candidate_internal(candidate, overrides, expected_revision, true)
+    }
+
+    fn adopt_candidate_internal(
+        &mut self,
+        candidate: SoftwareCandidate,
+        overrides: AdoptOverrides,
+        expected_revision: Option<i64>,
+        require_existing_revision: bool,
+    ) -> AppResult<AdoptionOutcome> {
         let now = self.clock.now();
         let ids = self.ids.clone();
         candidate.validate()?;
@@ -385,6 +406,14 @@ impl<F: UnitOfWorkFactory> SoftwareService<F> {
                     .get(asset_id)?
                     .ok_or_else(|| AppError::not_found("asset", asset_id))?;
                 asset.ensure_mutable()?;
+                if require_existing_revision {
+                    let expected = expected_revision.ok_or_else(|| {
+                        AppError::validation(
+                            "expected_revision is required when adopting into an existing asset",
+                        )
+                    })?;
+                    crate::application::shared::check_asset_revision(&asset, expected)?;
+                }
                 if asset.kind.module() != "software" {
                     return Err(AppError::conflict(format!(
                         "asset {asset_id} is a {} — adoption targets must be software assets",

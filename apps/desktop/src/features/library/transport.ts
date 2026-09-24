@@ -6,6 +6,7 @@ import type {
   AssetSummary,
   ClassifiedCandidateDto,
   DesktopError,
+  DesktopErrorCategory,
   LibraryQuery,
   LibrarySearchQuery,
   MediaCommand,
@@ -160,14 +161,24 @@ export class TauriTransport implements DesktopTransport {
 export function normalizeDesktopError(err: unknown): DesktopError {
   if (typeof err === 'object' && err !== null) {
     const obj = err as Record<string, unknown>;
-    const category = typeof obj.category === 'string' ? obj.category : 'internal';
-    const message = typeof obj.message === 'string' ? obj.message : String(err);
-    return { category, message };
+    if (isDesktopErrorCategory(obj.category) && typeof obj.message === 'string') {
+      return { category: obj.category, message: obj.message };
+    }
   }
   return {
     category: 'internal',
-    message: String(err),
+    message: 'An unexpected application error occurred.',
   };
+}
+
+const desktopErrorCategories: ReadonlySet<string> = new Set<DesktopErrorCategory>([
+  'invalid_input', 'not_found', 'conflict', 'stale_revision', 'setup_required',
+  'unavailable', 'permission_denied', 'unsupported', 'timeout', 'rate_limited',
+  'corrupt_data', 'internal',
+]);
+
+function isDesktopErrorCategory(value: unknown): value is DesktopErrorCategory {
+  return typeof value === 'string' && desktopErrorCategories.has(value);
 }
 
 let activeTransport: DesktopTransport = new TauriTransport();

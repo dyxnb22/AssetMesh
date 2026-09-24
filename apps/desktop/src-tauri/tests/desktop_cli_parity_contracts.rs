@@ -39,7 +39,7 @@ fn cli_and_desktop_produce_identical_library_results_across_all_domains() {
     let clock = Arc::new(SystemClock);
     let ids = Arc::new(UuidV7Generator);
 
-    let factory = state.factory.read().unwrap().clone().unwrap();
+    let factory = state.modules().unwrap().factory().clone();
 
     // 1. Seed assets across Media, Software, and Services
     let mut media_svc = MediaService::new(factory.clone(), clock.clone(), ids.clone());

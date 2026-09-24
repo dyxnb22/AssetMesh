@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { ExternalRefDto } from '../types';
+import { t } from '../../../i18n';
 
 interface ExternalRefsPanelProps {
   refs: ExternalRefDto[];
@@ -36,8 +37,7 @@ export const ExternalRefsPanel: React.FC<ExternalRefsPanelProps> = ({ refs }) =>
       }}
       data-testid="external-refs-panel"
     >
-      <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-muted)', fontWeight: 600 }}>
-        External References ({refs.length})
+      <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-muted)', fontWeight: 600 }}>{t('External References (')}{refs.length})
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -84,7 +84,7 @@ export const ExternalRefsPanel: React.FC<ExternalRefsPanelProps> = ({ refs }) =>
 
               <button
                 onClick={() => handleCopy(r)}
-                title="Copy namespace:external_id to clipboard"
+                title={t('Copy namespace:external_id to clipboard')}
                 aria-label={`Copy reference ${r.namespace}:${r.external_id}`}
                 style={{
                   padding: '3px 8px',
@@ -98,7 +98,7 @@ export const ExternalRefsPanel: React.FC<ExternalRefsPanelProps> = ({ refs }) =>
                   transition: 'background-color 0.15s ease',
                 }}
               >
-                {isCopied ? 'Copied!' : 'Copy'}
+                {isCopied ? t('Copied!') : t('Copy')}
               </button>
             </div>
           );

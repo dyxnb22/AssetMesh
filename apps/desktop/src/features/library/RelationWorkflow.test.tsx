@@ -39,6 +39,16 @@ const assetC: AssetSummary = {
   updated_at: '2024-03-20T10:00:00Z',
 };
 
+function attach(fake: FakeDesktopTransport, source: string, target: string, relationType: string) {
+  return fake.relationAttach({
+    source_asset_id: source,
+    target_asset_id: target,
+    relation_type: relationType,
+    expected_source_revision: fake.assets.find((asset) => asset.id === source)?.revision ?? 1,
+    expected_target_revision: fake.assets.find((asset) => asset.id === target)?.revision ?? 1,
+  });
+}
+
 describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
   let fakeTransport: FakeDesktopTransport;
 
@@ -53,16 +63,8 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
 
   it('Flow 1 (Neighbors List & Direction Filter): lists direct relations and filters by direction', async () => {
     // Attach A -> B (depends_on) and C -> A (depends_on)
-    await fakeTransport.relationAttach({
-      source_asset_id: assetA.id,
-      relation_type: 'depends_on',
-      target_asset_id: assetB.id,
-    });
-    await fakeTransport.relationAttach({
-      source_asset_id: assetC.id,
-      relation_type: 'depends_on',
-      target_asset_id: assetA.id,
-    });
+    await attach(fakeTransport, assetA.id, assetB.id, 'depends_on');
+    await attach(fakeTransport, assetC.id, assetA.id, 'depends_on');
 
     render(
       <RelationExplorer
@@ -100,16 +102,8 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
 
   it('Flow 2 (Impact & Dependency Path Explorer): explores impact and dependencies with depth and path evidence', async () => {
     // Chain: A depends_on B, B depends_on C
-    await fakeTransport.relationAttach({
-      source_asset_id: assetA.id,
-      relation_type: 'depends_on',
-      target_asset_id: assetB.id,
-    });
-    await fakeTransport.relationAttach({
-      source_asset_id: assetB.id,
-      relation_type: 'depends_on',
-      target_asset_id: assetC.id,
-    });
+    await attach(fakeTransport, assetA.id, assetB.id, 'depends_on');
+    await attach(fakeTransport, assetB.id, assetC.id, 'depends_on');
 
     render(
       <RelationExplorer
@@ -199,11 +193,7 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
   it('Flow 4 (Remove Relation with Confirmation): prompts confirmation and removes relation', async () => {
     const removeSpy = vi.spyOn(fakeTransport, 'relationRemove');
 
-    const receipt = await fakeTransport.relationAttach({
-      source_asset_id: assetA.id,
-      relation_type: 'depends_on',
-      target_asset_id: assetB.id,
-    });
+    const receipt = await attach(fakeTransport, assetA.id, assetB.id, 'depends_on');
     expect(receipt.asset_ids).toContain(assetA.id);
     const attachedRelId = 'rel-1';
 
@@ -243,11 +233,7 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
   });
 
   it('Flow 5 (Graph View / List View Toggle): switches between visual SVG graph and accessible list', async () => {
-    await fakeTransport.relationAttach({
-      source_asset_id: assetA.id,
-      relation_type: 'depends_on',
-      target_asset_id: assetB.id,
-    });
+    await attach(fakeTransport, assetA.id, assetB.id, 'depends_on');
 
     render(
       <RelationExplorer

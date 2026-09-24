@@ -465,6 +465,8 @@ pub enum SoftwareCommandDto {
         #[serde(default)]
         target: Option<String>,
         #[serde(default)]
+        expected_revision: Option<i64>,
+        #[serde(default)]
         purpose: Option<String>,
         #[serde(default)]
         notes: Option<String>,

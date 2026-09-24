@@ -180,19 +180,45 @@ fn test_crash_and_reopen_durability() {
             &state1,
         )
         .expect("create media");
-        receipt.asset_ids[0].clone()
+        let id = receipt.asset_ids[0].clone();
+        media_command_impl(
+            MediaCommandDto::UpdateMetadata {
+                asset_id: id.clone(),
+                expected_revision: Some(1),
+                title: Some("Durable Movie Revised".into()),
+                summary: None,
+                year: None,
+                platform: None,
+                notes: Some("Persisted after update".into()),
+            },
+            &state1,
+        )
+        .expect("update before process exit");
+        id
         // state1 drops here, simulating process exit
     };
 
     // Process 2: Reopen in a completely new DesktopState instance
     let state2 = setup_state(&db_path);
     let detail = library_get_impl(&asset_id, &state2).expect("read back");
-    assert_eq!(detail.name, "Durable Movie");
+    assert_eq!(detail.name, "Durable Movie Revised");
     assert_eq!(detail.lifecycle, "active");
+    assert_eq!(detail.revision, 2);
+    assert_eq!(detail.details["notes"], "Persisted after update");
 
     let list = library_list_impl(Some(LibraryQueryDto::default()), &state2).expect("list");
     assert_eq!(list.total, Some(1));
     assert_eq!(list.items[0].id, asset_id);
+    let search = library_search_impl(
+        LibrarySearchQueryDto {
+            text: "Revised".into(),
+            ..Default::default()
+        },
+        &state2,
+    )
+    .expect("search after restart");
+    assert_eq!(search.items.len(), 1);
+    assert_eq!(search.items[0].id, asset_id);
 }
 
 #[test]
@@ -492,8 +518,8 @@ fn test_read_operations_never_mutate_state() {
             target_asset_id: media_id.clone(),
             relation_type: "uses".into(),
             note: None,
-            expected_source_revision: None,
-            expected_target_revision: None,
+            expected_source_revision: Some(1),
+            expected_target_revision: Some(1),
         },
         &state,
     )

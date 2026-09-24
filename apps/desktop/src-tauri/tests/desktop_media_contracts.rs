@@ -23,6 +23,50 @@ fn setup_test_state(name: &str) -> DesktopState {
 }
 
 #[test]
+fn empty_metadata_update_still_checks_existence_and_revision() {
+    let state = setup_test_state("empty-update");
+    let empty = |asset_id: String, expected_revision| MediaCommandDto::UpdateMetadata {
+        asset_id,
+        expected_revision,
+        title: None,
+        summary: None,
+        year: None,
+        platform: None,
+        notes: None,
+    };
+    let missing =
+        media_command_impl(empty(uuid::Uuid::now_v7().to_string(), Some(1)), &state).unwrap_err();
+    assert_eq!(missing.category, "not_found");
+
+    let created = media_command_impl(
+        MediaCommandDto::Create {
+            title: "No-op target".into(),
+            media_type: "movie".into(),
+            summary: None,
+            status: None,
+            rating: None,
+            year: None,
+            platform: None,
+            progress_unit: None,
+            progress_current: None,
+            progress_total: None,
+            notes: None,
+            tags: Vec::new(),
+        },
+        &state,
+    )
+    .unwrap();
+    let id = created.asset_ids[0].clone();
+    let missing_revision = media_command_impl(empty(id.clone(), None), &state).unwrap_err();
+    assert_eq!(missing_revision.category, "invalid_input");
+    let stale = media_command_impl(empty(id.clone(), Some(2)), &state).unwrap_err();
+    assert_eq!(stale.category, "stale_revision");
+    let receipt = media_command_impl(empty(id, Some(1)), &state).unwrap();
+    assert!(!receipt.changed);
+    assert_eq!(receipt.revision, Some(1));
+}
+
+#[test]
 fn media_workflow_create_and_read_back() {
     let state = setup_test_state("create");
 

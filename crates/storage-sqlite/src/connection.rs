@@ -6,6 +6,7 @@
 //! adapter may create ad-hoc connections with different pragmas.
 
 use assetmesh_core::AppError;
+use rusqlite::functions::FunctionFlags;
 use rusqlite::Connection;
 use std::time::Duration;
 
@@ -44,6 +45,13 @@ fn configure_with_retry(conn: &Connection, expect_wal: bool) -> Result<(), AppEr
 }
 
 fn configure(conn: &Connection, expect_wal: bool) -> Result<(), AppError> {
+    conn.create_scalar_function(
+        "assetmesh_casefold",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| Ok(ctx.get::<String>(0)?.to_lowercase()),
+    )
+    .map_err(crate::map_error)?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(crate::map_error)?;
 
