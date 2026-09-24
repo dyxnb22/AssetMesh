@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vitest run src/test/workflow-release-gate.test.tsx"
+    "test:e2e": "vitest run src/test/workflow-release-gate.test.tsx",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.66.0",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
+    "@tauri-apps/cli": "^2.11.5",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^14.6.1",

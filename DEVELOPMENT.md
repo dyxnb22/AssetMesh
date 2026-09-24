@@ -24,6 +24,19 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features
 ```
 
+## Desktop run & package
+
+```bash
+npm run --workspace=apps/desktop tauri dev    # vite + window, reloads on UI edits
+npm run --workspace=apps/desktop tauri build  # .app + .dmg under target/release/bundle/macos
+```
+
+A bare `cargo run -p assetmesh-desktop` has no Dock icon: macOS reads the icon from the
+`.app` bundle, so only the packaged build shows it. The icon source of truth is
+`apps/desktop/src-tauri/icons/icon.svg`; regenerate the full set with
+`npx tauri icon <abs>/icon.svg --output <abs>/icons` (absolute paths — the CLI resolves
+relative ones against `apps/desktop`).
+
 ## Workspace layout
 
 ```text
