@@ -35,7 +35,7 @@ import type {
 export interface DesktopTransport {
   getCapabilities(): Promise<AppCapabilities>;
   getStatus(): Promise<AppStatus>;
-  init(dbPath: string): Promise<AppStatus>;
+  init(dbPath?: string): Promise<AppStatus>;
   listAssets(query?: LibraryQuery): Promise<Page<AssetSummary>>;
   searchAssets(query: LibrarySearchQuery): Promise<Page<AssetSummary>>;
   getAsset(id: string): Promise<AssetDetailDto>;
@@ -68,7 +68,7 @@ export class TauriTransport implements DesktopTransport {
     return await invoke<AppStatus>('app_status');
   }
 
-  async init(dbPath: string): Promise<AppStatus> {
+  async init(dbPath?: string): Promise<AppStatus> {
     return await invoke<AppStatus>('app_init', { dbPath });
   }
 

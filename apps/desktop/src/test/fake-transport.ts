@@ -159,8 +159,8 @@ export class FakeDesktopTransport implements DesktopTransport {
     return this.status;
   }
 
-  async init(dbPath: string): Promise<AppStatus> {
-    this.status = { status: 'ready', db_path: dbPath };
+  async init(dbPath?: string): Promise<AppStatus> {
+    this.status = { status: 'ready', db_path: dbPath ?? 'app-data://assetmesh.db' };
     return this.status;
   }
 

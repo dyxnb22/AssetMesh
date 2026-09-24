@@ -281,3 +281,52 @@ fn real_tauri_runtime_full_lifecycle_e2e_flow() {
         "existing assets match fingerprint so are not re-created"
     );
 }
+
+/// The setup card's Retry presses `app_init` with no argument, so the command
+/// must accept that and re-open the location it was last asked for.
+#[test]
+fn app_init_retries_the_last_attempted_location_when_called_without_arguments() {
+    let app = E2eApp::init();
+
+    let blocked = app._scratch.path.join("blocker");
+    std::fs::write(&blocked, b"not a directory").expect("blocker file");
+    let unreachable = blocked.join("assetmesh.db").to_string_lossy().to_string();
+
+    let failed = app
+        .invoke(
+            "app_init",
+            serde_json::json!({ "dbPath": unreachable.as_str() }),
+        )
+        .expect("a failed open is reported as a status, not an invoke error");
+    assert_eq!(
+        failed["status"].as_str().unwrap_or(""),
+        "setup_failure",
+        "got: {failed:?}"
+    );
+
+    let recovered = app
+        .invoke("app_init", serde_json::json!({ "dbPath": app.db_path }))
+        .expect("app_init with a valid path should succeed");
+    assert_eq!(
+        recovered["status"].as_str().unwrap_or(""),
+        "ready",
+        "got: {recovered:?}"
+    );
+
+    let retried = app
+        .invoke("app_init", serde_json::json!({}))
+        .expect("app_init must accept a missing dbPath");
+    assert_eq!(
+        retried["status"].as_str().unwrap_or(""),
+        "ready",
+        "a retry with no argument must re-open the last location, got: {retried:?}"
+    );
+
+    let listed = app
+        .invoke("library_list", serde_json::json!({}))
+        .expect("the recovered state must serve reads");
+    assert!(
+        listed["items"].is_array(),
+        "library_list should return a page after recovery"
+    );
+}

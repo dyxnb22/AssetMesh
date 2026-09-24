@@ -141,7 +141,10 @@ impl From<assetmesh_core::AppError> for DesktopError {
             },
             AppError::Storage { .. } => DesktopError {
                 category: DesktopErrorCategory::Internal,
-                message: "An internal storage error occurred.".to_string(),
+                // Actionable but generic: this text reaches the webview, so the
+                // underlying reason and the database path stay on stderr.
+                message: "The database could not be opened. Check that its location exists and is writable, or set ASSETMESH_DB."
+                    .to_string(),
             },
         }
     }

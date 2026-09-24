@@ -75,6 +75,51 @@ describe('App Desktop Shell', () => {
     });
   });
 
+  it('re-initializes the database when Retry is pressed on the setup card', async () => {
+    const fake = new FakeDesktopTransport(sampleAssets);
+    fake.status = {
+      status: 'setup_failure',
+      message: 'The database could not be opened. Check that its location exists and is writable.',
+    };
+    const inits: (string | undefined)[] = [];
+    const originalInit = fake.init.bind(fake);
+    fake.init = async (dbPath?: string) => {
+      inits.push(dbPath);
+      return originalInit(dbPath);
+    };
+    setTransport(fake);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument());
+    expect(inits).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull());
+    expect(inits).toEqual([undefined]);
+  });
+
+  it('opens a database at a picked folder when the location is changed', async () => {
+    const fake = new FakeDesktopTransport(sampleAssets);
+    fake.status = { status: 'setup_failure', message: 'The database could not be opened.' };
+    const inits: (string | undefined)[] = [];
+    fake.init = async (dbPath?: string) => {
+      inits.push(dbPath);
+      return { status: 'ready', db_path: dbPath ?? 'default' };
+    };
+    fake.pickDirectory = async () => '/tmp/chosen';
+    setTransport(fake);
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Choose another folder/ })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Choose another folder/ }));
+
+    await waitFor(() => expect(inits).toEqual(['/tmp/chosen/assetmesh.db']));
+  });
+
   it('renders corrupt failure state when migrations/checksums fail', async () => {
     const fake = new FakeDesktopTransport();
     fake.status = { status: 'corrupt_failure', message: 'checksum mismatch in migration 0001' };

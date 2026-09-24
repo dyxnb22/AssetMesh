@@ -37,11 +37,19 @@ A bare `cargo run -p assetmesh-desktop` has no Dock icon: macOS reads the icon f
 `npx tauri icon <abs>/icon.svg --output <abs>/icons` (absolute paths — the CLI resolves
 relative ones against `apps/desktop`).
 
+The desktop database defaults to `assetmesh.db` inside the Tauri application data
+directory (`~/Library/Application Support/com.assetmesh.desktop` on macOS); `ASSETMESH_DB`
+overrides it. Never a working-directory-relative path: a `.app` launched from a file
+manager runs with the CWD at `/`, which is read-only. When the open fails the window
+still appears, the card shows a generic hint, and the real reason plus the path go to
+stderr (`< /Applications/AssetMesh.app/Contents/MacOS/assetmesh-desktop 2> log`).
+
 ## Workspace layout
 
 ```text
 AssetMesh/
 ├── Cargo.toml                    # workspace
+├── apps/desktop/                 # Tauri + React desktop application and real Linux E2E
 ├── migrations/
 │   ├── 0001_core_media_v1.sql         # database migration v1 (embedded at build time)
 │   ├── 0002_software_relations_v1.sql # software details + shared relations

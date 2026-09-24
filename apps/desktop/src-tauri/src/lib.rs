@@ -69,15 +69,47 @@ pub fn configure_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
 pub fn run() {
     let state = DesktopState::new();
 
-    // Default db path from env or local file
-    if let Ok(db_env) = std::env::var("ASSETMESH_DB") {
-        let _ = state.initialize(std::path::Path::new(&db_env));
-    } else {
-        let _ = state.initialize(std::path::Path::new("assetmesh.db"));
-    }
-
     configure_builder(tauri::Builder::default())
         .manage(state)
+        .setup(|app| {
+            use tauri::Manager;
+            let db_path = startup_database_path(app.handle())?;
+            let _ = app.state::<DesktopState>().initialize(&db_path);
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// The database file the launch should open: `ASSETMESH_DB` if set, otherwise a
+/// file inside the application data directory.
+///
+/// `DesktopState::initialize` records the result, so `app_init` can retry it.
+pub fn startup_database_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| format!("cannot resolve the application data directory: {err}"))?;
+    Ok(resolve_db_path(
+        std::env::var("ASSETMESH_DB").ok().as_deref(),
+        &data_dir,
+    ))
+}
+
+/// Chooses the database file to open.
+///
+/// The fallback is always absolute: a bundled `.app` launched from a file manager
+/// runs with the process working directory at `/`, which is read-only on macOS, so
+/// a CWD-relative default can never be opened there.
+pub fn resolve_db_path(
+    env_override: Option<&str>,
+    data_dir: &std::path::Path,
+) -> std::path::PathBuf {
+    match env_override.map(str::trim).filter(|p| !p.is_empty()) {
+        Some(path) => std::path::PathBuf::from(path),
+        None => data_dir.join("assetmesh.db"),
+    }
 }

@@ -20,14 +20,20 @@ pub fn app_status_impl(state: &DesktopState) -> Result<AppStatus, DesktopError> 
     Ok(state.get_status())
 }
 
+/// Re-opens the database, which is how the setup card recovers.
+///
+/// With no argument it retries the location the launch attempted; with one it
+/// switches to that file.
 #[tauri::command]
 pub fn app_init(
-    db_path: String,
+    db_path: Option<String>,
     state: State<'_, DesktopState>,
 ) -> Result<AppStatus, DesktopError> {
-    app_init_impl(&db_path, &state)
-}
-
-pub fn app_init_impl(db_path: &str, state: &DesktopState) -> Result<AppStatus, DesktopError> {
-    state.initialize(std::path::Path::new(db_path))
+    let path = match db_path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(explicit) => std::path::PathBuf::from(explicit),
+        None => state.default_db_path().ok_or_else(|| {
+            DesktopError::setup_required("No database location has been chosen yet.")
+        })?,
+    };
+    state.initialize(&path)
 }

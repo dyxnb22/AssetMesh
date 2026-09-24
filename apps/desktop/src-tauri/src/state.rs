@@ -1,6 +1,6 @@
 //! Composition root and state management for the desktop adapter.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use assetmesh_core::application::activity_service::ActivityService;
@@ -112,6 +112,7 @@ impl DesktopModules {
 pub struct DesktopState {
     pub status: RwLock<AppStatus>,
     pub factory: RwLock<Option<SharedSqlite>>,
+    default_db_path: RwLock<Option<PathBuf>>,
     pub clock: SharedClock,
     pub ids: SharedIdGenerator,
 }
@@ -127,6 +128,7 @@ impl DesktopState {
         Self {
             status: RwLock::new(AppStatus::Loading),
             factory: RwLock::new(None),
+            default_db_path: RwLock::new(None),
             clock: Arc::new(SystemClock),
             ids: Arc::new(UuidV7Generator),
         }
@@ -136,14 +138,31 @@ impl DesktopState {
         Self {
             status: RwLock::new(AppStatus::Loading),
             factory: RwLock::new(None),
+            default_db_path: RwLock::new(None),
             clock,
             ids,
         }
     }
 
+    /// The location the most recent initialization attempt used.
+    ///
+    /// A retry after a startup failure has to re-open the same file, and only
+    /// this state object knows which one the launch asked for.
+    pub fn default_db_path(&self) -> Option<PathBuf> {
+        self.default_db_path.read().ok().and_then(|p| p.clone())
+    }
+
     /// Initializes the database connection and runs pending migrations.
     pub fn initialize(&self, db_path: &Path) -> Result<AppStatus, DesktopError> {
         let path_str = db_path.to_string_lossy().to_string();
+        if let Some(parent) = db_path.parent() {
+            // A failure here still surfaces from `open` below; aborting the launch
+            // instead would leave the user with no window and no explanation.
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(mut guard) = self.default_db_path.write() {
+            *guard = Some(db_path.to_path_buf());
+        }
         match assetmesh_storage_sqlite::open(&path_str) {
             Ok(sqlite_factory) => {
                 let shared = SharedSqlite(Arc::new(sqlite_factory));
@@ -159,16 +178,22 @@ impl DesktopState {
                 Ok(status)
             }
             Err(err) => {
-                let status = match &err {
+                let corrupt = matches!(
+                    err,
                     assetmesh_core::AppError::CorruptData { .. }
-                    | assetmesh_core::AppError::UnsupportedSchemaVersion { .. } => {
-                        AppStatus::CorruptFailure {
-                            message: err.message(),
-                        }
-                    }
-                    _ => AppStatus::SetupFailure {
+                        | assetmesh_core::AppError::UnsupportedSchemaVersion { .. }
+                );
+                // Neither the reason nor the path belongs in a setup failure that
+                // crosses into the webview, so both stay on stderr here.
+                eprintln!("[assetmesh] database initialization failed: {err} (path: {path_str})");
+                let status = if corrupt {
+                    AppStatus::CorruptFailure {
                         message: err.message(),
-                    },
+                    }
+                } else {
+                    AppStatus::SetupFailure {
+                        message: DesktopError::from(err).message,
+                    }
                 };
                 *self
                     .status

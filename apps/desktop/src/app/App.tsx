@@ -137,6 +137,36 @@ export const App: React.FC = () => {
     loadInitialState();
   }, [loadInitialState]);
 
+  const [setupBusy, setSetupBusy] = useState(false);
+
+  // Actually re-opens the database: `getStatus` alone can never leave the failure
+  // state, because the backend only retries when it is asked to initialize.
+  const retrySetup = useCallback(
+    async (dbPath?: string) => {
+      setSetupBusy(true);
+      try {
+        const next = await transport.init(dbPath);
+        setStatus(next);
+        if (next.status === 'ready') {
+          setCapabilities(await transport.getCapabilities());
+        }
+      } catch (err: unknown) {
+        setStatus({
+          status: 'setup_failure',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setSetupBusy(false);
+      }
+    },
+    [transport],
+  );
+
+  const chooseDatabaseFolder = useCallback(async () => {
+    const dir = await transport.pickDirectory('Choose a folder for the AssetMesh database');
+    if (dir) await retrySetup(`${dir}/assetmesh.db`);
+  }, [retrySetup, transport]);
+
   const selectedAssetIdRef = React.useRef<string | null>(nav.selectedAssetId);
   selectedAssetIdRef.current = nav.selectedAssetId;
 
@@ -300,20 +330,38 @@ export const App: React.FC = () => {
           >
             {status.message}
           </p>
-          <button
-            onClick={() => loadInitialState()}
-            style={{
-              padding: '6px 14px',
-              backgroundColor: 'var(--color-mesh)',
-              color: '#FFFFFF',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              cursor: 'pointer',
-              fontWeight: 500,
-            }}
-          >
-            Retry
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => retrySetup()}
+              disabled={setupBusy}
+              style={{
+                padding: '6px 14px',
+                backgroundColor: 'var(--color-mesh)',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={chooseDatabaseFolder}
+              disabled={setupBusy}
+              style={{
+                padding: '6px 14px',
+                backgroundColor: 'transparent',
+                color: 'var(--color-ink)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+            >
+              Choose another folder…
+            </button>
+          </div>
         </div>
       </div>
     );
