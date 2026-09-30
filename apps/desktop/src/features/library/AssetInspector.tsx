@@ -1,11 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { Badge } from '../../ui/Badge';
 import { formatRelativeTime, t } from '../../i18n';
-import { getTransport } from './transport';
+import { getTransport, normalizeDesktopError } from './transport';
 import type { AssetSummary, MediaRecordDto, RelationViewDto } from './types';
 
 /** Canonical media statuses, in selector order. */
 const MEDIA_STATUS_KEYS = ['planned', 'in_progress', 'completed', 'paused', 'dropped'] as const;
+
+/**
+ * Client mirror of the core state machine (`MediaStatus::can_transition_to`):
+ * targets outside the current status's list render disabled, so an illegal
+ * transition never even reaches the application layer.
+ */
+const ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
+  planned: ['in_progress', 'completed', 'dropped'],
+  in_progress: ['planned', 'paused', 'completed', 'dropped'],
+  completed: ['in_progress', 'paused', 'dropped'],
+  paused: ['planned', 'in_progress', 'completed', 'dropped'],
+  dropped: ['planned', 'in_progress', 'paused', 'completed'],
+};
 
 const statusTint: Record<string, { bg: string; ink: string }> = {
   planned: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
@@ -36,6 +49,7 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
   const [relations, setRelations] = useState<RelationViewDto[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const media: MediaRecordDto | null =
     asset?.details && asset.details.module === 'media' ? asset.details : null;
@@ -70,9 +84,13 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
 
   const changeStatus = async (status: string) => {
     if (!asset || !onMediaStatusChange || pendingStatus || asset.lifecycle !== 'active') return;
+    if (!media || !ALLOWED_TRANSITIONS[media.status]?.includes(status)) return;
     setPendingStatus(status);
+    setActionError(null);
     try {
       await onMediaStatusChange(asset, status);
+    } catch (err: unknown) {
+      setActionError(normalizeDesktopError(err).message);
     } finally {
       setPendingStatus(null);
     }
@@ -217,23 +235,28 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
               >
                 {MEDIA_STATUS_KEYS.map((key) => {
                   const active = media.status === key;
+                  const allowed = ALLOWED_TRANSITIONS[media.status]?.includes(key) ?? false;
                   return (
                     <button
                       key={key}
                       type="button"
                       onClick={() => changeStatus(key)}
-                      disabled={pendingStatus !== null || asset.lifecycle !== 'active'}
+                      disabled={active || !allowed || pendingStatus !== null || asset.lifecycle !== 'active'}
                       aria-pressed={active}
-                      title={t(key)}
+                      title={active ? t(key) : allowed ? t(key) : ''}
                       style={{
                         flex: 1,
                         height: 26,
                         border: 'none',
                         borderRadius: 999,
-                        cursor: pendingStatus !== null ? 'wait' : 'pointer',
+                        cursor:
+                          active || !allowed || pendingStatus !== null
+                            ? 'default'
+                            : 'pointer',
                         fontSize: 11.5,
                         whiteSpace: 'nowrap',
                         padding: 0,
+                        opacity: active || allowed ? 1 : 0.4,
                         backgroundColor: active ? 'var(--color-mesh)' : 'transparent',
                         color: active ? '#ffffff' : 'var(--color-muted)',
                         fontWeight: active ? 600 : 400,
@@ -244,6 +267,12 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
                   );
                 })}
               </div>
+
+              {actionError && (
+                <p role="alert" style={{ fontSize: 11.5, color: 'var(--color-danger)' }}>
+                  {t(actionError)}
+                </p>
+              )}
 
               {progress && (
                 <div>
@@ -320,7 +349,9 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
                 </div>
               )}
 
-              {media.status !== 'completed' && asset.lifecycle === 'active' && (
+              {media.status !== 'completed' &&
+                asset.lifecycle === 'active' &&
+                (ALLOWED_TRANSITIONS[media.status]?.includes('completed') ?? false) && (
                 <button
                   type="button"
                   onClick={() => changeStatus('completed')}

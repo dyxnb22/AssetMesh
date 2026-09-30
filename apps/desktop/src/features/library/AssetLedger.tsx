@@ -814,6 +814,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0 }}>{t('Name')}</span>
+                <span style={{ width: 48, textAlign: 'right' }}>{t('Year')}</span>
                 <span style={{ width: 90, textAlign: 'right' }}>{t('Progress')}</span>
                 <span style={{ width: 52, textAlign: 'right' }}>{t('Rating')}</span>
                 <span style={{ width: 72, textAlign: 'right' }}>{t('Last Updated')}</span>
@@ -829,9 +830,6 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                       media.progress.current ?? '·'
                     }/${media.progress.total ?? '·'}`
                   : null;
-              const typeText = media
-                ? `${t(media.media_type)}${media.year ? ` · ${media.year}` : ''}`
-                : null;
               return (
                 <div
                   key={asset.id}
@@ -945,21 +943,16 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                         {asset.subtitle}
                       </span>
                     )}
-                    {media && (
-                      <span
-                        style={{
-                          fontSize: '11.5px',
-                          color: 'var(--color-muted)',
-                          maxWidth: 140,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          textAlign: 'right',
-                        }}
-                      >
-                        {typeText}
-                      </span>
-                    )}
+                    <span
+                      style={{
+                        width: 48,
+                        fontSize: '11.5px',
+                        color: media?.year != null ? 'var(--color-muted)' : 'transparent',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {media?.year ?? '—'}
+                    </span>
                     <span
                       style={{
                         width: 90,

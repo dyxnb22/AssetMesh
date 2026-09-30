@@ -186,11 +186,9 @@ pub fn media_command_impl(
                 DesktopError::invalid_input(format!("unknown media status: {status}"))
             })?;
 
-            if target_status == MediaStatus::Planned {
-                return Err(DesktopError::invalid_input(
-                    "transition to planned is not supported",
-                ));
-            }
+            // Transition legality is owned by the core state machine
+            // (`MediaStatus::can_transition_to`); the adapter must not
+            // second-guess it with its own allow-list.
 
             state.with_modules(|modules| {
                 let mut svc = modules.media();

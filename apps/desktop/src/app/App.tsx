@@ -457,7 +457,14 @@ export const App: React.FC = () => {
     pageData?.items.find((i) => i.id === nav.selectedAssetId) || pageData?.items[0] || null;
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      style={{
+        background:
+          'radial-gradient(900px 420px at 18% -8%, rgba(20, 125, 120, 0.08), transparent 62%),' +
+          'radial-gradient(760px 400px at 78% -12%, rgba(94, 106, 210, 0.06), transparent 60%)',
+      }}
+    >
       {/* 1. Navigation Rail */}
       <NavigationRail
         currentSection={nav.section}
@@ -604,17 +611,15 @@ export const App: React.FC = () => {
               onOpenDetail={(id) => setActiveDetailId(id)}
               onOpenRelations={() => setSection('relations')}
               onMediaStatusChange={async (asset, nextStatus) => {
-                try {
-                  await transport.mediaCommand({
-                    action: 'transition_status',
-                    asset_id: asset.id,
-                    status: nextStatus,
-                    expected_revision: asset.revision ?? 1,
-                  });
-                  loadAssets();
-                } catch (err: unknown) {
-                  setError(normalizeDesktopError(err));
-                }
+                // Errors propagate to the inspector, which shows them inline
+                // instead of replacing the whole ledger with an error banner.
+                await transport.mediaCommand({
+                  action: 'transition_status',
+                  asset_id: asset.id,
+                  status: nextStatus,
+                  expected_revision: asset.revision ?? 1,
+                });
+                loadAssets();
               }}
             />
           )}
