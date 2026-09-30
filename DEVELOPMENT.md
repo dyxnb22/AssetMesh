@@ -35,6 +35,11 @@ npm run --workspace=apps/desktop tauri dev    # vite + window, reloads on UI edi
 npm run --workspace=apps/desktop tauri build  # .app + .dmg under target/release/bundle/macos
 ```
 
+No-terminal workflows: the repo root has two double-clickable launchers.
+`1-打开AssetMesh.command` opens the installed app; `2-编译最新版并替换.command`
+builds the app bundle (`tauri build --bundles app`, no DMG) and swaps it into
+`/Applications`, pausing with the build log tail on failure.
+
 A bare `cargo run -p assetmesh-desktop` has no Dock icon: macOS reads the icon from the
 `.app` bundle, so only the packaged build shows it. The icon source of truth is
 `apps/desktop/src-tauri/icons/icon.svg`; regenerate the full set with
