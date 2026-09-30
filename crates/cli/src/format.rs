@@ -549,6 +549,13 @@ pub fn print_asset_detail(view: &AssetDetailView) {
         AssetDetails::Media(record) => print_media_record_fields(record),
         AssetDetails::Software(record) => print_software_record_fields(record),
         AssetDetails::Service(record) => print_service_record_fields(record),
+        AssetDetails::Info(record) => {
+            println!("Type:        {}", record.info_type.as_str());
+            println!("Value:       {}", record.value);
+            if let Some(notes) = &record.notes {
+                println!("Notes:       {notes}");
+            }
+        }
     }
 }
 
