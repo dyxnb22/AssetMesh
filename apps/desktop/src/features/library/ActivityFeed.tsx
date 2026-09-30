@@ -189,6 +189,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
               <option value="media">{t('Media')}</option>
               <option value="software">{t('Software')}</option>
               <option value="services">{t('Services')}</option>
+              <option value="info">{t('Information')}</option>
               <option value="asset">{t('Asset')}</option>
               <option value="relation">{t('Relation')}</option>
               <option value="import">{t('Import')}</option>

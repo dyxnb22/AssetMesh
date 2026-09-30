@@ -4,6 +4,7 @@ import { ExternalRefsPanel } from './panels/ExternalRefsPanel';
 import { MediaPanel } from './panels/MediaPanel';
 import { MergedRedirectPanel } from './panels/MergedRedirectPanel';
 import { ServicePanel } from './panels/ServicePanel';
+import { InfoPanel } from './InfoEditor';
 import { SoftwarePanel } from './panels/SoftwarePanel';
 import { UnknownPanel } from './panels/UnknownPanel';
 import { RelationExplorer } from './RelationExplorer';
@@ -395,6 +396,12 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         });
       } else if (detail.kind.startsWith('service')) {
         receipt = await transport.serviceCommand({
+          action: 'archive',
+          asset_id: detail.id,
+          expected_revision: detail.revision,
+        });
+      } else if (detail.kind === 'info.item') {
+        receipt = await transport.infoCommand({
           action: 'archive',
           asset_id: detail.id,
           expected_revision: detail.revision,
@@ -1402,6 +1409,11 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
             onFollowRedirect={(survivorId) => onFollowRedirect?.(survivorId)}
           />
         );
+      case 'info':
+        return <InfoPanel detail={detail} record={detail.details} onSaved={(receipt, fresh) => {
+          setDetail(fresh);
+          onAssetUpdated?.(receipt);
+        }} />;
       default:
         return <UnknownPanel record={detail.details as UnknownDetailsDto} />;
     }
@@ -1790,7 +1802,12 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
           rootAsset={detail}
           capabilities={capabilities}
           onOpenAssetDetail={onOpenAssetDetail}
-          onAssetUpdated={() => {
+          onAssetUpdated={async () => {
+            try {
+              setDetail(await transport.getAsset(detail.id));
+            } catch (err: unknown) {
+              setMutationError(normalizeDesktopError(err));
+            }
             onAssetUpdated?.({
               operation: 'relation.update',
               asset_ids: [detail.id],

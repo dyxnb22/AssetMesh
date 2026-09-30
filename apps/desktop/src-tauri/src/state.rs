@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 use assetmesh_core::application::activity_service::ActivityService;
 use assetmesh_core::application::asset_service::AssetService;
 use assetmesh_core::application::duplicate_review_service::DuplicateReviewService;
+use assetmesh_core::application::info_service::InfoService;
 use assetmesh_core::application::library_service::LibraryService;
 use assetmesh_core::application::media_service::MediaService;
 use assetmesh_core::application::merge_preview_service::MergePreviewService;
@@ -70,6 +71,10 @@ impl DesktopModules {
 
     pub fn service(&self) -> ServiceService<SharedSqlite> {
         ServiceService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
+    }
+
+    pub fn info(&self) -> InfoService<SharedSqlite> {
+        InfoService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
     }
 
     pub fn relation(&self) -> RelationService<SharedSqlite> {

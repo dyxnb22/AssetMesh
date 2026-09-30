@@ -75,7 +75,7 @@ export interface DesktopError {
   message: string;
 }
 
-export type ActiveModule = 'all' | 'media' | 'software' | 'services';
+export type ActiveModule = 'all' | 'media' | 'software' | 'services' | 'info';
 export type ActiveSection =
   | 'library'
   | 'relations'
@@ -157,6 +157,22 @@ export interface ServiceRecordDto {
   notes?: string | null;
 }
 
+export type InfoType = 'email' | 'url' | 'api_key' | 'text';
+
+export interface InfoRecordDto {
+  module: 'info';
+  asset_id: string;
+  info_type: InfoType;
+  value: string;
+  notes: string | null;
+}
+
+export type InfoCommand =
+  | { action: 'create'; name: string; info_type: InfoType; value: string; notes?: string | null; tags?: string[] }
+  | { action: 'batch_create'; items: { name: string; info_type: InfoType; value: string; notes?: string | null; tags: string[] }[] }
+  | { action: 'update'; asset_id: string; expected_revision: number; name: string; info_type: InfoType; value: string; notes?: string | null; tags?: string[] }
+  | { action: 'archive'; asset_id: string; expected_revision: number };
+
 export interface MergedRedirectDto {
   module: 'merged_redirect';
   surviving_asset_id: string;
@@ -171,6 +187,7 @@ export type AssetDetailsDto =
   | MediaRecordDto
   | SoftwareRecordDto
   | ServiceRecordDto
+  | InfoRecordDto
   | MergedRedirectDto
   | UnknownDetailsDto;
 
@@ -536,6 +553,8 @@ export interface ImportReport {
   software_updated: number;
   services_created: number;
   services_updated: number;
+  info_created: number;
+  info_updated: number;
   relations_created: number;
   relations_updated: number;
   external_refs_created: number;

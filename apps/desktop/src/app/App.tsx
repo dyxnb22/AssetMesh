@@ -6,6 +6,8 @@ import { CreateMediaModal } from '../features/library/CreateMediaModal';
 import { CreateSoftwareModal } from '../features/library/CreateSoftwareModal';
 import { SoftwareDiscoveryModal } from '../features/library/SoftwareDiscoveryModal';
 import { CreateServiceModal } from '../features/library/CreateServiceModal';
+import { CreateInfoModal } from '../features/library/InfoEditor';
+import { InfoCsvImport } from '../features/library/InfoCsvImport';
 import { NavigationRail } from '../features/library/NavigationRail';
 import { RelationExplorer } from '../features/library/RelationExplorer';
 import { ActivityFeed } from '../features/library/ActivityFeed';
@@ -26,6 +28,7 @@ import type {
 import { useNavigation } from '../features/library/useNavigation';
 import { localeTag, t, useLang } from '../i18n';
 import { Badge } from '../ui/Badge';
+import type { SavedFilterState } from '../features/library/SavedFilters';
 import '../ui/theme.css';
 
 export const App: React.FC = () => {
@@ -41,6 +44,8 @@ export const App: React.FC = () => {
   const [createSoftwareOpen, setCreateSoftwareOpen] = useState(false);
   const [softwareDiscoveryOpen, setSoftwareDiscoveryOpen] = useState(false);
   const [createServiceOpen, setCreateServiceOpen] = useState(false);
+  const [createInfoOpen, setCreateInfoOpen] = useState(false);
+  const [importInfoOpen, setImportInfoOpen] = useState(false);
 
   const {
     nav,
@@ -54,6 +59,7 @@ export const App: React.FC = () => {
     setPage,
     setSelectedAssetId,
     resetFilters,
+    applySavedFilter,
   } = useNavigation();
 
   const [searchInput, setSearchInput] = useState(nav.search);
@@ -531,9 +537,16 @@ export const App: React.FC = () => {
                 setCreateSoftwareOpen(true);
               } else if (nav.module === 'services') {
                 setCreateServiceOpen(true);
+              } else if (nav.module === 'info') {
+                setCreateInfoOpen(true);
               } else {
                 setCreateMediaOpen(true);
               }
+            }}
+            onImportInfo={() => setImportInfoOpen(true)}
+            onApplySavedFilter={(filter: SavedFilterState) => {
+              setSearchInput(filter.search);
+              applySavedFilter(filter);
             }}
             onDiscoverSoftware={() => setSoftwareDiscoveryOpen(true)}
             onSelectAsset={(id) => {
@@ -547,7 +560,10 @@ export const App: React.FC = () => {
             onSelectTag={setTag}
             onSearchChange={setSearchInput}
             onSelectPage={setPage}
-            onResetFilters={resetFilters}
+            onResetFilters={() => {
+              setSearchInput('');
+              resetFilters();
+            }}
             onRetry={loadAssets}
           />
 
@@ -618,6 +634,18 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {createInfoOpen && <CreateInfoModal onClose={() => setCreateInfoOpen(false)} onCreated={(id) => {
+        setCreateInfoOpen(false);
+        setSelectedAssetId(id);
+        loadAssets();
+        setActiveDetailId(id);
+      }} />}
+      {importInfoOpen && <InfoCsvImport onClose={() => setImportInfoOpen(false)} onImported={() => {
+        setImportInfoOpen(false);
+        if (nav.page === 1) loadAssets();
+        else setPage(1);
+      }} />}
 
       {/* 5. Create Media Modal */}
       <CreateMediaModal

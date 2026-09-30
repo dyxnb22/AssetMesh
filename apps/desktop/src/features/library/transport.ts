@@ -19,6 +19,7 @@ import type {
   RelationTraverseQuery,
   RelationViewDto,
   ServiceCommand,
+  InfoCommand,
   SoftwareCommand,
   TraversalViewDto,
   ActivityQuery,
@@ -44,6 +45,7 @@ export interface DesktopTransport {
   softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto>;
   mediaCommand(command: MediaCommand): Promise<MutationReceiptDto>;
   serviceCommand(command: ServiceCommand): Promise<MutationReceiptDto>;
+  infoCommand(command: InfoCommand): Promise<MutationReceiptDto>;
   relationList(assetId: string): Promise<RelationViewDto[]>;
   relationNeighbors(query: RelationNeighborsQuery): Promise<NeighborViewDto[]>;
   relationTraverse(query: RelationTraverseQuery): Promise<TraversalViewDto>;
@@ -99,6 +101,10 @@ export class TauriTransport implements DesktopTransport {
 
   async serviceCommand(command: ServiceCommand): Promise<MutationReceiptDto> {
     return await invoke<MutationReceiptDto>('service_command', { command });
+  }
+
+  async infoCommand(command: InfoCommand): Promise<MutationReceiptDto> {
+    return await invoke<MutationReceiptDto>('info_command', { command });
   }
 
   async relationList(assetId: string): Promise<RelationViewDto[]> {

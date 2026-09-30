@@ -9,7 +9,7 @@ interface AttachRelationModalProps {
   onClose: () => void;
   sourceAsset: { id: string; name: string; revision?: number };
   capabilities: AppCapabilities | null;
-  onAttached: (receipt: MutationReceiptDto) => void;
+  onAttached: (receipt: MutationReceiptDto) => void | Promise<void>;
 }
 
 export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
@@ -131,7 +131,7 @@ export const AttachRelationModal: React.FC<AttachRelationModalProps> = ({
         expected_target_revision: selectedTarget.revision,
       });
 
-      onAttached(receipt);
+      await onAttached(receipt);
       onClose();
     } catch (err: unknown) {
       setError(normalizeDesktopError(err));

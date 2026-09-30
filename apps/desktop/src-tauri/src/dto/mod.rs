@@ -196,6 +196,7 @@ fn parse_modules(opt: Option<Vec<String>>) -> Result<Vec<LibraryModule>, Desktop
                 "media" => modules.push(LibraryModule::Media),
                 "software" => modules.push(LibraryModule::Software),
                 "services" => modules.push(LibraryModule::Services),
+                "info" => modules.push(LibraryModule::Info),
                 other => {
                     return Err(DesktopError::invalid_input(format!(
                         "Unknown module: {}",
@@ -985,6 +986,8 @@ pub struct ImportReportDto {
     pub software_updated: usize,
     pub services_created: usize,
     pub services_updated: usize,
+    pub info_created: usize,
+    pub info_updated: usize,
     pub relations_created: usize,
     pub relations_updated: usize,
     pub external_refs_created: usize,
@@ -1004,6 +1007,8 @@ impl From<assetmesh_core::application::portable::PortableImportReport> for Impor
             software_updated: r.software_updated,
             services_created: r.services_created,
             services_updated: r.services_updated,
+            info_created: r.info_created,
+            info_updated: r.info_updated,
             relations_created: r.relations_created,
             relations_updated: r.relations_updated,
             external_refs_created: r.external_refs_created,

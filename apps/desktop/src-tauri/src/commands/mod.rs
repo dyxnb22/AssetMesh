@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod capabilities;
 pub mod duplicate;
+pub mod info;
 pub mod library;
 pub mod media;
 pub mod portable;
@@ -11,6 +12,7 @@ pub mod software;
 pub use activity::*;
 pub use capabilities::*;
 pub use duplicate::*;
+pub use info::*;
 pub use library::*;
 pub use media::*;
 pub use portable::*;

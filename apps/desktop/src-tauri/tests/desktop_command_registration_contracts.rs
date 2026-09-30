@@ -192,6 +192,10 @@ fn payload_for(command: &str, scratch: &std::path::Path) -> serde_json::Value {
             "command",
             serde_json::json!({"action": "archive", "asset_id": id}),
         )]),
+        "info_command" => map(&[(
+            "command",
+            serde_json::json!({"action": "archive", "asset_id": id, "expected_revision": 1}),
+        )]),
         "relation_list" => map(&[("assetId", serde_json::json!(id))]),
         "relation_neighbors" | "relation_traverse" => {
             map(&[("query", serde_json::json!({"asset_id": id}))])

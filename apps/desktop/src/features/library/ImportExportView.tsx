@@ -659,6 +659,15 @@ export const ImportExportView: React.FC = () => {
                         {importPreview.dispositions.relations_updated}
                       </td>
                     </tr>
+                    <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                      <td style={{ padding: '6px 8px', fontWeight: 500 }}>{t('Information')}</td>
+                      <td style={{ padding: '6px 8px', color: 'var(--color-mesh)' }}>
+                        +{importPreview.dispositions.info_created}
+                      </td>
+                      <td style={{ padding: '6px 8px', color: 'var(--color-ink)' }}>
+                        {importPreview.dispositions.info_updated}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -808,6 +817,9 @@ export const ImportExportView: React.FC = () => {
                     fontSize: '12px',
                   }}
                 >{t('Services: +')}{importReceipt.report.services_created}{t(' created')}</span>
+                <span style={{ padding: '4px 10px', backgroundColor: 'var(--color-canvas)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '12px' }}>
+                  {t('Information: +')}{importReceipt.report.info_created}{t(' created')}
+                </span>
                 <span
                   style={{
                     padding: '4px 10px',

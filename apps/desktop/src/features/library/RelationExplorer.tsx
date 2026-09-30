@@ -14,7 +14,7 @@ interface RelationExplorerProps {
   rootAsset: { id: string; name: string; kind?: string; lifecycle?: string; revision?: number };
   capabilities: AppCapabilities | null;
   onOpenAssetDetail?: (assetId: string) => void;
-  onAssetUpdated?: () => void;
+  onAssetUpdated?: () => void | Promise<void>;
 }
 
 export const RelationExplorer: React.FC<RelationExplorerProps> = ({
@@ -91,8 +91,8 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
         expected_context_revision: rootAsset.revision,
       });
       setDeletingRelationId(null);
-      loadData();
-      onAssetUpdated?.();
+      await onAssetUpdated?.();
+      await loadData();
     } catch (err: unknown) {
       setError(normalizeDesktopError(err));
     } finally {
@@ -663,9 +663,9 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
         onClose={() => setIsAttachOpen(false)}
         sourceAsset={{ id: rootAsset.id, name: rootAsset.name, revision: rootAsset.revision }}
         capabilities={capabilities}
-        onAttached={() => {
-          loadData();
-          onAssetUpdated?.();
+        onAttached={async () => {
+          await onAssetUpdated?.();
+          await loadData();
         }}
       />
     </div>

@@ -20,6 +20,8 @@ import type {
   RelationTraverseQuery,
   RelationViewDto,
   ServiceCommand,
+  InfoCommand,
+  InfoRecordDto,
   ServiceRecordDto,
   SoftwareCommand,
   SoftwareRecordDto,
@@ -81,8 +83,8 @@ export class FakeDesktopTransport implements DesktopTransport {
   status: AppStatus = { status: 'ready', db_path: ':memory:' };
   capabilities: AppCapabilities = {
     version: '0.3.0',
-    modules: ['media', 'software', 'services'],
-    asset_kinds: ['media.anime', 'software.app', 'service.saas'],
+    modules: ['media', 'software', 'services', 'info'],
+    asset_kinds: ['media.anime', 'software.app', 'service.saas', 'info.item'],
     relation_types: [
       'depends_on',
       'dependency_of',
@@ -1011,6 +1013,62 @@ export class FakeDesktopTransport implements DesktopTransport {
     }
 
     throw new Error('Unsupported media command action');
+  }
+
+  async infoCommand(command: InfoCommand): Promise<MutationReceiptDto> {
+    const now = new Date().toISOString();
+    if (command.action === 'batch_create') {
+      if (command.items.length < 1 || command.items.length > 500 ||
+          command.items.some((item) => !item.name.trim() || !item.value.trim())) {
+        throw new Error('Information import must contain 1 to 500 valid items.');
+      }
+      const ids: string[] = [];
+      for (const item of command.items) {
+        const receipt = await this.infoCommand({ action: 'create', ...item });
+        ids.push(...receipt.asset_ids);
+      }
+      return { operation: 'info.batch_create', asset_ids: ids, revision: null, changed: true, warnings: [] };
+    }
+    if (command.action === 'create') {
+      if (!command.name.trim() || !command.value.trim()) throw new Error('Name and value are required.');
+      const id = 'asset-info-' + (this.assets.length + 1);
+      const record: InfoRecordDto = {
+        module: 'info', asset_id: id, info_type: command.info_type,
+        value: command.value.trim(), notes: command.notes?.trim() || null,
+      };
+      this.assets.unshift({ id, kind: 'info.item', name: command.name.trim(), lifecycle: 'active',
+        revision: 1, subtitle: command.info_type, tags: command.tags ?? [], updated_at: now });
+      this.details.set(id, { id, kind: 'info.item', name: command.name.trim(), summary: null,
+        lifecycle: 'active', revision: 1, created_at: now, updated_at: now,
+        archived_at: null, merged_into: null, details: record, tags: command.tags ?? [], external_refs: [] });
+      return { operation: 'info.create', asset_ids: [id], revision: 1, changed: true, warnings: [] };
+    }
+    const detail = await this.getAsset(command.asset_id);
+    if (detail.revision !== command.expected_revision) throw new Error('Stale revision');
+    const revision = detail.revision + 1;
+    if (command.action === 'archive') {
+      detail.lifecycle = 'archived';
+      detail.archived_at = now;
+    } else {
+      detail.name = command.name.trim();
+      detail.details = { module: 'info', asset_id: detail.id,
+        info_type: command.info_type, value: command.value.trim(), notes: command.notes?.trim() || null };
+      if (command.tags) detail.tags = command.tags;
+    }
+    detail.revision = revision;
+    detail.updated_at = now;
+    this.details.set(detail.id, detail);
+    const summary = this.assets.find((item) => item.id === detail.id);
+    if (summary) {
+      summary.name = detail.name;
+      summary.lifecycle = detail.lifecycle;
+      summary.subtitle = detail.details.module === 'info' ? detail.details.info_type : null;
+      summary.tags = detail.tags;
+      summary.revision = revision;
+      summary.updated_at = now;
+    }
+    return { operation: command.action === 'archive' ? 'info.archive' : 'info.update',
+      asset_ids: [detail.id], revision, changed: true, warnings: [] };
   }
 
   async serviceCommand(command: ServiceCommand): Promise<MutationReceiptDto> {
@@ -2074,6 +2132,8 @@ export class FakeDesktopTransport implements DesktopTransport {
           software_updated: 0,
           services_created: 0,
           services_updated: 0,
+          info_created: 0,
+          info_updated: 0,
           relations_created: 0,
           relations_updated: 0,
           external_refs_created: 0,
@@ -2105,6 +2165,8 @@ export class FakeDesktopTransport implements DesktopTransport {
           software_updated: 0,
           services_created: 0,
           services_updated: 0,
+          info_created: 0,
+          info_updated: 0,
           relations_created: 0,
           relations_updated: 0,
           external_refs_created: 0,
@@ -2136,6 +2198,8 @@ export class FakeDesktopTransport implements DesktopTransport {
           software_updated: 0,
           services_created: 0,
           services_updated: 0,
+          info_created: 0,
+          info_updated: 0,
           relations_created: 0,
           relations_updated: 0,
           external_refs_created: 0,
@@ -2172,6 +2236,8 @@ export class FakeDesktopTransport implements DesktopTransport {
         software_updated: 0,
         services_created: 1,
         services_updated: 0,
+        info_created: 0,
+        info_updated: 0,
         relations_created: 1,
         relations_updated: 0,
         external_refs_created: 2,

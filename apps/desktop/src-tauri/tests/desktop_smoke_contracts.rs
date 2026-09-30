@@ -160,7 +160,7 @@ fn unopenable_database_classifies_as_setup_failure() {
 #[test]
 fn app_capabilities_returns_without_requiring_database() {
     let caps = commands::app_capabilities().unwrap();
-    assert_eq!(caps.modules, vec!["media", "software", "services"]);
+    assert_eq!(caps.modules, vec!["media", "software", "services", "info"]);
     assert!(!caps.features.runtime_enrichment);
     assert!(!caps.features.projects);
 }

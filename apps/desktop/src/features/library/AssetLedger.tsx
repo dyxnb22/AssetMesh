@@ -10,6 +10,7 @@ import type {
   SortOption,
 } from './types';
 import { t } from '../../i18n';
+import { SavedFilters, type SavedFilterState } from './SavedFilters';
 
 interface AssetLedgerProps {
   module: ActiveModule;
@@ -26,6 +27,7 @@ interface AssetLedgerProps {
   selectedAssetId: string | null;
   capabilities: AppCapabilities | null;
   onNewAsset?: () => void;
+  onImportInfo?: () => void;
   onDiscoverSoftware?: () => void;
   onSelectAsset: (id: string) => void;
   onOpenDetail?: (id: string) => void;
@@ -36,6 +38,7 @@ interface AssetLedgerProps {
   onSearchChange: (search: string) => void;
   onSelectPage: (page: number) => void;
   onResetFilters: () => void;
+  onApplySavedFilter: (state: SavedFilterState) => void;
   onRetry: () => void;
 }
 
@@ -54,6 +57,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   selectedAssetId,
   capabilities,
   onNewAsset,
+  onImportInfo,
   onDiscoverSoftware,
   onSelectAsset,
   onOpenDetail,
@@ -64,6 +68,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   onSearchChange,
   onSelectPage,
   onResetFilters,
+  onApplySavedFilter,
   onRetry,
 }) => {
   const tableRef = useRef<HTMLDivElement>(null);
@@ -96,7 +101,9 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
       ? t('Media Library')
       : module === 'software'
       ? t('Software Inventory')
-      : t('Services & Subscriptions');
+      : module === 'services'
+      ? t('Services & Subscriptions')
+      : t('Information Library');
 
   // Filter available kinds by active module
   const availableKinds =
@@ -188,6 +195,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {module === 'info' && onImportInfo && <button type="button" onClick={onImportInfo}>{t('Import CSV')}</button>}
             {onDiscoverSoftware && module === 'software' && (
               <button
                 type="button"
@@ -238,7 +246,12 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   : t('New Asset')}
               </button>
             )}
-          </div>
+        </div>
+
+        <SavedFilters
+          current={{ module, lifecycle, sort, kind: selectedKind, tag: selectedTag, search: searchQuery }}
+          onApply={onApplySavedFilter}
+        />
 
           {/* Search Input Bar */}
           <div

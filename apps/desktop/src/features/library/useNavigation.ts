@@ -6,6 +6,7 @@ import type {
   NavigationState,
   SortOption,
 } from './types';
+import type { SavedFilterState } from './SavedFilters';
 
 const DEFAULT_STATE: NavigationState = {
   section: 'library',
@@ -35,7 +36,7 @@ function parseHash(hash: string): NavigationState {
 
   const rawModule = params.get('module');
   const module: ActiveModule =
-    rawModule === 'media' || rawModule === 'software' || rawModule === 'services'
+    rawModule === 'media' || rawModule === 'software' || rawModule === 'services' || rawModule === 'info'
       ? rawModule
       : 'all';
 
@@ -216,6 +217,10 @@ export function useNavigation() {
     }));
   }, [updateNav]);
 
+  const applySavedFilter = useCallback((filter: SavedFilterState) => {
+    updateNav((prev) => ({ ...prev, ...filter, section: 'library', page: 1 }));
+  }, [updateNav]);
+
   return {
     nav,
     setModule,
@@ -228,5 +233,6 @@ export function useNavigation() {
     setPage,
     setSelectedAssetId,
     resetFilters,
+    applySavedFilter,
   };
 }

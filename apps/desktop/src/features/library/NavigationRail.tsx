@@ -130,6 +130,20 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
           }}
         >{t('Services')}</button>
 
+        <button
+          role="tab"
+          data-testid="nav-info"
+          aria-selected={isModuleActive('info')}
+          onClick={() => onSelectModule('info')}
+          style={{
+            all: 'unset', cursor: 'pointer', padding: '7px 10px',
+            borderRadius: 'var(--radius-sm)',
+            backgroundColor: isModuleActive('info') ? 'var(--color-surface)' : 'transparent',
+            color: isModuleActive('info') ? 'var(--color-mesh)' : 'var(--color-ink)',
+            fontWeight: isModuleActive('info') ? 600 : 400, fontSize: '12px',
+          }}
+        >{t('Information')}</button>
+
         <div
           style={{
             height: '1px',
