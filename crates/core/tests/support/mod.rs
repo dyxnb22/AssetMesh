@@ -938,6 +938,33 @@ impl LibraryReadPort for MemStore {
             .collect())
     }
 
+    fn count_media_status(
+        &mut self,
+        query: &LibraryQuery,
+    ) -> AppResult<Vec<(assetmesh_core::domain::media::MediaStatus, usize)>> {
+        use assetmesh_core::application::library_service::{
+            load_library_rows, matches_kinds, matches_lifecycle, matches_tags, selected_modules,
+        };
+        use std::collections::HashMap;
+        let modules = selected_modules(&query.modules, &query.kinds);
+        if modules.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut rows = load_library_rows(self, &modules)?;
+        rows.retain(|row| matches_lifecycle(query.lifecycle, row));
+        rows.retain(|row| matches_kinds(&query.kinds, row));
+        rows.retain(|row| matches_tags(&query.tags, row));
+        let mut counts: HashMap<assetmesh_core::domain::media::MediaStatus, usize> = HashMap::new();
+        for row in &rows {
+            if let assetmesh_core::ports::repos::AssetDetails::Media(record) = &row.details {
+                *counts.entry(record.status).or_insert(0) += 1;
+            }
+        }
+        let mut out: Vec<_> = counts.into_iter().collect();
+        out.sort_by_key(|(status, _)| status.as_str());
+        Ok(out)
+    }
+
     fn query_library(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>> {
         use assetmesh_core::application::library_service::{
             load_library_rows, matches_kinds, matches_lifecycle, matches_tags, selected_modules,
@@ -952,6 +979,15 @@ impl LibraryReadPort for MemStore {
         rows.retain(|row| matches_lifecycle(query.lifecycle, row));
         rows.retain(|row| matches_kinds(&query.kinds, row));
         rows.retain(|row| matches_tags(&query.tags, row));
+        if let Some(status) = query.media_status {
+            rows.retain(|row| {
+                matches!(
+                    &row.details,
+                    assetmesh_core::ports::repos::AssetDetails::Media(record)
+                        if record.status == status
+                )
+            });
+        }
         sort_rows(&mut rows, query.sort);
         let total = rows.len();
         let items = rows

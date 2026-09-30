@@ -121,7 +121,28 @@ impl<T> Page<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Typed module details of one asset, shared by the detail view and the list
+/// summary (docs/11). Serialized as `{"module": "media", …record fields}`, so
+/// transport consumers see the same module vocabulary as `AssetKind::module`
+/// without a wrapper object per variant. The records are read-only views:
+/// nothing collapses into `serde_json::Value`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "module", rename_all = "snake_case")]
+pub enum AssetDetails {
+    Media(MediaRecord),
+    Software(SoftwareRecord),
+    /// Tagged `services`, matching `AssetKind::module()` for service kinds.
+    #[serde(rename = "services")]
+    Service(ServiceRecord),
+    Info(InfoRecord),
+}
+
+/// One library list/search row. `details` carries the typed module record when
+/// the adapter hydrates one in the same breath as the summary (the SQLite
+/// library repo already reads the full record to build the subtitle, so this
+/// costs no extra statement); adapters that only need identity fields may
+/// leave it `None`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetSummary {
     pub id: AssetId,
     pub kind: AssetKind,
@@ -131,6 +152,7 @@ pub struct AssetSummary {
     pub subtitle: Option<String>,
     pub tags: Vec<String>,
     pub updated_at: Timestamp,
+    pub details: Option<AssetDetails>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -139,6 +161,10 @@ pub struct LibraryQuery {
     pub modules: Vec<LibraryModule>,
     pub kinds: Vec<AssetKind>,
     pub tags: Vec<String>,
+    /// Restrict the list to media rows with this status. Rows of other modules
+    /// never match when this is set; counts per status come from
+    /// [`LibraryReadPort::count_media_status`].
+    pub media_status: Option<MediaStatus>,
     pub sort: LibrarySort,
     pub page: PageRequest,
 }
@@ -147,6 +173,11 @@ pub trait LibraryReadPort {
     fn query_library(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>>;
     /// Hydrate only the indexed candidates, never the whole library.
     fn hydrate_candidates(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetSummary>>;
+    /// Counts media rows per [`MediaStatus`] under the query's other filters
+    /// (lifecycle, kinds, tags) but *ignoring* `media_status` itself, so a
+    /// status segmented control can show what each choice would return. One
+    /// statement; other modules contribute no rows.
+    fn count_media_status(&mut self, query: &LibraryQuery) -> AppResult<Vec<(MediaStatus, usize)>>;
 }
 
 /// Filter for base-asset listing.

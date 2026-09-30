@@ -757,6 +757,7 @@ impl GraphHydration {
             subtitle: None,
             tags: Vec::new(),
             updated_at: asset.updated_at,
+            details: None,
         })
     }
 }

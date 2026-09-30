@@ -730,7 +730,7 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
             .collect();
         services.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
         let mut info: Vec<InfoRecord> = info;
-        info.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
+        info.sort_by_key(|record| record.asset_id);
         let mut refs: Vec<PortableExternalRefV1> = refs
             .iter()
             .map(PortableExternalRefV1::from_domain)

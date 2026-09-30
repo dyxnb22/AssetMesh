@@ -140,6 +140,7 @@ pub(crate) fn run_library(factory: SharedFactory, cmd: LibraryCommand) -> Result
                 modules: modules.into_iter().map(Into::into).collect(),
                 kinds,
                 tags,
+                media_status: None,
                 sort: sort.into(),
                 page: PageRequest::new(limit, offset),
             };

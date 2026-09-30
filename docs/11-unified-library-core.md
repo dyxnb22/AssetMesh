@@ -84,12 +84,16 @@ pub struct AssetSummary {
     pub subtitle: Option<String>,
     pub tags: Vec<String>,
     pub updated_at: Timestamp,
+    /// Typed module record when the adapter hydrates one (list rows can
+    /// render status/rating/progress without a second per-asset fetch).
+    pub details: Option<AssetDetails>,
 }
 
 pub enum AssetDetails {
     Media(MediaRecord),
     Software(SoftwareRecord),
     Service(ServiceRecord),
+    Info(InfoRecord),
 }
 
 pub struct AssetDetailView {

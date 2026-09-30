@@ -147,6 +147,7 @@ fn scale_50k_paging_and_memory_gate() {
         kinds: Vec::new(),
         lifecycle: LifecycleFilter::Active,
         tags: Vec::new(),
+        media_status: None,
         sort: LibrarySort::NameAsc,
         page: PageRequest {
             offset: 0,
@@ -176,6 +177,7 @@ fn scale_50k_paging_and_memory_gate() {
         kinds: Vec::new(),
         lifecycle: LifecycleFilter::Active,
         tags: Vec::new(),
+        media_status: None,
         sort: LibrarySort::NameAsc,
         page: PageRequest {
             offset: 40_000,
@@ -208,6 +210,7 @@ fn scale_50k_paging_and_memory_gate() {
         kinds: Vec::new(),
         lifecycle: LifecycleFilter::Active,
         tags: Vec::new(),
+        media_status: None,
         sort: LibrarySort::NameAsc,
         page: PageRequest {
             offset: 0,
@@ -235,6 +238,7 @@ fn scale_50k_paging_and_memory_gate() {
         kinds: Vec::new(),
         lifecycle: LifecycleFilter::Active,
         tags: vec!["benchmark".to_string()],
+        media_status: None,
         sort: LibrarySort::NameAsc,
         page: PageRequest {
             offset: 0,
@@ -258,6 +262,7 @@ fn scale_50k_paging_and_memory_gate() {
         kinds: Vec::new(),
         lifecycle: LifecycleFilter::Active,
         tags: Vec::new(),
+        media_status: None,
         sort: LibrarySort::NameAsc,
         page: PageRequest {
             offset: 0,

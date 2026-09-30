@@ -311,5 +311,6 @@ fn summarize(asset: &Asset, tags: Vec<String>) -> AssetSummary {
         subtitle: asset.summary.clone(),
         tags,
         updated_at: asset.updated_at,
+        details: None,
     }
 }

@@ -715,3 +715,93 @@ fn sqlite_storage_errors_are_not_swallowed_by_the_library() {
     assert_eq!(page.total, Some(stored - 1));
     assert!(page.items.iter().all(|row| row.subtitle.is_some()));
 }
+
+#[test]
+fn sqlite_media_status_filter_counts_and_typed_details_agree() {
+    use assetmesh_core::domain::media::{MediaStatus, Progress};
+
+    let db = env();
+    let mut library = db.library_service();
+
+    let mk = |title: &str, status: MediaStatus, rating: Option<f64>| CreateMedia {
+        title: title.to_string(),
+        media_type: MediaType::Movie,
+        summary: None,
+        status: Some(status),
+        rating,
+        year: Some(2024),
+        platform: None,
+        progress: Progress::default(),
+        notes: None,
+        tags: Vec::new(),
+        external_refs: Vec::new(),
+        started_at: None,
+        completed_at: None,
+    };
+    let _watching = db
+        .media_service()
+        .create_media(mk("Status Watching", MediaStatus::InProgress, None))
+        .unwrap();
+    let done_a = db
+        .media_service()
+        .create_media(mk("Status Done A", MediaStatus::Completed, Some(8.5)))
+        .unwrap();
+    let done_b = db
+        .media_service()
+        .create_media(mk("Status Done B", MediaStatus::Completed, Some(7.0)))
+        .unwrap();
+    db.software_service()
+        .create_software(software_cmd("ripgrep", SoftwareCategory::Cli, &[]))
+        .unwrap();
+
+    // The status filter returns exactly the media rows in that status.
+    let completed = library
+        .list_assets(&LibraryQuery {
+            modules: vec![LibraryModule::Media],
+            media_status: Some(MediaStatus::Completed),
+            ..LibraryQuery::default()
+        })
+        .unwrap();
+    assert_eq!(completed.total, Some(2));
+    let mut ids = summary_ids(&completed);
+    ids.sort();
+    let mut expected = vec![done_a.entry.asset.id, done_b.entry.asset.id];
+    expected.sort();
+    assert_eq!(ids, expected);
+
+    // Status counts ignore `media_status` but keep the other filters, and no
+    // software row is ever counted.
+    let counts = library
+        .media_status_counts(&LibraryQuery {
+            modules: vec![LibraryModule::Media],
+            media_status: Some(MediaStatus::Completed),
+            ..LibraryQuery::default()
+        })
+        .unwrap();
+    assert_eq!(
+        counts,
+        vec![(MediaStatus::Completed, 2), (MediaStatus::InProgress, 1)]
+    );
+    let unscoped = library
+        .media_status_counts(&LibraryQuery::default())
+        .unwrap();
+    assert_eq!(
+        unscoped,
+        vec![(MediaStatus::Completed, 2), (MediaStatus::InProgress, 1)]
+    );
+
+    // Summaries carry the typed media record without an extra statement.
+    let row = completed
+        .items
+        .iter()
+        .find(|row| row.id == done_a.entry.asset.id)
+        .unwrap();
+    match &row.details {
+        Some(AssetDetails::Media(record)) => {
+            assert_eq!(record.status, MediaStatus::Completed);
+            assert_eq!(record.rating, Some(8.5));
+            assert_eq!(record.year, Some(2024));
+        }
+        other => panic!("expected typed media details, got {other:?}"),
+    }
+}

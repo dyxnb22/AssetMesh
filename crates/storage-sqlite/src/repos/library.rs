@@ -4,13 +4,14 @@
 //! and batch hydration (tags & subtitles) restricted strictly to the current page.
 
 use assetmesh_core::application::projection::{
-    media_subtitle, service_subtitle, software_subtitle,
+    info_subtitle, media_subtitle, service_subtitle, software_subtitle,
 };
 use assetmesh_core::domain::asset::{AssetKind, LifecycleState};
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::Timestamp;
 use assetmesh_core::ports::repos::{
-    AssetSummary, LibraryModule, LibraryQuery, LibraryReadPort, LibrarySort, LifecycleFilter, Page,
+    AssetDetails, AssetSummary, LibraryModule, LibraryQuery, LibraryReadPort, LibrarySort,
+    LifecycleFilter, Page,
 };
 use assetmesh_core::{AppError, AppResult};
 use rusqlite::Connection;
@@ -20,6 +21,11 @@ use crate::repos::media::MEDIA_COLS;
 use crate::repos::service::SERVICE_COLS;
 use crate::repos::software::SOFTWARE_COLS;
 use crate::repos::{row_result, ts_from_string, uuid_from_string, uuid_to_string};
+
+/// SQL WHERE clauses plus their positional parameters, built together so the
+/// two can never drift out of sync.
+type SqlFilters = (Vec<String>, SqlParams);
+type SqlParams = Vec<Box<dyn rusqlite::ToSql>>;
 
 fn resolve_allowed_kinds(modules: &[LibraryModule], kinds: &[AssetKind]) -> Vec<AssetKind> {
     let mut allowed = Vec::new();
@@ -67,9 +73,125 @@ impl LibraryReadPort for SqliteLibraryRepo<'_> {
         }
         Ok(items)
     }
+
+    fn count_media_status(
+        &mut self,
+        query: &LibraryQuery,
+    ) -> AppResult<Vec<(assetmesh_core::domain::media::MediaStatus, usize)>> {
+        use assetmesh_core::domain::media::MediaStatus;
+
+        let allowed_kinds = resolve_allowed_kinds(&query.modules, &query.kinds);
+        if allowed_kinds.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Same filters as the paged query, minus `media_status` itself: the
+        // counts answer "what would each status choice return?".
+        let (clauses, params) = self.build_filters(query, &allowed_kinds, None)?;
+        let where_sql = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", clauses.join(" AND "))
+        };
+        let sql = format!(
+            "SELECT m.status, COUNT(*) FROM assets a \
+             JOIN media_records m ON m.asset_id = a.id {where_sql} \
+             GROUP BY m.status ORDER BY m.status ASC"
+        );
+        let refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql).map_err(crate::map_error)?;
+        let rows = stmt
+            .query_map(refs.as_slice(), |row| {
+                let status: String = row.get(0)?;
+                let count: usize = row.get(1)?;
+                Ok((status, count))
+            })
+            .map_err(crate::map_error)?;
+        let mut counts = Vec::new();
+        for row in rows {
+            let (status, count) = row_result(row)?;
+            let parsed = MediaStatus::parse(&status).ok_or_else(|| {
+                AppError::storage(format!("unknown stored media status: {status}"))
+            })?;
+            counts.push((parsed, count));
+        }
+        Ok(counts)
+    }
 }
 
 impl SqliteLibraryRepo<'_> {
+    /// Builds the WHERE clauses shared by the paged query, its count stage,
+    /// and the per-status counts. Params line up 1:1 with the `?` placeholders
+    /// in the returned clauses.
+    fn build_filters(
+        &self,
+        query: &LibraryQuery,
+        allowed_kinds: &[AssetKind],
+        ids: Option<&[AssetId]>,
+    ) -> AppResult<SqlFilters> {
+        let mut clauses = Vec::new();
+        let mut params: SqlParams = Vec::new();
+
+        if let Some(ids) = ids {
+            let placeholders = vec!["?"; ids.len()].join(", ");
+            clauses.push(format!("a.id IN ({placeholders})"));
+            for id in ids {
+                params.push(Box::new(uuid_to_string(id.as_uuid())));
+            }
+        }
+
+        // Merged tombstones are never in the library under any filter
+        match query.lifecycle {
+            LifecycleFilter::Active => {
+                clauses.push("a.lifecycle_state = 'active'".to_string());
+            }
+            LifecycleFilter::ActiveOrArchived => {
+                clauses.push("a.lifecycle_state IN ('active', 'archived')".to_string());
+            }
+            LifecycleFilter::All => {
+                clauses.push("a.lifecycle_state != 'merged'".to_string());
+            }
+        }
+
+        // Kinds filter (if restricted)
+        if allowed_kinds.len() < AssetKind::ALL.len() {
+            let placeholders = vec!["?"; allowed_kinds.len()].join(", ");
+            clauses.push(format!("a.kind IN ({placeholders})"));
+            for k in allowed_kinds {
+                params.push(Box::new(k.as_str().to_string()));
+            }
+        }
+
+        // Module record existence (only assets that have module typed details)
+        clauses.push(
+            "(
+                (a.kind LIKE 'media.%' AND EXISTS (SELECT 1 FROM media_records m WHERE m.asset_id = a.id)) OR
+                (a.kind LIKE 'software.%' AND EXISTS (SELECT 1 FROM software_records sw WHERE sw.asset_id = a.id)) OR
+                (a.kind LIKE 'service.%' AND EXISTS (SELECT 1 FROM service_records sv WHERE sv.asset_id = a.id)) OR
+                (a.kind = 'info.item' AND EXISTS (SELECT 1 FROM info_records i WHERE i.asset_id = a.id))
+            )"
+            .to_string(),
+        );
+
+        // Tags filter: each tag must match case-insensitively
+        for tag in &query.tags {
+            let trimmed = tag.trim();
+            if !trimmed.is_empty() {
+                clauses.push(
+                    "EXISTS (
+                        SELECT 1 FROM asset_tags at
+                        JOIN tags t ON t.id = at.tag_id
+                        WHERE at.asset_id = a.id AND LOWER(t.name) = LOWER(?)
+                    )"
+                    .to_string(),
+                );
+                params.push(Box::new(trimmed.to_string()));
+            }
+        }
+
+        Ok((clauses, params))
+    }
+
     fn query_with_ids(
         &mut self,
         query: &LibraryQuery,
@@ -90,60 +212,21 @@ impl SqliteLibraryRepo<'_> {
         let mut where_clauses = Vec::new();
         let mut count_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-        if let Some(ids) = ids {
-            let placeholders = vec!["?"; ids.len()].join(", ");
-            where_clauses.push(format!("a.id IN ({placeholders})"));
-            for id in ids {
-                count_params.push(Box::new(uuid_to_string(id.as_uuid())));
-            }
-        }
+        // Shared filters (lifecycle, kinds, module-record existence, tags).
+        // The media status filter is added afterwards: it narrows the paged
+        // rows and the count stage, but not `count_media_status`, whose job is
+        // to show what each status choice would return.
+        let (base_clauses, base_params) = self.build_filters(query, &allowed_kinds, ids)?;
+        where_clauses.extend(base_clauses);
+        count_params.extend(base_params);
 
-        // 1. Merged tombstones are never in the library under any filter
-        match query.lifecycle {
-            LifecycleFilter::Active => {
-                where_clauses.push("a.lifecycle_state = 'active'".to_string());
-            }
-            LifecycleFilter::ActiveOrArchived => {
-                where_clauses.push("a.lifecycle_state IN ('active', 'archived')".to_string());
-            }
-            LifecycleFilter::All => {
-                where_clauses.push("a.lifecycle_state != 'merged'".to_string());
-            }
-        }
-
-        // 2. Kinds filter (if restricted)
-        if allowed_kinds.len() < AssetKind::ALL.len() {
-            let placeholders = vec!["?"; allowed_kinds.len()].join(", ");
-            where_clauses.push(format!("a.kind IN ({placeholders})"));
-            for k in &allowed_kinds {
-                count_params.push(Box::new(k.as_str().to_string()));
-            }
-        }
-
-        // 3. Module record existence (only assets that have module typed details)
-        where_clauses.push(
-            "(
-                (a.kind LIKE 'media.%' AND EXISTS (SELECT 1 FROM media_records m WHERE m.asset_id = a.id)) OR
-                (a.kind LIKE 'software.%' AND EXISTS (SELECT 1 FROM software_records sw WHERE sw.asset_id = a.id)) OR
-                (a.kind LIKE 'service.%' AND EXISTS (SELECT 1 FROM service_records sv WHERE sv.asset_id = a.id)) OR
-                (a.kind = 'info.item' AND EXISTS (SELECT 1 FROM info_records i WHERE i.asset_id = a.id))
-            )".to_string(),
-        );
-
-        // 4. Tags filter: each tag must match case-insensitively
-        for tag in &query.tags {
-            let trimmed = tag.trim();
-            if !trimmed.is_empty() {
-                where_clauses.push(
-                    "EXISTS (
-                        SELECT 1 FROM asset_tags at
-                        JOIN tags t ON t.id = at.tag_id
-                        WHERE at.asset_id = a.id AND LOWER(t.name) = LOWER(?)
-                    )"
+        if let Some(status) = query.media_status {
+            where_clauses.push(
+                "EXISTS (SELECT 1 FROM media_records mst \
+                 WHERE mst.asset_id = a.id AND mst.status = ?)"
                     .to_string(),
-                );
-                count_params.push(Box::new(trimmed.to_string()));
-            }
+            );
+            count_params.push(Box::new(status.as_str().to_string()));
         }
 
         let where_sql = if where_clauses.is_empty() {
@@ -251,8 +334,11 @@ impl SqliteLibraryRepo<'_> {
         let asset_ids: Vec<AssetId> = page_assets.iter().map(|a| a.id).collect();
         let tags_by_asset = crate::repos::batch_tags(self.conn, &asset_ids)?;
 
-        // Hydrate subtitles in batch per module
+        // Hydrate subtitles and typed details in batch per module: the full
+        // module record is read anyway to build the subtitle, so the summaries
+        // carry it without any extra statement.
         let mut subtitles: HashMap<AssetId, Option<String>> = HashMap::new();
+        let mut details: HashMap<AssetId, AssetDetails> = HashMap::new();
 
         let mut media_ids = Vec::new();
         let mut software_ids = Vec::new();
@@ -288,12 +374,13 @@ impl SqliteLibraryRepo<'_> {
                         AssetId::from_uuid(crate::repos::app_row(uuid_from_string(&id_str))?);
                     let record =
                         crate::repos::app_row(crate::repos::media::parse_record(asset_id, row, 1))?;
-                    Ok((asset_id, media_subtitle(&record)))
+                    Ok((asset_id, record))
                 })
                 .map_err(crate::map_error)?;
             for r in rows {
-                let (id, sub) = row_result(r)?;
-                subtitles.insert(id, sub);
+                let (id, record) = row_result(r)?;
+                subtitles.insert(id, media_subtitle(&record));
+                details.insert(id, AssetDetails::Media(record));
             }
         }
 
@@ -317,12 +404,13 @@ impl SqliteLibraryRepo<'_> {
                     let record = crate::repos::app_row(crate::repos::software::parse_record(
                         asset_id, row, 1,
                     ))?;
-                    Ok((asset_id, software_subtitle(&record)))
+                    Ok((asset_id, record))
                 })
                 .map_err(crate::map_error)?;
             for r in rows {
-                let (id, sub) = row_result(r)?;
-                subtitles.insert(id, sub);
+                let (id, record) = row_result(r)?;
+                subtitles.insert(id, software_subtitle(&record));
+                details.insert(id, AssetDetails::Software(record));
             }
         }
 
@@ -346,19 +434,20 @@ impl SqliteLibraryRepo<'_> {
                     let record = crate::repos::app_row(crate::repos::service::parse_record(
                         asset_id, row, 1,
                     ))?;
-                    Ok((asset_id, service_subtitle(&record)))
+                    Ok((asset_id, record))
                 })
                 .map_err(crate::map_error)?;
             for r in rows {
-                let (id, sub) = row_result(r)?;
-                subtitles.insert(id, sub);
+                let (id, record) = row_result(r)?;
+                subtitles.insert(id, service_subtitle(&record));
+                details.insert(id, AssetDetails::Service(record));
             }
         }
 
         if !info_ids.is_empty() {
             let placeholders = vec!["?"; info_ids.len()].join(", ");
             let sql = format!(
-                "SELECT asset_id, info_type FROM info_records WHERE asset_id IN ({placeholders})"
+                "SELECT asset_id, info_type, value, notes FROM info_records WHERE asset_id IN ({placeholders})"
             );
             let params: Vec<String> = info_ids
                 .iter()
@@ -371,17 +460,26 @@ impl SqliteLibraryRepo<'_> {
                 .query_map(refs.as_slice(), |row| {
                     let id_str: String = row.get(0)?;
                     let kind: String = row.get(1)?;
-                    Ok((id_str, kind))
+                    let value: String = row.get(2)?;
+                    let notes: Option<String> = row.get(3)?;
+                    Ok((id_str, kind, value, notes))
                 })
                 .map_err(crate::map_error)?;
             for row in rows {
-                let (id_str, kind) = row_result(row)?;
+                let (id_str, kind, value, notes) = row_result(row)?;
                 let id = AssetId::from_uuid(uuid_from_string(&id_str)?);
-                let info_type =
-                    assetmesh_core::domain::info::InfoType::parse(&kind).ok_or_else(|| {
-                        AppError::storage(format!("unknown stored information type: {kind}"))
-                    })?;
-                subtitles.insert(id, Some(info_type.label().to_string()));
+                let record = assetmesh_core::domain::info::InfoRecord {
+                    asset_id: id,
+                    info_type: {
+                        assetmesh_core::domain::info::InfoType::parse(&kind).ok_or_else(|| {
+                            AppError::storage(format!("unknown stored information type: {kind}"))
+                        })?
+                    },
+                    value,
+                    notes,
+                };
+                subtitles.insert(id, info_subtitle(&record));
+                details.insert(id, AssetDetails::Info(record));
             }
         }
 
@@ -400,6 +498,7 @@ impl SqliteLibraryRepo<'_> {
                     subtitle,
                     tags,
                     updated_at: a.updated_at,
+                    details: details.get(&a.id).cloned(),
                 }
             })
             .collect();

@@ -28,17 +28,13 @@ use crate::application::projection::{
 use crate::domain::asset::{Asset, AssetKind, LifecycleState};
 use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::AssetId;
-use crate::domain::info::InfoRecord;
-use crate::domain::media::MediaRecord;
-use crate::domain::service::ServiceRecord;
-use crate::domain::software::SoftwareRecord;
 use crate::ports::repos::{LifecycleFilter, MediaFilter, ServiceFilter, SoftwareFilter};
 use crate::ports::uow::{QueryUnitOfWork, UnitOfWorkFactory};
 use crate::{AppError, AppResult};
 
 pub use crate::ports::repos::{
-    AssetSummary, LibraryModule, LibraryQuery, LibraryReadPort, LibrarySort, Page, PageRequest,
-    DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT,
+    AssetDetails, AssetSummary, LibraryModule, LibraryQuery, LibraryReadPort, LibrarySort, Page,
+    PageRequest, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT,
 };
 
 /// Upper bound on the projection window one search page hydrates.
@@ -48,26 +44,6 @@ pub use crate::ports::repos::{
 /// unbounded number of rows (and overflow the limit the search port takes).
 /// Past this bound a search page is simply empty rather than expensive.
 const MAX_SEARCH_WINDOW: usize = 10_000;
-
-/// Typed module details of one asset (docs/11).
-///
-/// A future module adds a variant; adapters keep reading one union instead of
-/// learning another repository. The records are read-only views here: the
-/// library never mutates them, and nothing in this union is untyped.
-///
-/// Serialized as `{"module": "media", …record fields}`, so a transport
-/// consumer sees the same module vocabulary as [`AssetKind::module`] without a
-/// wrapper object per variant.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-#[serde(tag = "module", rename_all = "snake_case")]
-pub enum AssetDetails {
-    Media(MediaRecord),
-    Software(SoftwareRecord),
-    /// Tagged `services`, matching `AssetKind::module()` for service kinds.
-    #[serde(rename = "services")]
-    Service(ServiceRecord),
-    Info(InfoRecord),
-}
 
 /// The complete unified detail view of one asset, read from one snapshot.
 ///
@@ -277,6 +253,16 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
     /// Lists the whole library as one page of [`AssetSummary`].
     pub fn list_assets(&mut self, query: &LibraryQuery) -> AppResult<Page<AssetSummary>> {
         self.factory.read(&mut |q| q.library().query_library(query))
+    }
+
+    /// Counts media rows per status under the query's other filters, ignoring
+    /// `media_status` itself. Feeds the media view's status segmented control.
+    pub fn media_status_counts(
+        &mut self,
+        query: &LibraryQuery,
+    ) -> AppResult<Vec<(crate::domain::media::MediaStatus, usize)>> {
+        self.factory
+            .read(&mut |q| q.library().count_media_status(query))
     }
 
     /// Searches the whole library through the existing projection and returns
@@ -587,6 +573,7 @@ pub fn summarize_row(row: &LibraryRow) -> AssetSummary {
         subtitle: subtitle_of(&row.details),
         tags: row.tags.clone(),
         updated_at: row.asset.updated_at,
+        details: Some(row.details.clone()),
     }
 }
 
