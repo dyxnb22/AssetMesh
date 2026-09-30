@@ -10,6 +10,7 @@ import type {
   LibrarySearchQuery,
   MediaCommand,
   MediaRecordDto,
+  MediaStatusCountDto,
   MutationReceiptDto,
   NeighborViewDto,
   Page,
@@ -191,6 +192,13 @@ export class FakeDesktopTransport implements DesktopTransport {
       filtered = filtered.filter((a) => query.kinds!.includes(a.kind));
     }
 
+    // Media watch-status filter: only rows with matching typed media details
+    if (query?.media_status) {
+      filtered = filtered.filter(
+        (a) => a.details?.module === 'media' && a.details.status === query.media_status
+      );
+    }
+
     // Tags
     if (query?.tags && query.tags.length > 0) {
       filtered = filtered.filter((a) => query.tags!.every((t) => a.tags.includes(t)));
@@ -290,6 +298,26 @@ export class FakeDesktopTransport implements DesktopTransport {
       limit,
       total,
     };
+  }
+
+  async mediaStatusCounts(query?: LibraryQuery): Promise<MediaStatusCountDto[]> {
+    // Same filters as listAssets but without the status filter itself, so the
+    // segmented control shows what each choice would return.
+    const page = await this.listAssets({
+      ...query,
+      media_status: undefined,
+      limit: 10_000,
+      offset: 0,
+    });
+    const counts = new Map<string, number>();
+    for (const asset of page.items) {
+      if (asset.details?.module === 'media') {
+        counts.set(asset.details.status, (counts.get(asset.details.status) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([status, count]) => ({ status, count }))
+      .sort((a, b) => a.status.localeCompare(b.status));
   }
 
   details: Map<string, AssetDetailDto> = new Map();
@@ -769,6 +797,7 @@ export class FakeDesktopTransport implements DesktopTransport {
         tags: newDetail.tags,
         revision: 1,
         updated_at: now,
+        details: mediaRecord,
       });
 
       return {

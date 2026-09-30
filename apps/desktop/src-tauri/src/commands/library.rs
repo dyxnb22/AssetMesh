@@ -2,7 +2,8 @@ use assetmesh_core::domain::ids::AssetId;
 use tauri::State;
 
 use crate::dto::{
-    AssetDetailDto, AssetSummaryDto, LibraryQueryDto, LibrarySearchQueryDto, PageDto,
+    AssetDetailDto, AssetSummaryDto, LibraryQueryDto, LibrarySearchQueryDto, MediaStatusCountDto,
+    PageDto,
 };
 use crate::error::DesktopError;
 use crate::state::DesktopState;
@@ -24,6 +25,29 @@ pub fn library_list_impl(
         let mut svc = modules.library();
         let page = svc.list_assets(&app_query)?;
         Ok(page.into())
+    })
+}
+
+#[tauri::command]
+pub fn library_media_status_counts(
+    query: Option<LibraryQueryDto>,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<MediaStatusCountDto>, DesktopError> {
+    library_media_status_counts_impl(query, &state)
+}
+
+pub fn library_media_status_counts_impl(
+    query: Option<LibraryQueryDto>,
+    state: &DesktopState,
+) -> Result<Vec<MediaStatusCountDto>, DesktopError> {
+    let app_query = query.unwrap_or_default().try_into()?;
+    state.with_modules(|modules| {
+        let mut svc = modules.library();
+        Ok(svc
+            .media_status_counts(&app_query)?
+            .into_iter()
+            .map(MediaStatusCountDto::from)
+            .collect())
     })
 }
 

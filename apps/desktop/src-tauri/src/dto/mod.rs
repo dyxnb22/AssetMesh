@@ -5,6 +5,7 @@ use assetmesh_core::application::library_service::{
     LibrarySearchQuery, LibrarySort, MergedTombstoneView, Page, PageRequest,
 };
 use assetmesh_core::domain::asset::AssetKind;
+use assetmesh_core::domain::media::MediaStatus;
 use assetmesh_core::ports::repos::LifecycleFilter;
 use serde::{Deserialize, Serialize};
 
@@ -119,7 +120,7 @@ impl From<AssetDetailOutcome> for AssetDetailDto {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetSummaryDto {
     pub id: String,
     pub kind: String,
@@ -129,10 +130,34 @@ pub struct AssetSummaryDto {
     pub subtitle: Option<String>,
     pub tags: Vec<String>,
     pub updated_at: String,
+    /// Typed module details as `{"module": "media", …}` — the same JSON
+    /// vocabulary as `AssetDetailDto.details`, so list rows can render
+    /// status/rating/progress without a second per-asset fetch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
+/// One per-status row for the media view's status segmented control.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaStatusCountDto {
+    pub status: String,
+    pub count: usize,
+}
+
+impl From<(MediaStatus, usize)> for MediaStatusCountDto {
+    fn from((status, count): (MediaStatus, usize)) -> Self {
+        Self {
+            status: status.as_str().to_string(),
+            count,
+        }
+    }
 }
 
 impl From<AssetSummary> for AssetSummaryDto {
     fn from(s: AssetSummary) -> Self {
+        let details = s
+            .details
+            .map(|d| serde_json::to_value(d).unwrap_or(serde_json::json!({"module": "unknown"})));
         Self {
             id: s.id.to_string(),
             kind: s.kind.as_str().to_string(),
@@ -142,6 +167,7 @@ impl From<AssetSummary> for AssetSummaryDto {
             subtitle: s.subtitle,
             tags: s.tags,
             updated_at: s.updated_at.to_rfc3339(),
+            details,
         }
     }
 }
@@ -171,6 +197,8 @@ pub struct LibraryQueryDto {
     pub modules: Option<Vec<String>>,
     pub kinds: Option<Vec<String>>,
     pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub media_status: Option<String>,
     pub sort: Option<String>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
@@ -251,11 +279,19 @@ impl TryFrom<LibraryQueryDto> for LibraryQuery {
 
         let page = PageRequest::new(dto.limit.unwrap_or(50), dto.offset.unwrap_or(0));
 
+        let media_status = match dto.media_status.as_deref() {
+            None | Some("") => None,
+            Some(raw) => Some(MediaStatus::parse(raw).ok_or_else(|| {
+                DesktopError::invalid_input(format!("Unknown media status filter: {raw}"))
+            })?),
+        };
+
         Ok(LibraryQuery {
             lifecycle,
             modules,
             kinds,
             tags: dto.tags.unwrap_or_default(),
+            media_status,
             sort,
             page,
         })

@@ -1,16 +1,72 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Badge } from '../../ui/Badge';
+import { formatRelativeTime, t } from '../../i18n';
 import type {
   ActiveModule,
   AppCapabilities,
   AssetSummary,
   DesktopError,
   LifecycleOption,
+  MediaStatusCountDto,
   Page,
   SortOption,
 } from './types';
-import { t } from '../../i18n';
 import { SavedFilters, type SavedFilterState } from './SavedFilters';
+
+/** Canonical media statuses, in segmented-control order. */
+const MEDIA_STATUS_KEYS = ['planned', 'in_progress', 'completed', 'paused', 'dropped'] as const;
+
+const statusTint: Record<string, { bg: string; ink: string }> = {
+  planned: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
+  in_progress: { bg: 'var(--color-mesh-bg)', ink: 'var(--color-mesh)' },
+  completed: { bg: 'var(--color-canvas)', ink: 'var(--color-muted)' },
+  paused: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
+  dropped: { bg: 'var(--color-danger-bg)', ink: 'var(--color-danger)' },
+};
+
+const podStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 2,
+  padding: 2,
+  backgroundColor: 'var(--color-surface)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 999,
+  boxShadow: '0 1px 3px rgba(23, 33, 38, 0.06)',
+};
+
+const segBtn = (active: boolean): React.CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  height: 26,
+  padding: '0 10px',
+  border: 'none',
+  borderRadius: 999,
+  cursor: 'pointer',
+  fontSize: 12,
+  whiteSpace: 'nowrap',
+  backgroundColor: active ? 'var(--color-mesh)' : 'transparent',
+  color: active ? '#ffffff' : 'var(--color-ink)',
+  fontWeight: active ? 600 : 400,
+});
+
+const segCount: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  color: 'var(--color-muted)',
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: '5px 10px',
+  fontSize: 12,
+  borderRadius: 999,
+  border: '1px solid var(--color-border)',
+  backgroundColor: 'var(--color-surface)',
+  color: 'var(--color-ink)',
+  cursor: 'pointer',
+  boxShadow: '0 1px 3px rgba(23, 33, 38, 0.06)',
+};
 
 interface AssetLedgerProps {
   module: ActiveModule;
@@ -18,6 +74,8 @@ interface AssetLedgerProps {
   sort: SortOption;
   selectedKind: string | null;
   selectedTag: string | null;
+  selectedMediaStatus: string | null;
+  statusCounts: MediaStatusCountDto[] | null;
   searchQuery: string;
   page: number;
   pageSize: number;
@@ -32,6 +90,7 @@ interface AssetLedgerProps {
   onSelectAsset: (id: string) => void;
   onOpenDetail?: (id: string) => void;
   onSelectLifecycle: (lifecycle: LifecycleOption) => void;
+  onSelectMediaStatus: (status: string | null) => void;
   onSelectSort: (sort: SortOption) => void;
   onSelectKind: (kind: string | null) => void;
   onSelectTag: (tag: string | null) => void;
@@ -48,6 +107,8 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   sort,
   selectedKind,
   selectedTag,
+  selectedMediaStatus,
+  statusCounts,
   searchQuery,
   page,
   pageSize,
@@ -62,6 +123,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   onSelectAsset,
   onOpenDetail,
   onSelectLifecycle,
+  onSelectMediaStatus,
   onSelectSort,
   onSelectKind,
   onSelectTag,
@@ -73,6 +135,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
 }) => {
   const tableRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [savedOpen, setSavedOpen] = useState(false);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -139,8 +202,11 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
     sort !== 'updated_desc' ||
     selectedKind !== null ||
     selectedTag !== null ||
+    (module === 'media' && selectedMediaStatus !== null) ||
     Boolean(searchQuery.trim()) ||
     page > 1;
+
+  const allCount = statusCounts ? statusCounts.reduce((n, c) => n + c.count, 0) : null;
 
   return (
     <main
@@ -150,14 +216,13 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
         display: 'flex',
         flexDirection: 'column',
         minWidth: 0,
-        backgroundColor: 'var(--color-surface)',
+        backgroundColor: 'var(--color-canvas)',
       }}
     >
       {/* Header & Controls Toolbar */}
       <header
         style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid var(--color-border)',
+          padding: '14px 16px 10px',
           display: 'flex',
           flexDirection: 'column',
           gap: '10px',
@@ -173,7 +238,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
           }}
         >
           <div>
-            <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-ink)' }}>
+            <h2 style={{ fontSize: '17px', fontWeight: 650, color: 'var(--color-ink)' }}>
               {title}
             </h2>
             <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
@@ -195,6 +260,65 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Saved filters live in a popover so the toolbar stays a browse tool */}
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                aria-label={t('Saved filters')}
+                aria-expanded={savedOpen}
+                onClick={() => setSavedOpen((open) => !open)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 32,
+                  height: 32,
+                  backgroundColor: 'var(--color-surface)',
+                  color: savedOpen ? 'var(--color-mesh)' : 'var(--color-muted)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 999,
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(23, 33, 38, 0.06)',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M4 1.5h8a1 1 0 0 1 1 1v12l-5-3-5 3v-12a1 1 0 0 1 1-1Z" />
+                </svg>
+              </button>
+              {savedOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    right: 0,
+                    zIndex: 40,
+                    width: 360,
+                    padding: 10,
+                    backgroundColor: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-lg)',
+                    boxShadow: '0 8px 24px rgba(23, 33, 38, 0.14)',
+                  }}
+                >
+                  <SavedFilters
+                    current={{
+                      module,
+                      lifecycle,
+                      mediaStatus: module === 'media' ? selectedMediaStatus ?? null : null,
+                      sort,
+                      kind: selectedKind,
+                      tag: selectedTag,
+                      search: searchQuery,
+                    }}
+                    onApply={(state) => {
+                      onApplySavedFilter(state);
+                      setSavedOpen(false);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
             {module === 'info' && onImportInfo && <button type="button" onClick={onImportInfo}>{t('Import CSV')}</button>}
             {onDiscoverSoftware && module === 'software' && (
               <button
@@ -223,17 +347,18 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 data-testid="new-asset-button"
                 onClick={onNewAsset}
                 style={{
-                  padding: '6px 14px',
+                  padding: '7px 14px',
                   backgroundColor: 'var(--color-mesh)',
                   color: '#ffffff',
                   border: 'none',
-                  borderRadius: 'var(--radius-sm)',
+                  borderRadius: 999,
                   fontSize: '12px',
-                  fontWeight: 500,
+                  fontWeight: 600,
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
+                  boxShadow: '0 2px 8px rgba(20, 125, 120, 0.28)',
                 }}
               >
                 +{' '}
@@ -246,21 +371,93 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   : t('New Asset')}
               </button>
             )}
+          </div>
         </div>
 
-        <SavedFilters
-          current={{ module, lifecycle, sort, kind: selectedKind, tag: selectedTag, search: searchQuery }}
-          onApply={onApplySavedFilter}
-        />
+        {/* Filter toolbar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Media watch-status segmented control */}
+          {module === 'media' && onSelectMediaStatus && (
+            <div role="group" aria-label={t('Filter by media status')} style={podStyle}>
+              <button
+                type="button"
+                onClick={() => onSelectMediaStatus(null)}
+                aria-pressed={!selectedMediaStatus}
+                style={segBtn(!selectedMediaStatus)}
+              >
+                {t('All')}
+                {allCount !== null && <span style={segCount}>{allCount}</span>}
+              </button>
+              {MEDIA_STATUS_KEYS.map((key) => {
+                const count = statusCounts?.find((c) => c.status === key)?.count;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => onSelectMediaStatus(key)}
+                    aria-pressed={selectedMediaStatus === key}
+                    style={segBtn(selectedMediaStatus === key)}
+                  >
+                    {t(key)}
+                    {count != null && <span style={segCount}>{count}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-          {/* Search Input Bar */}
+          {/* Lifecycle Selector */}
+          <select
+            aria-label={t('Filter by lifecycle')}
+            value={lifecycle}
+            onChange={(e) => onSelectLifecycle(e.target.value as LifecycleOption)}
+            style={selectStyle}
+          >
+            <option value="active">{t('Active Only')}</option>
+            <option value="active_or_archived">{t('Active + Archived')}</option>
+            <option value="all">{t('All (incl. Merged)')}</option>
+          </select>
+
+          {/* Kind Selector */}
+          {availableKinds.length > 0 && (
+            <select
+              aria-label={t('Filter by kind')}
+              value={selectedKind || ''}
+              onChange={(e) => onSelectKind(e.target.value || null)}
+              style={selectStyle}
+            >
+              <option value="">{t('All Kinds')}</option>
+              {availableKinds.map((k) => (
+                <option key={k} value={k}>
+                  {t(k)}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Sort Selector */}
+          <select
+            aria-label={t('Sort assets')}
+            value={sort}
+            onChange={(e) => onSelectSort(e.target.value as SortOption)}
+            style={selectStyle}
+          >
+            <option value="updated_desc">{t('Recently Updated')}</option>
+            <option value="updated_asc">{t('Oldest Updated')}</option>
+            <option value="name_asc">{t('Name (A-Z)')}</option>
+            <option value="name_desc">{t('Name (Z-A)')}</option>
+            <option value="kind_asc">{t('Asset Kind')}</option>
+          </select>
+
+          {/* Search Input */}
           <div
             style={{
               position: 'relative',
               display: 'flex',
               alignItems: 'center',
-              flex: '1 1 220px',
-              maxWidth: '360px',
+              flex: '1 1 200px',
+              maxWidth: '340px',
+              minWidth: '160px',
             }}
           >
             <span
@@ -309,10 +506,11 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 padding: '6px 32px 6px 30px',
                 fontSize: '12px',
                 border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: 'var(--color-canvas)',
+                borderRadius: 999,
+                backgroundColor: 'var(--color-surface)',
                 color: 'var(--color-ink)',
                 outline: 'none',
+                boxShadow: '0 1px 3px rgba(23, 33, 38, 0.06)',
               }}
             />
             {searchQuery ? (
@@ -342,7 +540,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   fontSize: '10px',
                   fontWeight: 600,
                   color: 'var(--color-muted)',
-                  backgroundColor: 'var(--color-surface)',
+                  backgroundColor: 'var(--color-canvas)',
                   border: '1px solid var(--color-border)',
                   borderRadius: 'var(--radius-sm)',
                   pointerEvents: 'none',
@@ -352,80 +550,14 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
               </kbd>
             )}
           </div>
-
-          {/* Quick Filter Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            {/* Lifecycle Selector */}
-            <select
-              aria-label={t('Filter by lifecycle')}
-              value={lifecycle}
-              onChange={(e) => onSelectLifecycle(e.target.value as LifecycleOption)}
-              style={{
-                padding: '4px 8px',
-                fontSize: '12px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                backgroundColor: 'var(--color-surface)',
-                color: 'var(--color-ink)',
-                cursor: 'pointer',
-              }}
-            >
-              <option value="active">{t('Active Only')}</option>
-              <option value="active_or_archived">{t('Active + Archived')}</option>
-              <option value="all">{t('All (incl. Merged)')}</option>
-            </select>
-
-            {/* Kind Selector */}
-            {availableKinds.length > 0 && (
-              <select
-                aria-label={t('Filter by kind')}
-                value={selectedKind || ''}
-                onChange={(e) => onSelectKind(e.target.value || null)}
-                style={{
-                  padding: '4px 8px',
-                  fontSize: '12px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--color-border)',
-                  backgroundColor: 'var(--color-surface)',
-                  color: 'var(--color-ink)',
-                  cursor: 'pointer',
-                }}
-              >
-                <option value="">{t('All Kinds')}</option>
-                {availableKinds.map((k) => (
-                  <option key={k} value={k}>
-                    {t(k)}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {/* Sort Selector */}
-            <select
-              aria-label={t('Sort assets')}
-              value={sort}
-              onChange={(e) => onSelectSort(e.target.value as SortOption)}
-              style={{
-                padding: '4px 8px',
-                fontSize: '12px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                backgroundColor: 'var(--color-surface)',
-                color: 'var(--color-ink)',
-                cursor: 'pointer',
-              }}
-            >
-              <option value="updated_desc">{t('Recently Updated')}</option>
-              <option value="updated_asc">{t('Oldest Updated')}</option>
-              <option value="name_asc">{t('Name (A-Z)')}</option>
-              <option value="name_desc">{t('Name (Z-A)')}</option>
-              <option value="kind_asc">{t('Asset Kind')}</option>
-            </select>
-          </div>
         </div>
 
         {/* Active Filters Summary Chips */}
-        {(selectedTag || selectedKind || Boolean(searchQuery.trim()) || isFiltered) && (
+        {(selectedTag ||
+          selectedKind ||
+          (module === 'media' && selectedMediaStatus) ||
+          Boolean(searchQuery.trim()) ||
+          isFiltered) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
             {searchQuery.trim() && (
               <span
@@ -436,7 +568,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   backgroundColor: 'rgba(20, 125, 120, 0.1)',
                   border: '1px solid var(--color-mesh)',
                   padding: '2px 8px',
-                  borderRadius: 'var(--radius-sm)',
+                  borderRadius: 999,
                   fontSize: '11px',
                   color: 'var(--color-mesh)',
                   fontWeight: 500,
@@ -465,10 +597,10 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
-                  backgroundColor: 'var(--color-canvas)',
+                  backgroundColor: 'var(--color-surface)',
                   border: '1px solid var(--color-border)',
                   padding: '2px 8px',
-                  borderRadius: 'var(--radius-sm)',
+                  borderRadius: 999,
                   fontSize: '11px',
                   color: 'var(--color-ink)',
                 }}
@@ -497,10 +629,10 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
-                  backgroundColor: 'var(--color-canvas)',
+                  backgroundColor: 'var(--color-surface)',
                   border: '1px solid var(--color-border)',
                   padding: '2px 8px',
-                  borderRadius: 'var(--radius-sm)',
+                  borderRadius: 999,
                   fontSize: '11px',
                   color: 'var(--color-ink)',
                 }}
@@ -509,6 +641,38 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 <button
                   onClick={() => onSelectKind(null)}
                   aria-label={t('Remove kind filter')}
+                  style={{
+                    border: 'none',
+                    background: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--color-muted)',
+                    marginLeft: '2px',
+                    fontSize: '12px',
+                  }}
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {module === 'media' && selectedMediaStatus && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  fontSize: '11px',
+                  color: 'var(--color-ink)',
+                }}
+              >
+                {t('status: {status}', { status: t(selectedMediaStatus) })}
+                <button
+                  onClick={() => onSelectMediaStatus(null)}
+                  aria-label={t('Remove status filter')}
                   style={{
                     border: 'none',
                     background: 'none',
@@ -547,7 +711,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
         <div
           role="alert"
           style={{
-            margin: '16px',
+            margin: '0 16px 12px',
             padding: '16px',
             backgroundColor: 'var(--color-danger-bg)',
             border: '1px solid var(--color-danger)',
@@ -577,7 +741,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
         </div>
       )}
 
-      {/* Ledger Table / List */}
+      {/* Ledger card */}
       <div
         ref={tableRef}
         tabIndex={0}
@@ -587,6 +751,11 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
           flex: 1,
           overflowY: 'auto',
           outline: 'none',
+          margin: '0 16px',
+          backgroundColor: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 12,
+          minHeight: 0,
         }}
       >
         {!error && data && data.items.length === 0 ? (
@@ -623,8 +792,46 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
           </div>
         ) : (
           <div role="table" aria-label={t('Assets')}>
+            {data && data.items.length > 0 && (
+              // Presentational column header: deliberately not role="row", so
+              // assistive tech and tests counting data rows are unaffected.
+              <div
+                aria-hidden="true"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  borderBottom: '1px solid var(--color-border)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: 'var(--color-muted)',
+                  letterSpacing: '0.03em',
+                  position: 'sticky',
+                  top: 0,
+                  backgroundColor: 'var(--color-surface)',
+                  zIndex: 1,
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0 }}>{t('Name')}</span>
+                <span style={{ width: 90, textAlign: 'right' }}>{t('Progress')}</span>
+                <span style={{ width: 52, textAlign: 'right' }}>{t('Rating')}</span>
+                <span style={{ width: 72, textAlign: 'right' }}>{t('Last Updated')}</span>
+              </div>
+            )}
             {data?.items.map((asset) => {
               const isSelected = asset.id === selectedAssetId;
+              const media = asset.details && asset.details.module === 'media' ? asset.details : null;
+              const tint = media ? statusTint[media.status] : undefined;
+              const progressText =
+                media?.progress && (media.progress.current != null || media.progress.total != null)
+                  ? `${media.progress.unit ? `${media.progress.unit} ` : ''}${
+                      media.progress.current ?? '·'
+                    }/${media.progress.total ?? '·'}`
+                  : null;
+              const typeText = media
+                ? `${t(media.media_type)}${media.year ? ` · ${media.year}` : ''}`
+                : null;
               return (
                 <div
                   key={asset.id}
@@ -648,9 +855,10 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    padding: '10px 16px',
+                    gap: '8px',
+                    padding: '11px 16px',
                     borderBottom: '1px solid var(--color-border-subtle)',
-                    backgroundColor: isSelected ? 'var(--color-surface-active)' : 'transparent',
+                    backgroundColor: isSelected ? 'var(--color-mesh-bg)' : 'transparent',
                     borderLeft: isSelected ? '3px solid var(--color-mesh)' : '3px solid transparent',
                     cursor: 'pointer',
                     outline: 'none',
@@ -658,40 +866,39 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   }}
                   className="asset-row"
                 >
-                  <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color: 'var(--color-ink)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: '13px',
+                      }}
+                    >
+                      {asset.name}
+                    </span>
+                    {media && tint && (
                       <span
                         style={{
+                          flexShrink: 0,
+                          fontSize: '10px',
                           fontWeight: 600,
-                          color: 'var(--color-ink)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          fontSize: '13px',
+                          color: tint.ink,
+                          backgroundColor: tint.bg,
+                          padding: '1px 8px',
+                          borderRadius: 999,
                         }}
                       >
-                        {asset.name}
+                        {t(media.status)}
                       </span>
-                      <Badge variant="muted">{t(asset.kind)}</Badge>
-                      {asset.lifecycle !== 'active' && (
-                        <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>
-                          {t(asset.lifecycle)}
-                        </Badge>
-                      )}
-                    </div>
-                    {asset.subtitle && (
-                      <div
-                        style={{
-                          fontSize: '12px',
-                          color: 'var(--color-muted)',
-                          marginTop: '2px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {asset.subtitle}
-                      </div>
+                    )}
+                    <Badge variant="muted">{t(asset.kind)}</Badge>
+                    {asset.lifecycle !== 'active' && (
+                      <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>
+                        {t(asset.lifecycle)}
+                      </Badge>
                     )}
                   </div>
 
@@ -699,7 +906,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
+                      gap: '8px',
                       flexShrink: 0,
                     }}
                   >
@@ -724,15 +931,70 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                         #{tag}
                       </button>
                     ))}
+                    {!media && asset.subtitle && (
+                      <span
+                        style={{
+                          fontSize: '11.5px',
+                          color: 'var(--color-muted)',
+                          maxWidth: 200,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {asset.subtitle}
+                      </span>
+                    )}
+                    {media && (
+                      <span
+                        style={{
+                          fontSize: '11.5px',
+                          color: 'var(--color-muted)',
+                          maxWidth: 140,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          textAlign: 'right',
+                        }}
+                      >
+                        {typeText}
+                      </span>
+                    )}
                     <span
                       style={{
-                        fontSize: '11px',
-                        color: 'var(--color-muted)',
-                        fontFamily: 'var(--font-mono)',
-                        marginLeft: '8px',
+                        width: 90,
+                        fontSize: '11.5px',
+                        color: progressText ? 'var(--color-muted)' : 'transparent',
+                        textAlign: 'right',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                       }}
                     >
-                      {asset.updated_at.slice(0, 10)}
+                      {progressText ?? '—'}
+                    </span>
+                    <span
+                      style={{
+                        width: 52,
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        color:
+                          media?.rating != null ? 'var(--color-attention)' : 'var(--color-border)',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {media?.rating != null ? `★ ${media.rating.toFixed(1)}` : '—'}
+                    </span>
+                    <span
+                      style={{
+                        width: 72,
+                        fontSize: '11px',
+                        color: 'var(--color-muted)',
+                        textAlign: 'right',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {formatRelativeTime(asset.updated_at)}
                     </span>
                   </div>
                 </div>
@@ -747,11 +1009,9 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
         <footer
           style={{
             padding: '8px 16px',
-            borderTop: '1px solid var(--color-border)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            backgroundColor: 'var(--color-canvas)',
             fontSize: '12px',
             color: 'var(--color-muted)',
           }}
@@ -768,7 +1028,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
               aria-label={t('Previous Page')}
               style={{
                 padding: '4px 10px',
-                borderRadius: 'var(--radius-sm)',
+                borderRadius: 999,
                 border: '1px solid var(--color-border)',
                 backgroundColor: 'var(--color-surface)',
                 color: hasPrevPage ? 'var(--color-ink)' : 'var(--color-muted)',
@@ -782,7 +1042,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
               aria-label={t('Next Page')}
               style={{
                 padding: '4px 10px',
-                borderRadius: 'var(--radius-sm)',
+                borderRadius: 999,
                 border: '1px solid var(--color-border)',
                 backgroundColor: 'var(--color-surface)',
                 color: hasNextPage ? 'var(--color-ink)' : 'var(--color-muted)',

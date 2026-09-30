@@ -78,3 +78,24 @@ export function useT(): typeof t {
   useLang();
   return t;
 }
+
+/**
+ * Human-oriented relative time ("6 天前" / "6 days ago") for list rows and
+ * inspector metadata. Falls back to a plain date past a month, and to the raw
+ * ISO date when the timestamp cannot be parsed.
+ */
+export function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return iso.slice(0, 10);
+  const diffMinutes = Math.round((Date.now() - then) / 60_000);
+  if (diffMinutes < 1) {
+    return new Intl.RelativeTimeFormat(localeTag(), { numeric: 'auto' }).format(0, 'minute');
+  }
+  const rtf = new Intl.RelativeTimeFormat(localeTag(), { numeric: 'auto' });
+  if (diffMinutes < 60) return rtf.format(-diffMinutes, 'minute');
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return rtf.format(-diffHours, 'hour');
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 30) return rtf.format(-diffDays, 'day');
+  return new Date(iso).toLocaleDateString(localeTag());
+}

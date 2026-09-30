@@ -188,7 +188,7 @@ describe('Import/Export and Settings Workflow UI (P5-09)', () => {
 
     // Capabilities section renders
     expect(screen.getByTestId('settings-capabilities-section')).toBeInTheDocument();
-    expect(screen.getByText('media, software, services')).toBeInTheDocument();
+    expect(screen.getByText('media, software, services, info')).toBeInTheDocument();
 
     // Theme switching: click Dark
     const darkBtn = screen.getByTestId('theme-dark');

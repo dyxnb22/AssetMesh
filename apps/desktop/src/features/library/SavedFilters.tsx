@@ -5,6 +5,7 @@ import type { ActiveModule, LifecycleOption, SortOption } from './types';
 export interface SavedFilterState {
   module: ActiveModule;
   lifecycle: LifecycleOption;
+  mediaStatus: string | null;
   sort: SortOption;
   kind: string | null;
   tag: string | null;
@@ -31,6 +32,7 @@ function loadFilters(): SavedFilter[] {
       item.state !== null && typeof item.state === 'object' &&
       modules.has(item.state.module) && lifecycles.has(item.state.lifecycle) &&
       sorts.has(item.state.sort) && typeof item.state.search === 'string' &&
+      (item.state.mediaStatus === null || typeof item.state.mediaStatus === 'string') &&
       (item.state.kind === null || typeof item.state.kind === 'string') &&
       (item.state.tag === null || typeof item.state.tag === 'string')).slice(0, 50);
   } catch {

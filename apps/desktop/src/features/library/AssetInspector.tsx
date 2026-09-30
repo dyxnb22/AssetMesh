@@ -1,13 +1,28 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Badge } from '../../ui/Badge';
-import type { AssetSummary } from './types';
-import { t } from '../../i18n';
+import { formatRelativeTime, t } from '../../i18n';
+import { getTransport } from './transport';
+import type { AssetSummary, MediaRecordDto, RelationViewDto } from './types';
+
+/** Canonical media statuses, in selector order. */
+const MEDIA_STATUS_KEYS = ['planned', 'in_progress', 'completed', 'paused', 'dropped'] as const;
+
+const statusTint: Record<string, { bg: string; ink: string }> = {
+  planned: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
+  in_progress: { bg: 'var(--color-mesh-bg)', ink: 'var(--color-mesh)' },
+  completed: { bg: 'var(--color-canvas)', ink: 'var(--color-muted)' },
+  paused: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
+  dropped: { bg: 'var(--color-danger-bg)', ink: 'var(--color-danger)' },
+};
 
 interface AssetInspectorProps {
   asset: AssetSummary | null;
   onClose?: () => void;
   onSelectTag?: (tag: string) => void;
   onOpenDetail?: (assetId: string) => void;
+  onOpenRelations?: () => void;
+  /** Applies a media watch-status transition through the application layer. */
+  onMediaStatusChange?: (asset: AssetSummary, status: string) => Promise<void> | void;
 }
 
 export const AssetInspector: React.FC<AssetInspectorProps> = ({
@@ -15,7 +30,64 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
   onClose,
   onSelectTag,
   onOpenDetail,
+  onOpenRelations,
+  onMediaStatusChange,
 }) => {
+  const [relations, setRelations] = useState<RelationViewDto[] | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+
+  const media: MediaRecordDto | null =
+    asset?.details && asset.details.module === 'media' ? asset.details : null;
+
+  useEffect(() => {
+    let alive = true;
+    setRelations(null);
+    if (!asset) return undefined;
+    getTransport()
+      .relationList(asset.id)
+      .then((rows) => {
+        if (alive) setRelations(rows);
+      })
+      .catch(() => {
+        if (alive) setRelations([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [asset]);
+
+  const copyId = async () => {
+    if (!asset) return;
+    try {
+      await navigator.clipboard.writeText(asset.id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable (permissions); the raw id stays visible.
+    }
+  };
+
+  const changeStatus = async (status: string) => {
+    if (!asset || !onMediaStatusChange || pendingStatus || asset.lifecycle !== 'active') return;
+    setPendingStatus(status);
+    try {
+      await onMediaStatusChange(asset, status);
+    } finally {
+      setPendingStatus(null);
+    }
+  };
+
+  const shortId = asset ? `${asset.id.slice(0, 8)}…${asset.id.slice(-4)}` : '';
+  const progress =
+    media?.progress && (media.progress.current != null || media.progress.total != null)
+      ? media.progress
+      : null;
+  const progressPct =
+    progress && progress.current != null && progress.total
+      ? Math.min(100, Math.round((progress.current / progress.total) * 100))
+      : null;
+
   return (
     <aside
       aria-label={t('Asset Inspector')}
@@ -70,8 +142,22 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
       {asset ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               <Badge variant="mesh">{t(asset.kind)}</Badge>
+              {media && statusTint[media.status] && (
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: statusTint[media.status].ink,
+                    backgroundColor: statusTint[media.status].bg,
+                    padding: '1px 8px',
+                    borderRadius: 999,
+                  }}
+                >
+                  {t(media.status)}
+                </span>
+              )}
               {asset.lifecycle !== 'active' && (
                 <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>
                   {t(asset.lifecycle)}
@@ -95,39 +181,244 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
                 {asset.subtitle}
               </p>
             )}
+            {media?.platform && (
+              <p style={{ color: 'var(--color-muted)', fontSize: '12px', marginTop: '2px' }}>
+                {media.platform}
+              </p>
+            )}
           </div>
 
-          <div
-            style={{
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: '14px',
-              fontSize: '12px',
-            }}
-          >
-            <div style={{ color: 'var(--color-muted)', marginBottom: '4px' }}>{t('Asset ID')}</div>
-            <code
+          {/* Media watch panel: status transition, progress, rating */}
+          {media && (
+            <div
               style={{
-                fontSize: '11px',
-                wordBreak: 'break-all',
-                backgroundColor: 'var(--color-canvas)',
-                padding: '2px 4px',
-                borderRadius: 'var(--radius-sm)',
-                display: 'block',
+                backgroundColor: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                padding: '12px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
               }}
             >
-              {asset.id}
-            </code>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-ink)' }}>
+                {t('Media Status')}
+              </div>
+              <div
+                role="group"
+                aria-label={t('Media Status')}
+                style={{
+                  display: 'flex',
+                  backgroundColor: 'var(--color-canvas)',
+                  borderRadius: 999,
+                  padding: 3,
+                  gap: 2,
+                }}
+              >
+                {MEDIA_STATUS_KEYS.map((key) => {
+                  const active = media.status === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => changeStatus(key)}
+                      disabled={pendingStatus !== null || asset.lifecycle !== 'active'}
+                      aria-pressed={active}
+                      title={t(key)}
+                      style={{
+                        flex: 1,
+                        height: 26,
+                        border: 'none',
+                        borderRadius: 999,
+                        cursor: pendingStatus !== null ? 'wait' : 'pointer',
+                        fontSize: 11.5,
+                        whiteSpace: 'nowrap',
+                        padding: 0,
+                        backgroundColor: active ? 'var(--color-mesh)' : 'transparent',
+                        color: active ? '#ffffff' : 'var(--color-muted)',
+                        fontWeight: active ? 600 : 400,
+                      }}
+                    >
+                      {t(key)}
+                    </button>
+                  );
+                })}
+              </div>
 
-            <div style={{ color: 'var(--color-muted)', marginTop: '10px', marginBottom: '4px' }}>{t('Lifecycle Status')}</div>
-            <div style={{ fontWeight: 500 }}>{t(asset.lifecycle)}</div>
+              {progress && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '11.5px', color: 'var(--color-muted)' }}>{t('Progress')}</span>
+                    <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--color-ink)' }}>
+                      {progress.unit ? `${progress.unit} ` : ''}
+                      {progress.current ?? '·'}/{progress.total ?? '·'}
+                    </span>
+                  </div>
+                  {progressPct !== null && (
+                    <div
+                      style={{
+                        marginTop: 5,
+                        height: 4,
+                        borderRadius: 999,
+                        backgroundColor: 'var(--color-border-subtle)',
+                        overflow: 'hidden',
+                      }}
+                      role="progressbar"
+                      aria-valuenow={progressPct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <div
+                        style={{
+                          width: `${progressPct}%`,
+                          height: '100%',
+                          backgroundColor: 'var(--color-mesh)',
+                          borderRadius: 999,
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
-            <div style={{ color: 'var(--color-muted)', marginTop: '10px', marginBottom: '4px' }}>{t('Last Updated')}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-              {asset.updated_at}
+              {media.rating != null && (
+                <div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--color-muted)', marginBottom: 2 }}>
+                    {t('My Rating')}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span
+                      aria-label={t('Rating')}
+                      style={{
+                        position: 'relative',
+                        fontSize: 15,
+                        letterSpacing: 2,
+                        color: 'var(--color-border)',
+                        lineHeight: 1,
+                      }}
+                    >
+                      ★★★★★
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          width: `${Math.max(0, Math.min(100, media.rating * 10))}%`,
+                          overflow: 'hidden',
+                          color: '#E8A33D',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        ★★★★★
+                      </span>
+                    </span>
+                    <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--color-ink)' }}>
+                      {media.rating.toFixed(1)}
+                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>/ 10</span>
+                  </div>
+                </div>
+              )}
+
+              {media.status !== 'completed' && asset.lifecycle === 'active' && (
+                <button
+                  type="button"
+                  onClick={() => changeStatus('completed')}
+                  disabled={pendingStatus !== null}
+                  style={{
+                    height: 30,
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'var(--color-surface)',
+                    color: 'var(--color-ink)',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: pendingStatus !== null ? 'wait' : 'pointer',
+                  }}
+                >
+                  {t('Mark Completed')}
+                </button>
+              )}
             </div>
-          </div>
+          )}
+
+          {/* Relations preview */}
+          {relations !== null && (
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-ink)', marginBottom: '6px' }}>
+                {t('Relations')} · {relations.length}
+              </div>
+              {relations.length === 0 ? (
+                <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>{t('No relations')}</div>
+              ) : (
+                <div
+                  style={{
+                    backgroundColor: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '4px 12px',
+                  }}
+                >
+                  {relations.slice(0, 3).map((rel) => (
+                    <div
+                      key={rel.relation_id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '5px 0',
+                        borderBottom: '1px solid var(--color-border-subtle)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 10,
+                          color: 'var(--color-muted)',
+                          backgroundColor: 'var(--color-canvas)',
+                          borderRadius: 4,
+                          padding: '0 5px',
+                          lineHeight: '16px',
+                        }}
+                      >
+                        {rel.relation_type}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: 'var(--color-ink)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {rel.other_asset_name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {relations.length > 3 && onOpenRelations && (
+                <button
+                  type="button"
+                  onClick={onOpenRelations}
+                  style={{
+                    marginTop: 6,
+                    border: 'none',
+                    background: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    color: 'var(--color-mesh)',
+                  }}
+                >
+                  {t('Open in relations')}
+                </button>
+              )}
+            </div>
+          )}
 
           {asset.tags.length > 0 && (
             <div>
@@ -156,6 +447,44 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
               </div>
             </div>
           )}
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 11,
+              color: 'var(--color-muted)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span
+              title={asset.id}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, wordBreak: 'break-all' }}
+            >
+              {shortId}
+            </span>
+            <button
+              type="button"
+              onClick={copyId}
+              aria-label={t('Copy ID')}
+              style={{
+                border: 'none',
+                background: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: copied ? 'var(--color-mesh)' : 'var(--color-muted)',
+              }}
+            >
+              {copied ? t('Copied') : t('Copy ID')}
+            </button>
+            <span>·</span>
+            <span>
+              {t('Last Updated')} {formatRelativeTime(asset.updated_at)}
+            </span>
+          </div>
 
           {onOpenDetail && (
             <button

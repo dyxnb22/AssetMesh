@@ -10,6 +10,7 @@ import type {
   LibraryQuery,
   LibrarySearchQuery,
   MediaCommand,
+  MediaStatusCountDto,
   MutationReceiptDto,
   NeighborViewDto,
   Page,
@@ -40,6 +41,7 @@ export interface DesktopTransport {
   init(dbPath?: string): Promise<AppStatus>;
   listAssets(query?: LibraryQuery): Promise<Page<AssetSummary>>;
   searchAssets(query: LibrarySearchQuery): Promise<Page<AssetSummary>>;
+  mediaStatusCounts(query?: LibraryQuery): Promise<MediaStatusCountDto[]>;
   getAsset(id: string): Promise<AssetDetailDto>;
   softwareDiscover(): Promise<ClassifiedCandidateDto[]>;
   softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto>;
@@ -81,6 +83,12 @@ export class TauriTransport implements DesktopTransport {
 
   async searchAssets(query: LibrarySearchQuery): Promise<Page<AssetSummary>> {
     return await invoke<Page<AssetSummary>>('library_search', { query });
+  }
+
+  async mediaStatusCounts(query?: LibraryQuery): Promise<MediaStatusCountDto[]> {
+    return await invoke<MediaStatusCountDto[]>('library_media_status_counts', {
+      query: query ?? {},
+    });
   }
 
   async getAsset(id: string): Promise<AssetDetailDto> {

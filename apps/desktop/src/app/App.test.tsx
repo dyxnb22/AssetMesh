@@ -153,11 +153,11 @@ describe('App Desktop Shell', () => {
 
     // Inspector shows details of the auto-selected first item
     expect(screen.getByRole('complementary', { name: 'Asset Inspector' })).toBeInTheDocument();
-    expect(screen.getByText('019315d0-7a00-7000-8000-000000000001')).toBeInTheDocument();
+    expect(screen.getByText('019315d0…0001')).toBeInTheDocument();
 
     // Clicking second row updates inspector
     await userEvent.click(rows[1]);
-    expect(screen.getByText('019315d0-7a00-7000-8000-000000000002')).toBeInTheDocument();
+    expect(screen.getByText('019315d0…0002')).toBeInTheDocument();
   });
 
   it('filters by lifecycle including archived assets', async () => {
@@ -239,19 +239,19 @@ describe('App Desktop Shell', () => {
     // Down arrow moves selection to Neovim
     fireEvent.keyDown(ledger, { key: 'ArrowDown' });
     await waitFor(() => {
-      expect(screen.getByText('019315d0-7a00-7000-8000-000000000002')).toBeInTheDocument();
+      expect(screen.getByText('019315d0…0002')).toBeInTheDocument();
     });
 
     // Down arrow moves selection to GitHub Copilot
     fireEvent.keyDown(ledger, { key: 'ArrowDown' });
     await waitFor(() => {
-      expect(screen.getByText('019315d0-7a00-7000-8000-000000000003')).toBeInTheDocument();
+      expect(screen.getByText('019315d0…0003')).toBeInTheDocument();
     });
 
     // Up arrow moves selection back to Neovim
     fireEvent.keyDown(ledger, { key: 'ArrowUp' });
     await waitFor(() => {
-      expect(screen.getByText('019315d0-7a00-7000-8000-000000000002')).toBeInTheDocument();
+      expect(screen.getByText('019315d0…0002')).toBeInTheDocument();
     });
   });
 

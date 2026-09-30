@@ -175,6 +175,7 @@ fn payload_for(command: &str, scratch: &std::path::Path) -> serde_json::Value {
         | "app_settings"
         | "software_discover"
         | "library_list"
+        | "library_media_status_counts"
         | "activity_query"
         | "duplicate_candidates" => map(&[]),
         "app_init" => map(&[("dbPath", serde_json::json!(format!("{scratch}/probe.db")))]),

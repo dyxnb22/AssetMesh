@@ -7,6 +7,8 @@ export interface AssetSummary {
   tags: string[];
   revision?: number;
   updated_at: string;
+  /** Typed module details (`{"module": "media", …}`) when the adapter hydrates one. */
+  details?: AssetDetailsDto;
 }
 
 export interface Page<T> {
@@ -21,9 +23,15 @@ export interface LibraryQuery {
   modules?: string[];
   kinds?: string[];
   tags?: string[];
+  media_status?: string;
   sort?: 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'kind_asc';
   limit?: number;
   offset?: number;
+}
+
+export interface MediaStatusCountDto {
+  status: string;
+  count: number;
 }
 
 export interface LibrarySearchQuery {
@@ -90,6 +98,8 @@ export interface NavigationState {
   section: ActiveSection;
   module: ActiveModule;
   lifecycle: LifecycleOption;
+  /** Media-only watch-status filter (a `MediaStatus` string), applied on the media module. */
+  mediaStatus: string | null;
   sort: SortOption;
   kind: string | null;
   tag: string | null;

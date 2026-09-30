@@ -12,6 +12,7 @@ const DEFAULT_STATE: NavigationState = {
   section: 'library',
   module: 'all',
   lifecycle: 'active',
+  mediaStatus: null,
   sort: 'updated_desc',
   kind: null,
   tag: null,
@@ -56,6 +57,7 @@ function parseHash(hash: string): NavigationState {
       : 'updated_desc';
 
   const kind = params.get('kind') || null;
+  const mediaStatus = params.get('status') || null;
   const tag = params.get('tag') || null;
   const search = params.get('q') || '';
   const page = Math.max(1, parseInt(params.get('page') || '1', 10) || 1);
@@ -65,6 +67,7 @@ function parseHash(hash: string): NavigationState {
     section,
     module,
     lifecycle,
+    mediaStatus,
     sort,
     kind,
     tag,
@@ -79,6 +82,7 @@ function serializeHash(state: NavigationState): string {
   const params = new URLSearchParams();
   if (state.module !== 'all') params.set('module', state.module);
   if (state.lifecycle !== 'active') params.set('lifecycle', state.lifecycle);
+  if (state.mediaStatus) params.set('status', state.mediaStatus);
   if (state.sort !== 'updated_desc') params.set('sort', state.sort);
   if (state.kind) params.set('kind', state.kind);
   if (state.tag) params.set('tag', state.tag);
@@ -114,6 +118,7 @@ export function useNavigation() {
         prev.section === next.section &&
         prev.module === next.module &&
         prev.lifecycle === next.lifecycle &&
+        prev.mediaStatus === next.mediaStatus &&
         prev.sort === next.sort &&
         prev.kind === next.kind &&
         prev.tag === next.tag &&
@@ -138,6 +143,7 @@ export function useNavigation() {
       section: 'library',
       module,
       kind: null,
+      mediaStatus: null,
       page: 1,
     }));
   }, [updateNav]);
@@ -154,6 +160,14 @@ export function useNavigation() {
     updateNav((prev) => ({
       ...prev,
       lifecycle,
+      page: 1,
+    }));
+  }, [updateNav]);
+
+  const setMediaStatus = useCallback((mediaStatus: string | null) => {
+    updateNav((prev) => ({
+      ...prev,
+      mediaStatus,
       page: 1,
     }));
   }, [updateNav]);
@@ -209,6 +223,7 @@ export function useNavigation() {
       ...prev,
       module: 'all',
       lifecycle: 'active',
+      mediaStatus: null,
       sort: 'updated_desc',
       kind: null,
       tag: null,
@@ -226,6 +241,7 @@ export function useNavigation() {
     setModule,
     setSection,
     setLifecycle,
+    setMediaStatus,
     setSort,
     setKind,
     setTag,

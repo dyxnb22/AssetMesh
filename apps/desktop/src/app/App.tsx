@@ -22,6 +22,7 @@ import type {
   DesktopError,
   LibraryQuery,
   LibrarySearchQuery,
+  MediaStatusCountDto,
   Page,
   ThemePreference,
 } from '../features/library/types';
@@ -36,6 +37,7 @@ export const App: React.FC = () => {
   const [status, setStatus] = useState<AppStatus>({ status: 'loading' });
   const [capabilities, setCapabilities] = useState<AppCapabilities | null>(null);
   const [pageData, setPageData] = useState<Page<AssetSummary> | null>(null);
+  const [statusCounts, setStatusCounts] = useState<MediaStatusCountDto[] | null>(null);
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [error, setError] = useState<DesktopError | null>(null);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
@@ -52,6 +54,7 @@ export const App: React.FC = () => {
     setModule,
     setSection,
     setLifecycle,
+    setMediaStatus,
     setSort,
     setKind,
     setTag,
@@ -211,6 +214,8 @@ export const App: React.FC = () => {
           modules: nav.module === 'all' ? undefined : [nav.module],
           kinds: nav.kind ? [nav.kind] : undefined,
           tags: nav.tag ? [nav.tag] : undefined,
+          media_status:
+            nav.module === 'media' && nav.mediaStatus ? nav.mediaStatus : undefined,
           sort: nav.sort,
           limit: nav.pageSize,
           offset: (nav.page - 1) * nav.pageSize,
@@ -222,6 +227,25 @@ export const App: React.FC = () => {
       if (currentSeq !== searchSeqRef.current) return;
 
       setPageData(result);
+
+      // Media status segmented-control counts: same filters as the list but
+      // ignoring the status itself, refreshed on the same triggers.
+      if (nav.module === 'media') {
+        try {
+          const counts = await transport.mediaStatusCounts({
+            lifecycle: nav.lifecycle,
+            modules: ['media'],
+            kinds: nav.kind ? [nav.kind] : undefined,
+            tags: nav.tag ? [nav.tag] : undefined,
+          });
+          if (currentSeq !== searchSeqRef.current) return;
+          setStatusCounts(counts);
+        } catch {
+          if (currentSeq === searchSeqRef.current) setStatusCounts(null);
+        }
+      } else {
+        setStatusCounts(null);
+      }
 
       // Auto-select first asset if none selected or selected not in page
       if (result.items.length > 0) {
@@ -244,6 +268,7 @@ export const App: React.FC = () => {
     status.status,
     nav.lifecycle,
     nav.module,
+    nav.mediaStatus,
     nav.kind,
     nav.tag,
     nav.sort,
@@ -524,6 +549,8 @@ export const App: React.FC = () => {
             sort={nav.sort}
             selectedKind={nav.kind}
             selectedTag={nav.tag}
+            selectedMediaStatus={nav.module === 'media' ? nav.mediaStatus : null}
+            statusCounts={statusCounts}
             searchQuery={searchInput}
             page={nav.page}
             pageSize={nav.pageSize}
@@ -555,6 +582,7 @@ export const App: React.FC = () => {
             }}
             onOpenDetail={(id) => setActiveDetailId(id)}
             onSelectLifecycle={setLifecycle}
+            onSelectMediaStatus={setMediaStatus}
             onSelectSort={setSort}
             onSelectKind={setKind}
             onSelectTag={setTag}
@@ -574,6 +602,20 @@ export const App: React.FC = () => {
               onClose={() => setMobileInspectorOpen(false)}
               onSelectTag={(tag) => setTag(tag)}
               onOpenDetail={(id) => setActiveDetailId(id)}
+              onOpenRelations={() => setSection('relations')}
+              onMediaStatusChange={async (asset, nextStatus) => {
+                try {
+                  await transport.mediaCommand({
+                    action: 'transition_status',
+                    asset_id: asset.id,
+                    status: nextStatus,
+                    expected_revision: asset.revision ?? 1,
+                  });
+                  loadAssets();
+                } catch (err: unknown) {
+                  setError(normalizeDesktopError(err));
+                }
+              }}
             />
           )}
         </>
