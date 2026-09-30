@@ -1079,6 +1079,7 @@ impl QueryUnitOfWork for ProbeQuery<'_> {
         assetmesh_core::ports::repos::ServiceReader,
         "services"
     );
+    probe_capability!(info, assetmesh_core::ports::repos::InfoReader, "info");
     probe_capability!(
         external_refs,
         assetmesh_core::ports::repos::ExternalRefReader,

@@ -20,6 +20,10 @@ pub struct AssetExternalRef {
     pub source_url: Option<String>,
     /// Optional free-form provider/import metadata (JSON text). Never a
     /// substitute for typed fields.
+    ///
+    /// This is local provider cache, not canonical data: ADR 0009 excludes it
+    /// from portable export, and it is rebuildable/disposable without
+    /// damaging the library.
     pub metadata: Option<String>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,

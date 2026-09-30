@@ -144,6 +144,12 @@ impl<F: UnitOfWorkFactory> AssetService<F> {
                 )));
             }
 
+            if loser.kind == crate::domain::asset::AssetKind::InfoItem {
+                return Err(AppError::conflict(
+                    "information items cannot be merged; link the same item wherever it is reused",
+                ));
+            }
+
             // External references: move or drop as redundant duplicates.
             for reference in uow.external_refs().list_for_asset(loser_id)? {
                 let target = uow
@@ -390,6 +396,8 @@ pub(crate) fn refresh_projection(uow: &mut dyn UnitOfWork, asset: &Asset) -> App
         update_software_projection(uow, asset, &record)?;
     } else if let Some(record) = uow.services().get(asset.id)? {
         update_service_projection(uow, asset, &record)?;
+    } else if let Some(record) = uow.info().get(asset.id)? {
+        crate::application::info_service::refresh_info_projection(uow, asset, &record)?;
     } else {
         uow.search_index().remove(asset.id)?;
     }

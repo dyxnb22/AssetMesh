@@ -44,10 +44,12 @@ pub enum AssetKind {
     ServiceDomain,
     #[serde(rename = "service.local")]
     ServiceLocal,
+    #[serde(rename = "info.item")]
+    InfoItem,
 }
 
 impl AssetKind {
-    pub const ALL: [AssetKind; 14] = [
+    pub const ALL: [AssetKind; 15] = [
         AssetKind::MediaMovie,
         AssetKind::MediaTv,
         AssetKind::MediaAnime,
@@ -62,6 +64,7 @@ impl AssetKind {
         AssetKind::ServiceVps,
         AssetKind::ServiceDomain,
         AssetKind::ServiceLocal,
+        AssetKind::InfoItem,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -80,6 +83,7 @@ impl AssetKind {
             AssetKind::ServiceVps => "service.vps",
             AssetKind::ServiceDomain => "service.domain",
             AssetKind::ServiceLocal => "service.local",
+            AssetKind::InfoItem => "info.item",
         }
     }
 
@@ -99,6 +103,7 @@ impl AssetKind {
             "service.vps" => Some(AssetKind::ServiceVps),
             "service.domain" => Some(AssetKind::ServiceDomain),
             "service.local" => Some(AssetKind::ServiceLocal),
+            "info.item" => Some(AssetKind::InfoItem),
             _ => None,
         }
     }
@@ -120,6 +125,7 @@ impl AssetKind {
             | AssetKind::ServiceVps
             | AssetKind::ServiceDomain
             | AssetKind::ServiceLocal => "services",
+            AssetKind::InfoItem => "info",
         }
     }
 }

@@ -8,6 +8,7 @@ use assetmesh_core::domain::activity::ActivityEvent;
 use assetmesh_core::domain::asset::{Asset, LifecycleState};
 use assetmesh_core::domain::external_ref::AssetExternalRef;
 use assetmesh_core::domain::ids::{ActivityId, AssetId, RelationId, TagId};
+use assetmesh_core::domain::info::{InfoEntry, InfoRecord};
 use assetmesh_core::domain::media::{MediaEntry, MediaRecord};
 use assetmesh_core::domain::relation::Relation;
 use assetmesh_core::domain::search::{SearchDocument, SearchHit};
@@ -19,11 +20,11 @@ use assetmesh_core::ports::clock::Clock;
 use assetmesh_core::ports::ids::IdGenerator;
 use assetmesh_core::ports::repos::{
     ActivityReader, ActivityRepository, AssetFilter, AssetReader, AssetRepository, AssetSummary,
-    ExternalRefReader, ExternalRefRepository, LibraryQuery, LibraryReadPort, LifecycleFilter,
-    MediaFilter, MediaListRow, MediaReader, MediaRepository, MediaSort, Page, RelationReader,
-    RelationRepository, ServiceFilter, ServiceListRow, ServiceReader, ServiceRepository,
-    ServiceSort, SoftwareFilter, SoftwareListRow, SoftwareReader, SoftwareRepository, SoftwareSort,
-    TagReader, TagRepository,
+    ExternalRefReader, ExternalRefRepository, InfoReader, InfoRepository, LibraryQuery,
+    LibraryReadPort, LifecycleFilter, MediaFilter, MediaListRow, MediaReader, MediaRepository,
+    MediaSort, Page, RelationReader, RelationRepository, ServiceFilter, ServiceListRow,
+    ServiceReader, ServiceRepository, ServiceSort, SoftwareFilter, SoftwareListRow, SoftwareReader,
+    SoftwareRepository, SoftwareSort, TagReader, TagRepository,
 };
 use assetmesh_core::ports::search::{SearchIndex, SearchReader};
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
@@ -44,6 +45,7 @@ pub struct MemStore {
     pub media: BTreeMap<String, MediaRecord>,
     pub software: BTreeMap<String, SoftwareRecord>,
     pub services: BTreeMap<String, ServiceRecord>,
+    pub info: BTreeMap<String, InfoRecord>,
     pub refs: BTreeMap<String, AssetExternalRef>,
     pub activity: Vec<ActivityEvent>,
     pub tags: BTreeMap<String, Tag>,
@@ -61,6 +63,7 @@ impl Default for MemStore {
             media: Default::default(),
             software: Default::default(),
             services: Default::default(),
+            info: Default::default(),
             refs: Default::default(),
             activity: Default::default(),
             tags: Default::default(),
@@ -788,6 +791,50 @@ impl SearchIndex for MemStore {
     }
 }
 
+impl InfoReader for MemStore {
+    fn get(&mut self, asset_id: AssetId) -> AppResult<Option<InfoRecord>> {
+        Ok(self.info.get(&asset_id.to_string()).cloned())
+    }
+
+    fn list(&mut self) -> AppResult<Vec<InfoEntry>> {
+        Ok(self
+            .info
+            .values()
+            .filter_map(|record| {
+                let asset = self.assets.get(&record.asset_id.to_string())?.clone();
+                if asset.lifecycle_state == LifecycleState::Merged {
+                    return None;
+                }
+                let tags = self
+                    .memberships
+                    .iter()
+                    .filter(|(id, _)| id == &asset.id.to_string())
+                    .filter_map(|(_, tag_id)| self.tags.get(tag_id).map(|tag| tag.name.clone()))
+                    .collect();
+                Some(InfoEntry {
+                    asset,
+                    record: record.clone(),
+                    tags,
+                })
+            })
+            .collect())
+    }
+}
+
+impl InfoRepository for MemStore {
+    fn upsert(&mut self, record: &InfoRecord) -> AppResult<()> {
+        let mut record = record.clone();
+        record.validate()?;
+        self.info.insert(record.asset_id.to_string(), record);
+        Ok(())
+    }
+
+    fn delete(&mut self, asset_id: AssetId) -> AppResult<()> {
+        self.info.remove(&asset_id.to_string());
+        Ok(())
+    }
+}
+
 impl UnitOfWork for MemStore {
     fn assets(&mut self) -> &mut dyn AssetRepository {
         self
@@ -802,6 +849,10 @@ impl UnitOfWork for MemStore {
     }
 
     fn services(&mut self) -> &mut dyn ServiceRepository {
+        self
+    }
+
+    fn info(&mut self) -> &mut dyn InfoRepository {
         self
     }
 
@@ -844,6 +895,10 @@ impl QueryUnitOfWork for MemStore {
     }
 
     fn services(&mut self) -> &mut dyn ServiceReader {
+        self
+    }
+
+    fn info(&mut self) -> &mut dyn InfoReader {
         self
     }
 

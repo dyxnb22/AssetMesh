@@ -125,7 +125,8 @@ impl SqliteLibraryRepo<'_> {
             "(
                 (a.kind LIKE 'media.%' AND EXISTS (SELECT 1 FROM media_records m WHERE m.asset_id = a.id)) OR
                 (a.kind LIKE 'software.%' AND EXISTS (SELECT 1 FROM software_records sw WHERE sw.asset_id = a.id)) OR
-                (a.kind LIKE 'service.%' AND EXISTS (SELECT 1 FROM service_records sv WHERE sv.asset_id = a.id))
+                (a.kind LIKE 'service.%' AND EXISTS (SELECT 1 FROM service_records sv WHERE sv.asset_id = a.id)) OR
+                (a.kind = 'info.item' AND EXISTS (SELECT 1 FROM info_records i WHERE i.asset_id = a.id))
             )".to_string(),
         );
 
@@ -256,12 +257,14 @@ impl SqliteLibraryRepo<'_> {
         let mut media_ids = Vec::new();
         let mut software_ids = Vec::new();
         let mut service_ids = Vec::new();
+        let mut info_ids = Vec::new();
 
         for a in &page_assets {
             match a.kind.module() {
                 "media" => media_ids.push(a.id),
                 "software" => software_ids.push(a.id),
                 "services" => service_ids.push(a.id),
+                "info" => info_ids.push(a.id),
                 _ => {}
             }
         }
@@ -349,6 +352,36 @@ impl SqliteLibraryRepo<'_> {
             for r in rows {
                 let (id, sub) = row_result(r)?;
                 subtitles.insert(id, sub);
+            }
+        }
+
+        if !info_ids.is_empty() {
+            let placeholders = vec!["?"; info_ids.len()].join(", ");
+            let sql = format!(
+                "SELECT asset_id, info_type FROM info_records WHERE asset_id IN ({placeholders})"
+            );
+            let params: Vec<String> = info_ids
+                .iter()
+                .map(|id| uuid_to_string(id.as_uuid()))
+                .collect();
+            let refs: Vec<&dyn rusqlite::ToSql> =
+                params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+            let mut stmt = self.conn.prepare(&sql).map_err(crate::map_error)?;
+            let rows = stmt
+                .query_map(refs.as_slice(), |row| {
+                    let id_str: String = row.get(0)?;
+                    let kind: String = row.get(1)?;
+                    Ok((id_str, kind))
+                })
+                .map_err(crate::map_error)?;
+            for row in rows {
+                let (id_str, kind) = row_result(row)?;
+                let id = AssetId::from_uuid(uuid_from_string(&id_str)?);
+                let info_type =
+                    assetmesh_core::domain::info::InfoType::parse(&kind).ok_or_else(|| {
+                        AppError::storage(format!("unknown stored information type: {kind}"))
+                    })?;
+                subtitles.insert(id, Some(info_type.label().to_string()));
             }
         }
 

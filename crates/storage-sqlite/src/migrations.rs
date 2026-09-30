@@ -51,6 +51,14 @@ pub(crate) const MIGRATIONS: &[(i64, &str, &str)] = &[
             "/../../migrations/0004_service_relations_v1.sql"
         )),
     ),
+    (
+        5,
+        "0005_info_items_v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../migrations/0005_info_items_v1.sql"
+        )),
+    ),
 ];
 
 /// Latest database migration version.

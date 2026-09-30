@@ -268,7 +268,7 @@ fn bucket_keys(row: &crate::application::library_service::LibraryRow) -> Vec<Str
         }
         // Media has no module-specific deterministic duplicate key beyond the
         // normalized name; rating/year are not identity.
-        AssetDetails::Media(_) => {}
+        AssetDetails::Media(_) | AssetDetails::Info(_) => {}
     }
     keys
 }
@@ -281,6 +281,9 @@ fn evidence_between(
     right: &crate::application::library_service::LibraryRow,
 ) -> Option<Vec<DuplicateEvidence>> {
     if left.asset.kind != right.asset.kind {
+        return None;
+    }
+    if left.asset.kind == crate::domain::asset::AssetKind::InfoItem {
         return None;
     }
     let mut evidence = Vec::new();

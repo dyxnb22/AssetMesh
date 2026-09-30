@@ -46,6 +46,7 @@ use crate::domain::activity::ActivityEvent;
 use crate::domain::asset::{Asset, AssetKind, LifecycleState};
 use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::{ActivityId, AssetId, ExternalRefId, RelationId, TagId};
+use crate::domain::info::{InfoRecord, SCHEMA_VERSION as INFO_SCHEMA_VERSION};
 use crate::domain::media::{MediaRecord, MediaType};
 use crate::domain::relation::{Relation, RelationProvenance, RelationType};
 use crate::domain::service::{BillingCadence, ServiceRecord, ServiceType};
@@ -180,6 +181,11 @@ pub struct PortableRelationV1 {
     pub created_at: String,
 }
 
+/// Namespaced external reference on the wire.
+///
+/// There is no `metadata` field: `AssetExternalRef::metadata` is provider /
+/// import cache, and ADR 0009 excludes provider cache from portable export.
+/// Bundles that still carry the key parse and drop it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortableExternalRefV1 {
     pub id: String,
@@ -187,7 +193,6 @@ pub struct PortableExternalRefV1 {
     pub namespace: String,
     pub external_id: String,
     pub source_url: Option<String>,
-    pub metadata: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -498,7 +503,6 @@ impl PortableExternalRefV1 {
             namespace: reference.namespace.clone(),
             external_id: reference.external_id.clone(),
             source_url: reference.source_url.clone(),
-            metadata: reference.metadata.clone(),
             created_at: ts_to_wire(reference.created_at),
             updated_at: ts_to_wire(reference.updated_at),
         }
@@ -511,7 +515,7 @@ impl PortableExternalRefV1 {
             namespace: self.namespace,
             external_id: self.external_id,
             source_url: self.source_url,
-            metadata: self.metadata,
+            metadata: None,
             created_at: ts_from_wire(&self.created_at, "ref.created_at")?,
             updated_at: ts_from_wire(&self.updated_at, "ref.updated_at")?,
         })
@@ -635,11 +639,12 @@ pub const V1_CORE_FILE_PATHS: [&str; 5] = [
 pub const V1_MEDIA_FILE_PATH: &str = "modules/media.jsonl";
 pub const V1_SOFTWARE_FILE_PATH: &str = "modules/software.jsonl";
 pub const V1_SERVICES_FILE_PATH: &str = "modules/services.jsonl";
+pub const V1_INFO_FILE_PATH: &str = "modules/info.jsonl";
 pub const V1_RELATIONS_FILE_PATH: &str = "relations.jsonl";
 
 /// Every file path a current exporter writes (a superset of what older
 /// exporters wrote; readers pick up whichever exist).
-pub const V1_FILE_PATHS: [&str; 9] = [
+pub const V1_FILE_PATHS: [&str; 10] = [
     "assets.jsonl",
     "external_refs.jsonl",
     "activity.jsonl",
@@ -649,6 +654,7 @@ pub const V1_FILE_PATHS: [&str; 9] = [
     "modules/media.jsonl",
     "modules/software.jsonl",
     "modules/services.jsonl",
+    "modules/info.jsonl",
 ];
 
 pub struct PortableExportService<F: UnitOfWorkFactory> {
@@ -664,7 +670,7 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
     /// Builds the whole bundle from one snapshot-consistent read scope. Rows
     /// are ordered by identity so bundles are deterministic and diffable.
     pub fn export(&mut self, app_version: &str) -> AppResult<PortableBundle> {
-        let (assets, media, software, services, refs, activity, tags, memberships, relations) =
+        let (assets, media, software, services, info, refs, activity, tags, memberships, relations) =
             self.factory.read(&mut |q| {
                 let assets = q.assets().list(&crate::ports::repos::AssetFilter {
                     kind: None,
@@ -673,6 +679,12 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                 let media = q.media().list_all()?;
                 let software = q.software().list_all()?;
                 let services = q.services().list_all()?;
+                let info = q
+                    .info()
+                    .list()?
+                    .into_iter()
+                    .map(|entry| entry.record)
+                    .collect::<Vec<_>>();
                 let refs = q.external_refs().list_all()?;
                 let activity = q.activity().list_all()?;
                 let tags = q.tags().list_all()?;
@@ -683,6 +695,7 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                     media,
                     software,
                     services,
+                    info,
                     refs,
                     activity,
                     tags,
@@ -716,6 +729,8 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
             .map(PortableServiceRecordV1::from_domain)
             .collect();
         services.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
+        let mut info: Vec<InfoRecord> = info;
+        info.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
         let mut refs: Vec<PortableExternalRefV1> = refs
             .iter()
             .map(PortableExternalRefV1::from_domain)
@@ -770,6 +785,12 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                         schema_version: SERVICES_SCHEMA_VERSION,
                     },
                 ),
+                (
+                    "info".to_string(),
+                    ModuleVersion {
+                        schema_version: INFO_SCHEMA_VERSION,
+                    },
+                ),
             ]),
             record_counts: BTreeMap::from([
                 ("assets".to_string(), assets.len()),
@@ -780,6 +801,7 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
                 ("media".to_string(), media.len()),
                 ("software".to_string(), software.len()),
                 ("services".to_string(), services.len()),
+                ("info".to_string(), info.len()),
                 ("relations".to_string(), relations.len()),
             ]),
         };
@@ -820,6 +842,10 @@ impl<F: UnitOfWorkFactory> PortableExportService<F> {
             ExportFile {
                 path: "modules/services.jsonl".into(),
                 content: to_jsonl(&services)?,
+            },
+            ExportFile {
+                path: V1_INFO_FILE_PATH.into(),
+                content: to_jsonl(&info)?,
             },
         ];
 
@@ -1132,6 +1158,8 @@ pub struct PortableImportReport {
     pub software_updated: usize,
     pub services_created: usize,
     pub services_updated: usize,
+    pub info_created: usize,
+    pub info_updated: usize,
     pub external_refs_created: usize,
     pub external_refs_deduplicated: usize,
     pub activity_created: usize,
@@ -1148,6 +1176,7 @@ struct DecodedBundle {
     software: Vec<SoftwareRecord>,
     /// Empty when the bundle predates the Services module (undeclared).
     services: Vec<ServiceRecord>,
+    info: Vec<InfoRecord>,
     refs: Vec<AssetExternalRef>,
     activity: Vec<ActivityEvent>,
     tags: Vec<Tag>,
@@ -1163,6 +1192,7 @@ struct DecodedBundle {
     /// declared section is authoritative, an undeclared one means the bundle
     /// predates Services and must not erase destination service data.
     services_declared: bool,
+    info_declared: bool,
     relations_declared: bool,
 }
 
@@ -1180,6 +1210,7 @@ struct DestinationSnapshot {
     /// Services detail ids, so a re-type away from a service.* kind is caught
     /// here rather than only at the repository boundary during commit.
     service_asset_ids: HashSet<AssetId>,
+    info_asset_ids: HashSet<AssetId>,
     ref_pairs: HashMap<(String, String), AssetId>,
     ref_ids: HashMap<ExternalRefId, (String, String)>,
     activity_ids: HashSet<ActivityId>,
@@ -1228,6 +1259,12 @@ impl DestinationSnapshot {
             .list_all()?
             .into_iter()
             .map(|s| s.asset_id)
+            .collect();
+        let info_asset_ids: HashSet<AssetId> = readers
+            .info()
+            .list()?
+            .into_iter()
+            .map(|entry| entry.asset.id)
             .collect();
         let mut ref_pairs = HashMap::new();
         let mut ref_ids = HashMap::new();
@@ -1278,6 +1315,7 @@ impl DestinationSnapshot {
             media_asset_ids,
             software_asset_ids,
             service_asset_ids,
+            info_asset_ids,
             ref_pairs,
             ref_ids,
             activity_ids,
@@ -1301,6 +1339,7 @@ trait DestinationRead {
     fn media(&mut self) -> &mut dyn MediaReader;
     fn software(&mut self) -> &mut dyn SoftwareReader;
     fn services(&mut self) -> &mut dyn ServiceReader;
+    fn info(&mut self) -> &mut dyn crate::ports::repos::InfoReader;
     fn external_refs(&mut self) -> &mut dyn ExternalRefReader;
     fn activity(&mut self) -> &mut dyn ActivityReader;
     fn tags(&mut self) -> &mut dyn TagReader;
@@ -1326,6 +1365,9 @@ impl DestinationRead for ReadScope<'_> {
     }
     fn services(&mut self) -> &mut dyn ServiceReader {
         self.0.services()
+    }
+    fn info(&mut self) -> &mut dyn crate::ports::repos::InfoReader {
+        self.0.info()
     }
     fn external_refs(&mut self) -> &mut dyn ExternalRefReader {
         self.0.external_refs()
@@ -1353,6 +1395,9 @@ impl DestinationRead for WriteScope<'_> {
     }
     fn services(&mut self) -> &mut dyn ServiceReader {
         self.0.services()
+    }
+    fn info(&mut self) -> &mut dyn crate::ports::repos::InfoReader {
+        self.0.info()
     }
     fn external_refs(&mut self) -> &mut dyn ExternalRefReader {
         self.0.external_refs()
@@ -1434,6 +1479,7 @@ fn check_destination(decoded: &DecodedBundle, snapshot: &DestinationSnapshot) ->
             "media" => snapshot.media_asset_ids.contains(&asset.id),
             "software" => snapshot.software_asset_ids.contains(&asset.id),
             "services" => snapshot.service_asset_ids.contains(&asset.id),
+            "info" => snapshot.info_asset_ids.contains(&asset.id),
             _ => false,
         };
         if has_old_record {
@@ -1482,6 +1528,13 @@ fn dispositions(decoded: &DecodedBundle, snapshot: &DestinationSnapshot) -> Port
             report.services_updated += 1;
         } else {
             report.services_created += 1;
+        }
+    }
+    for record in &decoded.info {
+        if snapshot.info_asset_ids.contains(&record.asset_id) {
+            report.info_updated += 1;
+        } else {
+            report.info_created += 1;
         }
     }
     for reference in &decoded.refs {
@@ -1594,6 +1647,9 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
             for record in &decoded.services {
                 uow.services().upsert(record)?;
             }
+            for record in &decoded.info {
+                uow.info().upsert(record)?;
+            }
 
             for reference in &decoded.refs {
                 let known = snapshot
@@ -1692,6 +1748,8 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
                     && decoded.software.iter().any(|s| s.asset_id == asset.id);
                 let bundled_service = decoded.services_declared
                     && decoded.services.iter().any(|s| s.asset_id == asset.id);
+                let bundled_info =
+                    decoded.info_declared && decoded.info.iter().any(|i| i.asset_id == asset.id);
 
                 if !bundled_media {
                     uow.media().delete(asset.id)?;
@@ -1701,6 +1759,9 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
                 }
                 if decoded.services_declared && !bundled_service {
                     uow.services().delete(asset.id)?;
+                }
+                if decoded.info_declared && !bundled_info {
+                    uow.info().delete(asset.id)?;
                 }
 
                 if asset.lifecycle_state == crate::domain::asset::LifecycleState::Merged {
@@ -1737,6 +1798,17 @@ impl<F: UnitOfWorkFactory> PortableImportService<F> {
                         asset, &record, &tags, &refs,
                     );
                     uow.search_index().upsert(&document)?;
+                } else if bundled_info {
+                    let record = uow
+                        .info()
+                        .get(asset.id)?
+                        .ok_or_else(|| AppError::not_found("information record", asset.id))?;
+                    let tags = uow.tags().list_for_asset(asset.id)?;
+                    let refs = uow.external_refs().list_for_asset(asset.id)?;
+                    uow.search_index()
+                        .upsert(&crate::application::projection::project_info(
+                            asset, &record, &tags, &refs,
+                        ))?;
                 } else {
                     uow.search_index().remove(asset.id)?;
                 }
@@ -1807,6 +1879,17 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         }
         None => false,
     };
+    let info_declared = match manifest.modules.get("info") {
+        Some(module) if module.schema_version == INFO_SCHEMA_VERSION => true,
+        Some(module) => {
+            return Err(AppError::unsupported_schema_version(
+                "info module",
+                module.schema_version,
+                format!("schema_version {INFO_SCHEMA_VERSION}"),
+            ))
+        }
+        None => false,
+    };
     let relations_declared = manifest.record_counts.contains_key("relations");
 
     // Core files: a v1 bundle declares its full core shape; missing files
@@ -1851,6 +1934,16 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         return Err(AppError::validation(
             "bundle contains modules/services.jsonl but its manifest does not declare \
              the services module",
+        ));
+    }
+    if info_declared {
+        let content = bundle.file(V1_INFO_FILE_PATH).ok_or_else(|| {
+            AppError::validation("bundle declares info but is missing modules/info.jsonl")
+        })?;
+        file_content.insert(V1_INFO_FILE_PATH, content);
+    } else if bundle.file(V1_INFO_FILE_PATH).is_some() {
+        return Err(AppError::validation(
+            "bundle contains modules/info.jsonl without declaring info",
         ));
     }
     if relations_declared {
@@ -1920,6 +2013,17 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
                 count_of("services")?,
                 rows.len()
             )));
+        }
+        rows
+    } else {
+        Vec::new()
+    };
+    let info_rows: Vec<InfoRecord> = if info_declared {
+        let rows = decode_jsonl(file_content[V1_INFO_FILE_PATH], V1_INFO_FILE_PATH)?;
+        if rows.len() != count_of("info")? {
+            return Err(AppError::validation(
+                "bundle count mismatch for info records",
+            ));
         }
         rows
     } else {
@@ -2014,6 +2118,13 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         })?;
         services.push(record);
     }
+    let mut info = Vec::with_capacity(info_rows.len());
+    for mut record in info_rows {
+        record.validate().map_err(|e| {
+            AppError::validation(format!("bundle info record {}: {e}", record.asset_id))
+        })?;
+        info.push(record);
+    }
     let mut relations = Vec::with_capacity(relation_rows.len());
     for row in relation_rows {
         let relation = row.into_domain()?;
@@ -2083,6 +2194,15 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         if !service_ids.insert(record.asset_id) {
             return Err(AppError::validation(format!(
                 "bundle contains duplicate service record for asset {}",
+                record.asset_id
+            )));
+        }
+    }
+    let mut info_ids = HashSet::new();
+    for record in &info {
+        if !info_ids.insert(record.asset_id) {
+            return Err(AppError::validation(format!(
+                "bundle contains duplicate info record for asset {}",
                 record.asset_id
             )));
         }
@@ -2219,6 +2339,25 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
             )));
         }
     }
+    for record in &info {
+        let asset = assets
+            .iter()
+            .find(|asset| asset.id == record.asset_id)
+            .ok_or_else(|| {
+                AppError::validation(format!(
+                    "bundle info record references missing asset {}",
+                    record.asset_id
+                ))
+            })?;
+        if asset.kind != AssetKind::InfoItem
+            || asset.lifecycle_state == crate::domain::asset::LifecycleState::Merged
+        {
+            return Err(AppError::validation(format!(
+                "bundle info record {} has incompatible asset kind or lifecycle",
+                record.asset_id
+            )));
+        }
+    }
     for relation in &relations {
         if !asset_ids.contains(&relation.source_asset_id) {
             return Err(AppError::validation(format!(
@@ -2308,6 +2447,7 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         media,
         software,
         services,
+        info,
         refs,
         activity,
         tags,
@@ -2315,6 +2455,7 @@ fn preflight(bundle: &PortableBundle) -> AppResult<DecodedBundle> {
         relations,
         software_declared,
         services_declared,
+        info_declared,
         relations_declared,
     })
 }

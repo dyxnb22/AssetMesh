@@ -350,8 +350,11 @@ fn commit_create(
 }
 
 /// Applies an update plan. Field policy: imported `Some` values overwrite,
-/// `None` keeps the existing value; tags and refs are unioned. Returns
-/// whether anything actually changed (idempotent re-import).
+/// `None` keeps the existing value; `progress.current` is the one monotonic
+/// exception (see [`merge_progress`]); tags and refs are unioned. Returns
+/// whether anything actually changed (idempotent re-import). A refused
+/// progress merge still counts as a change so the refusal reaches the
+/// activity event instead of disappearing.
 fn commit_update(
     uow: &mut dyn UnitOfWork,
     candidate: &ImportCandidate,
@@ -403,23 +406,8 @@ fn commit_update(
         record.rating = candidate.rating;
         changes.push("rating".into());
     }
-    // Per-field progress merge; an all-None progress keeps existing data.
-    if !candidate.progress.is_empty() {
-        if candidate.progress.current.is_some()
-            && record.progress.current != candidate.progress.current
-        {
-            record.progress.current = candidate.progress.current;
-            changes.push("progress_current".into());
-        }
-        if candidate.progress.total.is_some() && record.progress.total != candidate.progress.total {
-            record.progress.total = candidate.progress.total;
-            changes.push("progress_total".into());
-        }
-        if candidate.progress.unit.is_some() && record.progress.unit != candidate.progress.unit {
-            record.progress.unit = candidate.progress.unit.clone();
-            changes.push("progress_unit".into());
-        }
-    }
+    // Progress is merged by partial order, not last-write-wins.
+    merge_progress(&mut record.progress, &candidate.progress, &mut changes);
     if candidate.started_at.is_some() && record.started_at != candidate.started_at {
         record.started_at = candidate.started_at;
         changes.push("started_at".into());
@@ -489,6 +477,58 @@ fn commit_update(
     ))?;
     update_projection(uow, &asset, &record)?;
     Ok(true)
+}
+
+/// Merges imported progress into stored progress.
+///
+/// Every other imported field is last-write-wins, which is wrong for a
+/// counter: a re-exported list can be older than the library, so applying
+/// `3/28` over a stored `8/28` would lose viewing history that only the user
+/// has. `current` is therefore merged by maximum, and `total` — a fact about
+/// the work rather than the user — stays correctable in either direction.
+///
+/// A merge that would break the `current <= total` invariant, or that would
+/// leave a unit without any number, is refused as a whole instead of being
+/// clamped: clamping silently rewrites the user's count. The refusal is
+/// reported as a change so it lands in the activity event.
+fn merge_progress(existing: &mut Progress, incoming: &Progress, changes: &mut Vec<String>) {
+    if incoming.is_empty() {
+        return;
+    }
+
+    let current = match (existing.current, incoming.current) {
+        (Some(stored), Some(proposed)) => Some(stored.max(proposed)),
+        (stored, proposed) => stored.or(proposed),
+    };
+    let total = incoming.total.or(existing.total);
+
+    let refused = match (current, total) {
+        (Some(current), Some(total)) if current > total => Some("current_exceeds_total"),
+        _ if current.is_none() && total.is_none() && incoming.unit.is_some() => {
+            Some("unit_without_value")
+        }
+        _ => None,
+    };
+    if let Some(reason) = refused {
+        changes.push(format!("progress_merge_refused:{reason}"));
+        return;
+    }
+
+    if current != existing.current {
+        changes.push("progress_current".into());
+    }
+    if total != existing.total {
+        changes.push("progress_total".into());
+    }
+    if incoming.unit.is_some() && incoming.unit != existing.unit {
+        changes.push("progress_unit".into());
+    }
+
+    existing.current = current;
+    existing.total = total;
+    if incoming.unit.is_some() {
+        existing.unit = incoming.unit.clone();
+    }
 }
 
 enum PlannedAction {

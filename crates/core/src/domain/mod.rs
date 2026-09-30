@@ -10,6 +10,7 @@ pub mod activity;
 pub mod asset;
 pub mod external_ref;
 pub mod ids;
+pub mod info;
 pub mod media;
 pub mod relation;
 pub mod search;

@@ -446,6 +446,9 @@ impl QueryUnitOfWork for WriteAsQuery<'_> {
     fn services(&mut self) -> &mut dyn crate::ports::repos::ServiceReader {
         self.0.services()
     }
+    fn info(&mut self) -> &mut dyn crate::ports::repos::InfoReader {
+        self.0.info()
+    }
     fn external_refs(&mut self) -> &mut dyn crate::ports::repos::ExternalRefReader {
         self.0.external_refs()
     }

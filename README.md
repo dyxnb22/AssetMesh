@@ -106,6 +106,8 @@ Deliberately **not** implemented or frozen yet:
 - [Software Inventory V1](docs/09-software-inventory-v1.md)
 - [Services & Subscriptions V1](docs/10-services-subscriptions-v1.md)
 - [Unified Library Core — Phase 4](docs/11-unified-library-core.md)
+- [Reusable Information V1](docs/13-reusable-information-v1.md)
+- [Research: how open-source media trackers model data](docs/research/2026-09-25-douban-like-media-data-models.md)
 - [Architecture Decisions](docs/adr/README.md)
 - [Developer Setup & Implementation Notes](DEVELOPMENT.md)
 
@@ -141,6 +143,7 @@ What works today:
 - read-only discovery providers — macOS applications, Homebrew, npm/pipx CLI tools — producing advisory candidates that are classified (new / exact match / potential duplicate / conflict) and only become canonical through explicit adoption that never overwrites user-owned purpose/notes;
 - a shared relation system (registry with inverse/symmetric semantics: `depends_on`, `uses`, `installed_via`, `hosted_on`, `points_to`, `related_to`); inverse types are view-time derivations, so each fact has exactly one canonical row;
 - Services CRUD/use cases for `service.saas`, `service.api`, `service.vps`, `service.domain`, and `service.local`, with subscription plan, integer-minor-unit cost/currency, billing cadence, renewal/expiry, and auto-renew metadata; the canonical vocabulary carries no credential material, and a credential-bearing URL is rejected rather than parsed;
+- Reusable `info.item` records for email addresses, URLs, API keys, and text, with search, editable tags, copy/edit/archive flows, links to multiple assets, CSV bulk creation, and portable import/export;
 - explicit `record_renewal` for subscriptions — an `service.renewed` activity event records the renewal as historical provenance; the next renewal/expiry boundary is whatever you state, never computed;
 - Service-specific merge semantics: equal values deduplicate, empty fields fill, and any still-disagreeing field is a reviewable conflict listing both values rather than a silent survivor pick;
 - atomic canonical-write + activity + projection commits (single short SQLite transaction);

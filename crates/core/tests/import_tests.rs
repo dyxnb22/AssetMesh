@@ -165,6 +165,142 @@ fn rerun_with_identical_data_reports_unchanged() {
     );
 }
 
+/// One Frieren row that always matches the same asset by exact external ref,
+/// carrying whatever progress fields are given.
+fn ref_row(progress_fields: &str) -> String {
+    format!(
+        r#"[{{
+            "title": "Frieren",
+            "media_type": "anime",
+            "external_refs": {{ "tmdb": "209867" }},
+            {progress_fields}
+        }}]"#
+    )
+}
+
+fn stored_progress(env: &support::TestEnv) -> assetmesh_core::domain::media::Progress {
+    let mut media = env.media_service();
+    let rows = media.list_media(&Default::default()).unwrap();
+    rows.iter()
+        .find(|r| r.entry.asset.name == "Frieren")
+        .expect("Frieren")
+        .entry
+        .record
+        .progress
+        .clone()
+}
+
+/// An exported list can be older than the library, so progress is merged by
+/// maximum rather than last-write-wins: the user's own count is the one thing
+/// no other system may rewrite downwards.
+#[test]
+fn stale_progress_from_a_reexport_never_regresses() {
+    let env = test_env();
+    let mut importer = env.import_service();
+
+    importer
+        .import(
+            &ref_row(r#""progress_current": 8, "progress_total": 28"#),
+            ImportFormatHint::Json,
+            false,
+        )
+        .unwrap();
+
+    let report = importer
+        .import(
+            &ref_row(r#""progress_current": 3, "progress_total": 28"#),
+            ImportFormatHint::Json,
+            false,
+        )
+        .unwrap();
+
+    assert_eq!(report.update, 0);
+    assert_eq!(report.unchanged, 1, "an older count is a no-op");
+    let progress = stored_progress(&env);
+    assert_eq!(progress.current, Some(8.0));
+    assert_eq!(progress.total, Some(28.0));
+}
+
+#[test]
+fn forward_progress_and_total_corrections_still_apply() {
+    let env = test_env();
+    let mut importer = env.import_service();
+
+    importer
+        .import(
+            &ref_row(r#""progress_current": 8, "progress_total": 28"#),
+            ImportFormatHint::Json,
+            false,
+        )
+        .unwrap();
+
+    // More episodes watched: applied.
+    importer
+        .import(
+            &ref_row(r#""progress_current": 12"#),
+            ImportFormatHint::Json,
+            false,
+        )
+        .unwrap();
+    // The real season is 24 episodes, not 28: a total may be corrected in
+    // either direction as long as it does not contradict the stored count.
+    importer
+        .import(
+            &ref_row(r#""progress_total": 24"#),
+            ImportFormatHint::Json,
+            false,
+        )
+        .unwrap();
+
+    let progress = stored_progress(&env);
+    assert_eq!(progress.current, Some(12.0));
+    assert_eq!(progress.total, Some(24.0));
+}
+
+/// A candidate that cannot be reconciled with the stored count is refused whole
+/// instead of being clamped — clamping would silently rewrite the user's
+/// number — and the refusal is disclosed in the activity event.
+#[test]
+fn irreconcilable_progress_is_refused_and_disclosed() {
+    let env = test_env();
+    let mut importer = env.import_service();
+
+    importer
+        .import(
+            &ref_row(r#""progress_current": 8, "progress_total": 28"#),
+            ImportFormatHint::Json,
+            false,
+        )
+        .unwrap();
+    let asset_id = {
+        let mut media = env.media_service();
+        media.list_media(&Default::default()).unwrap()[0]
+            .entry
+            .asset
+            .id
+    };
+
+    let report = importer
+        .import(
+            &ref_row(r#""progress_current": 3, "progress_total": 5"#),
+            ImportFormatHint::Json,
+            false,
+        )
+        .unwrap();
+    assert_eq!(report.update, 1, "the refusal is itself a reportable event");
+
+    let progress = stored_progress(&env);
+    assert_eq!(progress.current, Some(8.0), "stored count survives");
+    assert_eq!(progress.total, Some(28.0), "stored total survives");
+
+    let view = env.media_service().get_media(asset_id).unwrap();
+    let dumped = serde_json::to_string(&view.activity).unwrap();
+    assert!(
+        dumped.contains("progress_merge_refused:current_exceeds_total"),
+        "refusal must be auditable: {dumped}"
+    );
+}
+
 #[test]
 fn deterministic_key_matches_same_title_type_year() {
     // ADR 0005: title/type/year matching is heuristic. Two distinct releases

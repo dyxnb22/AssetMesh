@@ -235,6 +235,7 @@ impl QueryUnitOfWork for ProbeQuery<'_> {
     probe_capability!(media, MediaReader, "media");
     probe_capability!(software, SoftwareReader, "software");
     probe_capability!(services, ServiceReader, "services");
+    probe_capability!(info, assetmesh_core::ports::repos::InfoReader, "info");
     probe_capability!(external_refs, ExternalRefReader, "external_refs");
     probe_capability!(activity, ActivityReader, "activity");
     probe_capability!(tags, TagReader, "tags");
@@ -635,6 +636,7 @@ fn every_asset_kind_maps_to_exactly_one_module() {
         ("service.vps", LibraryModule::Services),
         ("service.domain", LibraryModule::Services),
         ("service.local", LibraryModule::Services),
+        ("info.item", LibraryModule::Info),
     ];
     for (kind, module) in expected {
         let kind = AssetKind::parse(kind).unwrap_or_else(|| panic!("{kind} must parse"));
@@ -642,8 +644,8 @@ fn every_asset_kind_maps_to_exactly_one_module() {
         assert!(module.matches(kind), "{kind} must belong to {module:?}");
         assert_eq!(kind.module(), module.as_str());
     }
-    // The three modules are the whole registry.
-    assert_eq!(LibraryModule::ALL.len(), 3);
+    // The four modules are the whole registry.
+    assert_eq!(LibraryModule::ALL.len(), 4);
 }
 
 #[test]
@@ -1397,7 +1399,7 @@ fn app_capabilities_exposes_modules_and_flags() {
     let library = seeded.env.library_service();
     let caps = library.capabilities();
 
-    assert_eq!(caps.modules, vec!["media", "software", "services"]);
+    assert_eq!(caps.modules, vec!["media", "software", "services", "info"]);
     assert!(!caps.features.runtime_enrichment);
     assert!(!caps.features.projects);
     assert!(!caps.features.agent_capabilities);

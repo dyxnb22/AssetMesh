@@ -56,6 +56,7 @@ pub enum ActivityModule {
     Media,
     Software,
     Services,
+    Info,
     Relation,
     /// Legacy import (`media.imported` carries actor `import`).
     Import,
@@ -77,6 +78,7 @@ impl ActivityModule {
             "media" => Some(ActivityModule::Media),
             "software" => Some(ActivityModule::Software),
             "service" => Some(ActivityModule::Services),
+            "info" => Some(ActivityModule::Info),
             "relation" => Some(ActivityModule::Relation),
             _ => None,
         }
@@ -88,6 +90,7 @@ impl ActivityModule {
             ActivityModule::Media => "media",
             ActivityModule::Software => "software",
             ActivityModule::Services => "services",
+            ActivityModule::Info => "info",
             ActivityModule::Relation => "relation",
             ActivityModule::Import => "import",
         }
@@ -99,6 +102,7 @@ impl ActivityModule {
             "media" => Some(ActivityModule::Media),
             "software" => Some(ActivityModule::Software),
             "services" | "service" => Some(ActivityModule::Services),
+            "info" => Some(ActivityModule::Info),
             "relation" => Some(ActivityModule::Relation),
             "import" => Some(ActivityModule::Import),
             _ => None,
@@ -106,11 +110,12 @@ impl ActivityModule {
     }
 
     /// Every module, for adapters that offer a filter list.
-    pub const ALL: [ActivityModule; 6] = [
+    pub const ALL: [ActivityModule; 7] = [
         ActivityModule::Asset,
         ActivityModule::Media,
         ActivityModule::Software,
         ActivityModule::Services,
+        ActivityModule::Info,
         ActivityModule::Relation,
         ActivityModule::Import,
     ];

@@ -465,6 +465,66 @@ fn checked_in_v1_fixture_imports() {
     assert_eq!(rows[0].entry.record.rating, Some(7.0));
 }
 
+/// ADR 0009 excludes provider cache from portable export by default, and
+/// `external_refs.metadata` is exactly that: rebuildable local cache. The
+/// column stays in the database, but a bundle is a shareable artifact and must
+/// not carry whatever a provider response left in it.
+#[test]
+fn external_ref_provider_cache_stays_out_of_the_bundle() {
+    let env = test_env();
+    build_library(&env);
+
+    let mut factory = env.factory.clone();
+    factory
+        .transact(&mut |uow| {
+            let mut refs = uow.external_refs().list_all().unwrap();
+            refs.sort_by_key(|r| (r.namespace.clone(), r.external_id.clone()));
+            refs[0].metadata = Some(r#"{"api_key":"SECRET-LEAK"}"#.into());
+            uow.external_refs().update(&refs[0]).unwrap();
+            Ok(())
+        })
+        .unwrap();
+
+    let mut export = env.export_service();
+    let bundle = export.export("0.1.0-test").unwrap();
+    let rows = bundle.file("external_refs.jsonl").unwrap();
+    assert!(rows.contains("tmdb"), "ref row missing: {rows}");
+    assert!(!rows.contains("metadata"), "cache leaked: {rows}");
+    assert!(!rows.contains("SECRET-LEAK"), "cache leaked: {rows}");
+}
+
+/// Bundles written before the key was dropped must still import — the extra
+/// field is ignored — and their cached value must not land in the destination.
+#[test]
+fn legacy_bundle_ref_metadata_key_is_ignored_on_import() {
+    let env = test_env();
+    let mut bundle = minimal_bundle();
+    bundle
+        .files
+        .iter_mut()
+        .find(|f| f.path == "external_refs.jsonl")
+        .unwrap()
+        .content = r#"{"id":"00000000-0000-7000-8000-0000000000aa","asset_id":"00000000-0000-7000-8000-000000000001","namespace":"tmdb","external_id":"209867","source_url":null,"metadata":"{\"api_key\":\"SECRET-LEAK\"}","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#.to_string();
+    bundle
+        .manifest
+        .record_counts
+        .insert("external_refs".into(), 1);
+
+    let mut import = env.portable_import_service();
+    let report = import.import_bundle(&bundle, false).unwrap();
+    assert_eq!(report.external_refs_created, 1);
+
+    let mut factory = env.factory.clone();
+    let refs = factory
+        .read(&mut |uow| Ok(uow.external_refs().list_all().unwrap()))
+        .unwrap();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(
+        refs[0].metadata, None,
+        "provider cache must not cross the portability boundary"
+    );
+}
+
 #[test]
 fn missing_required_file_is_rejected() {
     let env = test_env();

@@ -16,9 +16,9 @@
 
 use assetmesh_core::ports::repos::{
     ActivityReader, ActivityRepository, AssetReader, AssetRepository, ExternalRefReader,
-    ExternalRefRepository, LibraryReadPort, MediaReader, MediaRepository, RelationReader,
-    RelationRepository, ServiceReader, ServiceRepository, SoftwareReader, SoftwareRepository,
-    TagReader, TagRepository,
+    ExternalRefRepository, InfoReader, InfoRepository, LibraryReadPort, MediaReader,
+    MediaRepository, RelationReader, RelationRepository, ServiceReader, ServiceRepository,
+    SoftwareReader, SoftwareRepository, TagReader, TagRepository,
 };
 use assetmesh_core::ports::search::{SearchIndex, SearchReader};
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
@@ -27,8 +27,9 @@ use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
 use crate::repos::{
-    SqliteActivityRepo, SqliteAssetRepo, SqliteExternalRefRepo, SqliteLibraryRepo, SqliteMediaRepo,
-    SqliteRelationRepo, SqliteSearchIndex, SqliteServiceRepo, SqliteSoftwareRepo, SqliteTagRepo,
+    SqliteActivityRepo, SqliteAssetRepo, SqliteExternalRefRepo, SqliteInfoRepo, SqliteLibraryRepo,
+    SqliteMediaRepo, SqliteRelationRepo, SqliteSearchIndex, SqliteServiceRepo, SqliteSoftwareRepo,
+    SqliteTagRepo,
 };
 
 pub struct SqliteFactory {
@@ -301,6 +302,7 @@ struct RepoBundle<'conn> {
     media: SqliteMediaRepo<'conn>,
     software: SqliteSoftwareRepo<'conn>,
     services: SqliteServiceRepo<'conn>,
+    info: SqliteInfoRepo<'conn>,
     refs: SqliteExternalRefRepo<'conn>,
     activity: SqliteActivityRepo<'conn>,
     tags: SqliteTagRepo<'conn>,
@@ -316,6 +318,7 @@ impl<'conn> RepoBundle<'conn> {
             media: SqliteMediaRepo { conn },
             software: SqliteSoftwareRepo { conn },
             services: SqliteServiceRepo { conn },
+            info: SqliteInfoRepo { conn },
             refs: SqliteExternalRefRepo { conn },
             activity: SqliteActivityRepo { conn },
             tags: SqliteTagRepo { conn },
@@ -354,6 +357,10 @@ impl<'conn> UnitOfWork for SqliteUow<'conn> {
 
     fn services(&mut self) -> &mut dyn ServiceRepository {
         &mut self.repos.services
+    }
+
+    fn info(&mut self) -> &mut dyn InfoRepository {
+        &mut self.repos.info
     }
 
     fn external_refs(&mut self) -> &mut dyn ExternalRefRepository {
@@ -410,6 +417,10 @@ impl<'conn> QueryUnitOfWork for SqliteQueryUow<'conn> {
 
     fn services(&mut self) -> &mut dyn ServiceReader {
         &mut self.repos.services
+    }
+
+    fn info(&mut self) -> &mut dyn InfoReader {
+        &mut self.repos.info
     }
 
     fn external_refs(&mut self) -> &mut dyn ExternalRefReader {

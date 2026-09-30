@@ -15,7 +15,7 @@ fn col<T: rusqlite::types::FromSql>(row: &rusqlite::Row, idx: usize) -> AppResul
     row.get(idx).map_err(crate::map_error)
 }
 
-fn parse_asset(row: &rusqlite::Row) -> AppResult<Asset> {
+pub(crate) fn parse_asset(row: &rusqlite::Row) -> AppResult<Asset> {
     let id: String = col(row, 0)?;
     let kind: String = col(row, 1)?;
     let name: String = col(row, 2)?;
@@ -223,6 +223,7 @@ fn module_detail_table(module: &str) -> AppResult<&'static str> {
         "media" => Ok("media_records"),
         "software" => Ok("software_records"),
         "services" => Ok("service_records"),
+        "info" => Ok("info_records"),
         other => Err(AppError::storage(format!(
             "unknown module {other:?} in stored asset kind"
         ))),

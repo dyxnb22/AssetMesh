@@ -11,11 +11,45 @@
 
 use crate::domain::asset::Asset;
 use crate::domain::external_ref::AssetExternalRef;
+use crate::domain::info::InfoRecord;
 use crate::domain::media::MediaRecord;
 use crate::domain::search::SearchDocument;
 use crate::domain::service::{format_money, BillingCadence, ServiceRecord};
 use crate::domain::software::SoftwareRecord;
 use crate::domain::tag::Tag;
+
+pub fn info_subtitle(record: &InfoRecord) -> Option<String> {
+    Some(record.info_type.label().to_string())
+}
+
+pub fn project_info(
+    asset: &Asset,
+    record: &InfoRecord,
+    tags: &[Tag],
+    refs: &[AssetExternalRef],
+) -> SearchDocument {
+    let mut keywords: Vec<String> = tags.iter().map(|tag| tag.name.clone()).collect();
+    keywords.extend(
+        refs.iter()
+            .map(|reference| format!("{}:{}", reference.namespace, reference.external_id)),
+    );
+    let mut body = record.notes.clone().unwrap_or_default();
+    if record.info_type != crate::domain::info::InfoType::ApiKey {
+        if !body.is_empty() {
+            body.push(' ');
+        }
+        body.push_str(&record.value);
+    }
+    SearchDocument {
+        asset_id: asset.id,
+        kind: asset.kind.as_str().to_string(),
+        title: asset.name.clone(),
+        subtitle: info_subtitle(record),
+        body: (!body.is_empty()).then_some(body),
+        keywords,
+        updated_at: asset.updated_at,
+    }
+}
 
 /// Concise module-aware summary of a media record ("Anime · 2023").
 ///

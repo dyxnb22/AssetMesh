@@ -88,6 +88,14 @@ pub(crate) fn project_all(
                 };
                 documents.push(project_service(&asset, &record, &tags, &refs));
             }
+            "info" => {
+                let Some(record) = uow.info().get(asset.id)? else {
+                    continue;
+                };
+                documents.push(crate::application::projection::project_info(
+                    &asset, &record, &tags, &refs,
+                ));
+            }
             // Modules without a projector yet are simply not searchable.
             _ => continue,
         }

@@ -3,6 +3,7 @@
 mod activity;
 mod asset;
 mod external_ref;
+mod info;
 mod library;
 mod media;
 mod relation;
@@ -14,6 +15,7 @@ mod tag;
 pub use activity::SqliteActivityRepo;
 pub use asset::SqliteAssetRepo;
 pub use external_ref::SqliteExternalRefRepo;
+pub use info::SqliteInfoRepo;
 pub use library::SqliteLibraryRepo;
 pub use media::SqliteMediaRepo;
 pub use relation::SqliteRelationRepo;

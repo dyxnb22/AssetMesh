@@ -22,10 +22,13 @@
 
 use std::collections::HashMap;
 
-use crate::application::projection::{media_subtitle, service_subtitle, software_subtitle};
+use crate::application::projection::{
+    info_subtitle, media_subtitle, service_subtitle, software_subtitle,
+};
 use crate::domain::asset::{Asset, AssetKind, LifecycleState};
 use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::AssetId;
+use crate::domain::info::InfoRecord;
 use crate::domain::media::MediaRecord;
 use crate::domain::service::ServiceRecord;
 use crate::domain::software::SoftwareRecord;
@@ -63,6 +66,7 @@ pub enum AssetDetails {
     /// Tagged `services`, matching `AssetKind::module()` for service kinds.
     #[serde(rename = "services")]
     Service(ServiceRecord),
+    Info(InfoRecord),
 }
 
 /// The complete unified detail view of one asset, read from one snapshot.
@@ -453,6 +457,17 @@ pub fn load_library_rows(
                     );
                 }
             }
+            LibraryModule::Info => {
+                for row in q.info().list()? {
+                    push_row(
+                        &mut rows,
+                        module,
+                        row.asset,
+                        AssetDetails::Info(row.record),
+                        row.tags,
+                    );
+                }
+            }
         }
     }
     Ok(rows)
@@ -581,6 +596,7 @@ fn subtitle_of(details: &AssetDetails) -> Option<String> {
         AssetDetails::Media(record) => media_subtitle(record),
         AssetDetails::Software(record) => software_subtitle(record),
         AssetDetails::Service(record) => service_subtitle(record),
+        AssetDetails::Info(record) => info_subtitle(record),
     }
 }
 
@@ -737,6 +753,11 @@ fn load_details(q: &mut dyn QueryUnitOfWork, asset: &Asset) -> AppResult<AssetDe
             .services()
             .get(asset.id)?
             .map(AssetDetails::Service)
+            .ok_or_else(|| AppError::not_found("module details", asset.id)),
+        "info" => q
+            .info()
+            .get(asset.id)?
+            .map(AssetDetails::Info)
             .ok_or_else(|| AppError::not_found("module details", asset.id)),
         other => Err(AppError::storage(format!(
             "asset kind {} belongs to unknown module {other:?}",

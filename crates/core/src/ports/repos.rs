@@ -11,6 +11,7 @@ use crate::domain::activity::ActivityEvent;
 use crate::domain::asset::{Asset, AssetKind, LifecycleState};
 use crate::domain::external_ref::AssetExternalRef;
 use crate::domain::ids::{AssetId, ExternalRefId, RelationId, TagId};
+use crate::domain::info::{InfoEntry, InfoRecord};
 use crate::domain::media::{MediaEntry, MediaRecord, MediaStatus, MediaType};
 use crate::domain::relation::Relation;
 use crate::domain::service::{ServiceEntry, ServiceRecord, ServiceType};
@@ -29,13 +30,15 @@ pub enum LibraryModule {
     Media,
     Software,
     Services,
+    Info,
 }
 
 impl LibraryModule {
-    pub const ALL: [LibraryModule; 3] = [
+    pub const ALL: [LibraryModule; 4] = [
         LibraryModule::Media,
         LibraryModule::Software,
         LibraryModule::Services,
+        LibraryModule::Info,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -43,6 +46,7 @@ impl LibraryModule {
             LibraryModule::Media => "media",
             LibraryModule::Software => "software",
             LibraryModule::Services => "services",
+            LibraryModule::Info => "info",
         }
     }
 
@@ -50,6 +54,7 @@ impl LibraryModule {
         match kind.module() {
             "software" => LibraryModule::Software,
             "services" => LibraryModule::Services,
+            "info" => LibraryModule::Info,
             _ => LibraryModule::Media,
         }
     }
@@ -169,6 +174,16 @@ pub trait AssetReader {
 pub trait AssetRepository: AssetReader {
     fn insert(&mut self, asset: &Asset) -> AppResult<()>;
     fn update(&mut self, asset: &Asset) -> AppResult<()>;
+}
+
+pub trait InfoReader {
+    fn get(&mut self, asset_id: AssetId) -> AppResult<Option<InfoRecord>>;
+    fn list(&mut self) -> AppResult<Vec<InfoEntry>>;
+}
+
+pub trait InfoRepository: InfoReader {
+    fn upsert(&mut self, record: &InfoRecord) -> AppResult<()>;
+    fn delete(&mut self, asset_id: AssetId) -> AppResult<()>;
 }
 
 /// Sort orders for media listing.
