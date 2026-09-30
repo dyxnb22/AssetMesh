@@ -47,17 +47,17 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
       className="nav-rail"
       style={{
         width: '200px',
-        backgroundColor: 'rgba(255, 255, 255, 0.78)',
+        backgroundColor: 'var(--glass)',
         backdropFilter: 'blur(28px) saturate(1.5)',
-        border: '1px solid rgba(255, 255, 255, 0.65)',
+        border: '1px solid var(--glass-border)',
         borderRadius: 16,
-        margin: '0 0 10px 10px',
+        margin: '10px 0 10px 10px',
         display: 'flex',
         flexDirection: 'column',
         padding: '12px 10px',
         flexShrink: 0,
         boxShadow:
-          '0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 10px 30px rgba(23, 33, 38, 0.07)',
+          '0 1px 0 var(--glass-highlight) inset, 0 10px 30px rgba(23, 33, 38, 0.07)',
       }}
     >
       <div style={{ padding: '2px 8px 12px' }}>

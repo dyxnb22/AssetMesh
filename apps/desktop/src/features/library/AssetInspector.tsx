@@ -112,13 +112,18 @@ export const AssetInspector: React.FC<AssetInspectorProps> = ({
       className="inspector-panel"
       style={{
         width: '360px',
-        borderLeft: '1px solid var(--color-border)',
-        backgroundColor: 'var(--color-canvas)',
+        borderRadius: 16,
+        backgroundColor: 'var(--glass)',
+        backdropFilter: 'blur(28px) saturate(1.5)',
+        border: '1px solid var(--glass-border)',
+        margin: '10px 10px 10px 0',
         display: 'flex',
         flexDirection: 'column',
         overflowY: 'auto',
         padding: '16px',
         flexShrink: 0,
+        boxShadow:
+          '0 1px 0 var(--glass-highlight) inset, 0 10px 30px rgba(23, 33, 38, 0.07)',
       }}
     >
       <div

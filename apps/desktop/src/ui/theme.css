@@ -14,6 +14,11 @@
   --color-danger: #B63B32;
   --color-danger-bg: #FDF2F1;
 
+  /* Liquid-glass panel material (rails, inspectors, floating chrome). */
+  --glass: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
 
@@ -62,6 +67,9 @@
     --color-attention-bg: #38270F;
     --color-danger: #F07167;
     --color-danger-bg: #3A1816;
+    --glass: rgba(29, 35, 38, 0.82);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-highlight: rgba(255, 255, 255, 0.05);
   }
 }
 
@@ -80,6 +88,9 @@
   --color-attention-bg: #38270F;
   --color-danger: #F07167;
   --color-danger-bg: #3A1816;
+  --glass: rgba(29, 35, 38, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
 }
 
 * {
