@@ -38,14 +38,12 @@ export const MergeModal: React.FC<MergeModalProps> = ({
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
   const [merging, setMerging] = useState<boolean>(false);
   const [error, setError] = useState<DesktopError | null>(null);
-  const [confirmed, setConfirmed] = useState<boolean>(false);
 
   const transport = getTransport();
 
   const loadPreview = useCallback(async (winner: string, loser: string) => {
     setLoadingPreview(true);
     setError(null);
-    setConfirmed(false);
     try {
       const res = await transport.mergePreview(winner, loser);
       setPreview(res);
@@ -62,7 +60,6 @@ export const MergeModal: React.FC<MergeModalProps> = ({
   useEffect(() => {
     setWinnerId(null);
     setPreview(null);
-    setConfirmed(false);
     setError(null);
   }, [candidate.left.id, candidate.right.id]);
 
@@ -440,21 +437,10 @@ export const MergeModal: React.FC<MergeModalProps> = ({
             </div>
           )}
 
-          {/* Confirmation Checkbox */}
           {preview?.can_merge && winnerAsset && loserAsset && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-              <input
-                id="merge-confirm-checkbox"
-                data-testid="merge-confirm-checkbox"
-                type="checkbox"
-                checked={confirmed}
-                onChange={(e) => setConfirmed(e.target.checked)}
-                style={{ cursor: 'pointer' }}
-              />
-              <label htmlFor="merge-confirm-checkbox" style={{ cursor: 'pointer', color: 'var(--color-ink)' }}>{t('I confirm merging ')}<strong>{loserAsset.name}</strong>{t(' into ')}<strong>{winnerAsset.name}</strong>.
-              </label>
-            </div>
+            <p style={{ fontSize: 12 }}>{t('Merge ')}<strong>{loserAsset.name}</strong>{t(' into ')}<strong>{winnerAsset.name}</strong>.</p>
           )}
+
         </div>
 
         {/* Modal Footer */}
@@ -487,21 +473,21 @@ export const MergeModal: React.FC<MergeModalProps> = ({
           <button
             type="button"
             data-testid="execute-merge-button"
-            disabled={!preview || !preview.can_merge || !confirmed || merging}
+            disabled={!preview || !preview.can_merge || merging}
             onClick={handleExecuteMerge}
             style={{
               padding: '6px 16px',
               fontSize: '12px',
               fontWeight: 500,
               backgroundColor:
-                !preview || !preview.can_merge || !confirmed || merging
+                !preview || !preview.can_merge || merging
                   ? 'var(--color-border)'
                   : 'var(--color-mesh)',
               color: '#FFFFFF',
               border: 'none',
               borderRadius: 'var(--radius-sm)',
               cursor:
-                !preview || !preview.can_merge || !confirmed || merging
+                !preview || !preview.can_merge || merging
                   ? 'not-allowed'
                   : 'pointer',
             }}

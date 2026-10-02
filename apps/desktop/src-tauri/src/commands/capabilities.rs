@@ -7,8 +7,21 @@ use crate::error::DesktopError;
 use crate::state::{AppStatus, DesktopState};
 
 #[tauri::command]
+pub fn app_startup_timing(
+    stage: crate::startup::FrontendStage,
+    web_ms: f64,
+    state: State<'_, DesktopState>,
+) -> Result<(), DesktopError> {
+    state.startup_timings.frontend(stage, web_ms)
+}
+
+#[tauri::command]
 pub fn app_capabilities() -> Result<AppCapabilities, DesktopError> {
-    Ok(AppCapabilities::current())
+    let mut capabilities = AppCapabilities::current();
+    // The local-service runtime owns its processes through Unix process
+    // groups; where that does not exist the UI must not offer the controls.
+    capabilities.features.local_service_runtime = cfg!(unix);
+    Ok(capabilities)
 }
 
 #[tauri::command]

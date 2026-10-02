@@ -3,7 +3,6 @@
 //! reproduces it from assets, module details, tags, and external refs.
 
 use crate::application::projection::{project_media, project_service, project_software};
-use crate::application::SharedClock;
 use crate::domain::asset::LifecycleState;
 use crate::domain::search::SearchHit;
 use crate::ports::repos::{AssetFilter, LifecycleFilter};
@@ -13,8 +12,6 @@ use crate::AppResult;
 #[derive(Debug, Clone)]
 pub struct SearchService<F: UnitOfWorkFactory> {
     factory: F,
-    #[allow(dead_code)]
-    clock: SharedClock,
 }
 
 #[derive(Debug, Clone)]
@@ -23,8 +20,8 @@ pub struct RebuildReport {
 }
 
 impl<F: UnitOfWorkFactory> SearchService<F> {
-    pub fn new(factory: F, clock: SharedClock) -> Self {
-        SearchService { factory, clock }
+    pub fn new(factory: F) -> Self {
+        SearchService { factory }
     }
 
     pub fn search(&mut self, query: &str, limit: usize) -> AppResult<Vec<SearchHit>> {

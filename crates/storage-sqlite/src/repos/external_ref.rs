@@ -19,7 +19,7 @@ fn parse_ref(row: &rusqlite::Row) -> rusqlite::Result<AssetExternalRef> {
     crate::repos::app_row(parse_ref_inner(row))
 }
 
-fn parse_ref_inner(row: &rusqlite::Row) -> AppResult<AssetExternalRef> {
+pub(crate) fn parse_ref_inner(row: &rusqlite::Row) -> AppResult<AssetExternalRef> {
     let id: String = col(row, 0)?;
     let asset_id: String = col(row, 1)?;
     let namespace: String = col(row, 2)?;

@@ -57,6 +57,16 @@ pub(crate) enum ServiceCommand {
         no_auto_renew: Option<bool>,
         #[arg(long)]
         notes: Option<String>,
+        /// Project directory a local service is started from (local services
+        /// only; the desktop runtime starts it from here).
+        #[arg(long)]
+        project_dir: Option<String>,
+        /// The command saved and run when the service is started (local
+        /// services only).
+        #[arg(long)]
+        start_command: Option<String>,
+        #[arg(long)]
+        stop_command: Option<String>,
         #[arg(long)]
         tag: Vec<String>,
         /// External reference as `namespace:external_id` (repeatable).
@@ -118,6 +128,16 @@ pub(crate) enum ServiceCommand {
         no_auto_renew: Option<bool>,
         #[arg(long)]
         notes: Option<String>,
+        /// Set the local launch directory (local services only); an empty
+        /// value clears the field.
+        #[arg(long)]
+        project_dir: Option<String>,
+        /// Set the start command (local services only); an empty value clears
+        /// the field.
+        #[arg(long)]
+        start_command: Option<String>,
+        #[arg(long)]
+        stop_command: Option<String>,
         /// Remove cost and currency together.
         #[arg(long)]
         clear_cost: bool,
@@ -250,6 +270,9 @@ pub(crate) fn run_service(
             auto_renew,
             no_auto_renew,
             notes,
+            project_dir,
+            start_command,
+            stop_command,
             tag,
             refs,
         } => {
@@ -281,6 +304,9 @@ pub(crate) fn run_service(
                     .transpose()?,
                 auto_renew: parse_auto_renew(auto_renew, no_auto_renew),
                 notes,
+                project_dir,
+                start_command,
+                stop_command,
                 tags: tag,
                 external_refs,
             })?;
@@ -326,6 +352,9 @@ pub(crate) fn run_service(
             auto_renew,
             no_auto_renew,
             notes,
+            project_dir,
+            start_command,
+            stop_command,
             clear_cost,
             clear_billing,
             clear_renews_at,
@@ -369,12 +398,15 @@ pub(crate) fn run_service(
                     }
                 },
                 notes: Patch::from_text(notes),
+                project_dir: Patch::from_text(project_dir),
+                start_command: Patch::from_text(start_command),
+                stop_command: Patch::from_text(stop_command),
                 ..Default::default()
             })?;
             println!("updated {}", view.entry.asset.id);
         }
         ServiceCommand::Search { query, limit } => {
-            let mut search = SearchService::new(factory, clock);
+            let mut search = SearchService::new(factory);
             let hits = search.search(&query, limit)?;
             print_search_hits(&hits);
         }

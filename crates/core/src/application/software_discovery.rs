@@ -1,4 +1,4 @@
-//! Software discovery candidates and matching (docs/06 discovery lifecycle,
+//! Software discovery candidates and matching (docs/09 discovery lifecycle,
 //! ADR 0005).
 //!
 //! Candidates are advisory DTOs produced by providers — never canonical
@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 /// the application layer consumes it for classification and adoption.
 pub use crate::ports::providers::{CandidateRef, SoftwareCandidate};
 
-/// Why a candidate was classified this way (docs/06: the caller must be able
+/// Why a candidate was classified this way (docs/09: the caller must be able
 /// to understand WHY). Heuristic results are review-only.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

@@ -5,7 +5,9 @@
 //! databases, bounded `busy_timeout`, short write transactions, snapshot
 //! read scopes, and one initialization path shared by every entry point.
 
+pub mod backup;
 mod connection;
+mod maintenance;
 mod migrations;
 mod repos;
 mod uow;
@@ -78,6 +80,7 @@ use rusqlite::Connection;
 /// under an immediate transaction.
 pub fn open(path: &str) -> Result<SqliteFactory, AppError> {
     let mut conn = connection::connect(path)?;
+    backup::before_migration(path, &conn)?;
     migrations::migrate(&mut conn)?;
     validate_module_versions(&conn)?;
     Ok(uow::SqliteFactory::new(path.to_string(), conn))

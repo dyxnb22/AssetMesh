@@ -14,9 +14,9 @@ use std::sync::Arc;
 
 use assetmesh_core::ports::{SystemClock, UuidV7Generator};
 use assetmesh_desktop_lib::commands::{
-    app_settings_impl, library_list_impl, media_command_impl, pick_directory_impl,
-    portable_export_impl, portable_import_apply_impl, portable_import_preview_impl,
-    service_command_impl, software_command_impl,
+    library_list_impl, media_command_impl, pick_directory_impl, portable_export_impl,
+    portable_import_apply_impl, portable_import_preview_impl, service_command_impl,
+    software_command_impl,
 };
 use assetmesh_desktop_lib::dto::{
     LibraryQueryDto, MediaCommandDto, ServiceCommandDto, SoftwareCommandDto,
@@ -117,6 +117,9 @@ fn test_export_creates_valid_bundle_and_returns_receipt() {
             expires_at: None,
             auto_renew: Some(true),
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec!["infra".into()],
         },
         &state,
@@ -365,31 +368,6 @@ fn test_import_rejects_fingerprint_mismatch_on_tampered_bundle() {
     assert_eq!(list.total, Some(0));
 }
 
-#[test]
-fn test_settings_reports_real_db_and_provider_status() {
-    let (state, db_path) = setup_test_state("settings_test");
-
-    let settings = app_settings_impl(&state).expect("app_settings");
-
-    assert_eq!(
-        settings.db_path,
-        Some(db_path.to_string_lossy().to_string())
-    );
-    assert_eq!(settings.db_status, "Ready");
-    assert!(!settings.app_version.is_empty());
-    assert_eq!(settings.providers.len(), 3);
-
-    let names: Vec<_> = settings.providers.iter().map(|p| p.name.as_str()).collect();
-    assert!(names.contains(&"macos_applications"));
-    assert!(names.contains(&"homebrew"));
-    assert!(names.contains(&"cli_tools"));
-
-    // Ensure capabilities are exposed
-    assert!(settings.capabilities.modules.contains(&"media".into()));
-    assert!(settings.capabilities.modules.contains(&"software".into()));
-    assert!(settings.capabilities.modules.contains(&"services".into()));
-}
-
 /// Canned `osascript` replies, so the chooser contract is exercised without
 /// raising a real macOS dialog that would block on a human.
 #[derive(Debug)]
@@ -429,7 +407,11 @@ impl assetmesh_providers::CommandRunner for FakeChooserRunner {
         Ok(std::process::Output {
             status,
             stdout: self.stdout.as_bytes().to_vec(),
-            stderr: Vec::new(),
+            stderr: if self.cancelled {
+                b"User canceled. (-128)".to_vec()
+            } else {
+                Vec::new()
+            },
         })
     }
 }

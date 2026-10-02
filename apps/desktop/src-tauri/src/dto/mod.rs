@@ -1,9 +1,13 @@
 //! Transport Data Transfer Objects for Tauri commands.
 
+mod details;
+pub use details::AssetDetailsDto;
+
 use assetmesh_core::application::library_service::{
     AssetDetailOutcome, AssetDetailView, AssetSummary, LibraryModule, LibraryQuery,
     LibrarySearchQuery, LibrarySort, MergedTombstoneView, Page, PageRequest,
 };
+use assetmesh_core::application::patch::Patch;
 use assetmesh_core::domain::asset::AssetKind;
 use assetmesh_core::domain::media::MediaStatus;
 use assetmesh_core::ports::repos::LifecycleFilter;
@@ -30,16 +34,14 @@ pub struct AssetDetailDto {
     pub updated_at: String,
     pub archived_at: Option<String>,
     pub merged_into: Option<String>,
-    pub details: serde_json::Value,
+    pub details: AssetDetailsDto,
     pub tags: Vec<String>,
     pub external_refs: Vec<ExternalRefDto>,
 }
 
 impl From<AssetDetailView> for AssetDetailDto {
     fn from(view: AssetDetailView) -> Self {
-        let details = serde_json::to_value(&view.details).unwrap_or(serde_json::json!({
-            "module": "unknown"
-        }));
+        let details = AssetDetailsDto::from(view.details);
 
         let external_refs = view
             .external_refs
@@ -101,10 +103,7 @@ impl From<MergedTombstoneView> for AssetDetailDto {
             updated_at: view.asset.updated_at.to_rfc3339(),
             archived_at: view.asset.archived_at.map(|t| t.to_rfc3339()),
             merged_into: view.asset.merged_into.map(|id| id.to_string()),
-            details: serde_json::json!({
-                "module": "merged_redirect",
-                "surviving_asset_id": surviving_asset_id,
-            }),
+            details: AssetDetailsDto::MergedRedirect { surviving_asset_id },
             tags: view.tags,
             external_refs,
         }
@@ -134,7 +133,7 @@ pub struct AssetSummaryDto {
     /// vocabulary as `AssetDetailDto.details`, so list rows can render
     /// status/rating/progress without a second per-asset fetch.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
+    pub details: Option<AssetDetailsDto>,
 }
 
 /// One per-status row for the media view's status segmented control.
@@ -155,9 +154,7 @@ impl From<(MediaStatus, usize)> for MediaStatusCountDto {
 
 impl From<AssetSummary> for AssetSummaryDto {
     fn from(s: AssetSummary) -> Self {
-        let details = s
-            .details
-            .map(|d| serde_json::to_value(d).unwrap_or(serde_json::json!({"module": "unknown"})));
+        let details = s.details.map(AssetDetailsDto::from);
         Self {
             id: s.id.to_string(),
             kind: s.kind.as_str().to_string(),
@@ -305,6 +302,8 @@ pub struct LibrarySearchQueryDto {
     pub modules: Option<Vec<String>>,
     pub kinds: Option<Vec<String>>,
     pub tags: Option<Vec<String>>,
+    pub media_status: Option<String>,
+    pub sort: Option<String>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
 }
@@ -313,18 +312,26 @@ impl TryFrom<LibrarySearchQueryDto> for LibrarySearchQuery {
     type Error = DesktopError;
 
     fn try_from(dto: LibrarySearchQueryDto) -> Result<Self, Self::Error> {
-        let lifecycle = parse_lifecycle(dto.lifecycle.as_deref())?;
-        let modules = parse_modules(dto.modules)?;
-        let kinds = parse_kinds(dto.kinds)?;
-        let page = PageRequest::new(dto.limit.unwrap_or(50), dto.offset.unwrap_or(0));
-
+        let explicit_sort = dto.sort.is_some();
+        let filters = LibraryQuery::try_from(LibraryQueryDto {
+            lifecycle: dto.lifecycle,
+            modules: dto.modules,
+            kinds: dto.kinds,
+            tags: dto.tags,
+            media_status: dto.media_status,
+            sort: dto.sort,
+            limit: dto.limit,
+            offset: dto.offset,
+        })?;
         Ok(LibrarySearchQuery {
             text: dto.text,
-            lifecycle,
-            modules,
-            kinds,
-            tags: dto.tags.unwrap_or_default(),
-            page,
+            lifecycle: filters.lifecycle,
+            modules: filters.modules,
+            kinds: filters.kinds,
+            tags: filters.tags,
+            media_status: filters.media_status,
+            sort: explicit_sort.then_some(filters.sort),
+            page: filters.page,
         })
     }
 }
@@ -482,20 +489,20 @@ pub enum SoftwareCommandDto {
         expected_revision: Option<i64>,
         #[serde(default)]
         name: Option<String>,
-        #[serde(default)]
-        summary: Option<String>,
-        #[serde(default)]
-        version: Option<String>,
-        #[serde(default)]
-        install_location: Option<String>,
-        #[serde(default)]
-        executable_path: Option<String>,
-        #[serde(default)]
-        purpose: Option<String>,
-        #[serde(default)]
-        notes: Option<String>,
-        #[serde(default)]
-        architecture: Option<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        summary: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        version: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        install_location: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        executable_path: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        purpose: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        notes: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        architecture: Patch<String>,
     },
     AdoptCandidate {
         candidate: SoftwareCandidateDto,
@@ -550,14 +557,14 @@ pub enum MediaCommandDto {
         expected_revision: Option<i64>,
         #[serde(default)]
         title: Option<String>,
-        #[serde(default)]
-        summary: Option<String>,
-        #[serde(default)]
-        year: Option<i32>,
-        #[serde(default)]
-        platform: Option<String>,
-        #[serde(default)]
-        notes: Option<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        summary: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        year: Patch<i32>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        platform: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        notes: Patch<String>,
     },
     TransitionStatus {
         asset_id: String,
@@ -623,6 +630,13 @@ pub enum ServiceCommandDto {
         auto_renew: Option<bool>,
         #[serde(default)]
         notes: Option<String>,
+        /// Local-service launch metadata; rejected for non-local types.
+        #[serde(default)]
+        project_dir: Option<String>,
+        #[serde(default)]
+        start_command: Option<String>,
+        #[serde(default)]
+        stop_command: Option<String>,
         #[serde(default)]
         tags: Vec<String>,
     },
@@ -632,34 +646,42 @@ pub enum ServiceCommandDto {
         expected_revision: Option<i64>,
         #[serde(default)]
         name: Option<String>,
-        #[serde(default)]
-        summary: Option<String>,
-        #[serde(default)]
-        provider: Option<String>,
-        #[serde(default)]
-        account_label: Option<String>,
-        #[serde(default)]
-        endpoint_url: Option<String>,
-        #[serde(default)]
-        dashboard_url: Option<String>,
-        #[serde(default)]
-        domain_name: Option<String>,
-        #[serde(default)]
-        plan: Option<String>,
-        #[serde(default)]
-        cost: Option<String>,
-        #[serde(default)]
-        currency: Option<String>,
-        #[serde(default)]
-        billing_cadence: Option<String>,
-        #[serde(default)]
-        renews_at: Option<String>,
-        #[serde(default)]
-        expires_at: Option<String>,
-        #[serde(default)]
-        auto_renew: Option<bool>,
-        #[serde(default)]
-        notes: Option<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        summary: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        provider: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        account_label: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        endpoint_url: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        dashboard_url: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        domain_name: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        plan: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        cost: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        currency: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        billing_cadence: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        renews_at: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        expires_at: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        auto_renew: Patch<bool>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        notes: Patch<String>,
+        /// Local-service launch metadata; rejected for non-local types and
+        /// while the service's process is managed and live.
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        project_dir: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        start_command: Patch<String>,
+        #[serde(default, skip_serializing_if = "Patch::is_leave")]
+        stop_command: Patch<String>,
     },
     RecordRenewal {
         asset_id: String,
@@ -891,7 +913,7 @@ pub struct ActivityQueryDto {
 pub struct DuplicateCandidateDto {
     pub left: AssetSummaryDto,
     pub right: AssetSummaryDto,
-    pub evidence: Vec<serde_json::Value>,
+    pub evidence: Vec<assetmesh_core::application::duplicate_review_service::DuplicateEvidence>,
     pub evidence_labels: Vec<String>,
 }
 
@@ -900,11 +922,7 @@ impl From<assetmesh_core::application::duplicate_review_service::DuplicateCandid
 {
     fn from(c: assetmesh_core::application::duplicate_review_service::DuplicateCandidate) -> Self {
         let evidence_labels = c.evidence.iter().map(|e| e.label()).collect();
-        let evidence = c
-            .evidence
-            .into_iter()
-            .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
-            .collect();
+        let evidence = c.evidence;
         Self {
             left: AssetSummaryDto::from(c.left),
             right: AssetSummaryDto::from(c.right),
@@ -1076,21 +1094,4 @@ pub struct ImportReceiptDto {
     pub source_dir: String,
     pub applied_at: String,
     pub report: ImportReportDto,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProviderStatusDto {
-    pub name: String,
-    pub display_name: String,
-    pub available: bool,
-    pub details: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AppSettingsDto {
-    pub db_path: Option<String>,
-    pub db_status: String,
-    pub app_version: String,
-    pub providers: Vec<ProviderStatusDto>,
-    pub capabilities: assetmesh_core::application::library_service::AppCapabilities,
 }

@@ -87,6 +87,18 @@ flowchart TB
   Providers --> Metadata
 ```
 
+## Shared implementation conventions
+
+Modules are internal compile-time code, not dynamic plugins. Each owns its typed
+details, validation, search projector, portable schema and application use cases.
+Identity and cross-module behavior use shared core contracts. No module descriptor
+or provider abstraction is required merely for a possible future feature.
+
+Application services generate stable UUIDv7 identities and UTC timestamps through
+injectable ID/clock ports. UI display uses the local language/timezone. Revisions
+support local stale-write detection, not an implicit sync protocol. Tags are shared
+lightweight labels on asset IDs rather than a separate asset module.
+
 ## The kernel stays small
 
 The shared kernel contains only concepts that multiple modules need consistently:
@@ -305,18 +317,15 @@ Long-running provider scans, reindexing, thumbnail generation, and large imports
 
 Do not make a job queue part of the required V1 architecture. Introduce a `JobRunner`/durable job model only when the first real long-running workflow needs it. External queue infrastructure is not justified for the initial local-first product.
 
-## Technology direction
+## Implemented stack
 
-Recommended direction, not yet a hard dependency:
-
-- Core: Rust
-- Operational storage: SQLite
-- Desktop: Tauri 2 + React + TypeScript
-- CLI: Rust binary sharing the same application services
-- Graph UI: React Flow or equivalent
-- Query state: TanStack Query in the desktop/web UI
-- Local search: SQLite indexed fields + FTS5, with trigram/sub-string strategy where needed
-- Secrets: OS keychain/secure store
+- Core and CLI: Rust, sharing application services.
+- Operational storage and local search: SQLite with FTS5 and CJK/substring fallback.
+- Desktop: Tauri 2, React, TypeScript and Vite.
+- Relations: accessible paths/lists and an SVG graph over the same query result.
+- Credentials: Services exclude secret material; reusable Info records can contain
+  API keys without encryption at rest. See [Storage & Portability](05-storage-and-portability.md#secrets).
+  OS keychain integration remains unimplemented.
 
 ## Dependency rule
 

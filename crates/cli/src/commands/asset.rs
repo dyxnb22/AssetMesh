@@ -2,7 +2,7 @@ use assetmesh_core::application::media_service::ExternalRefInput;
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::ports::repos::{AssetFilter, LifecycleFilter};
 use assetmesh_core::ports::uow::UnitOfWorkFactory;
-use assetmesh_core::{AppError, SharedClock, SharedIdGenerator};
+use assetmesh_core::{AppError, SharedClock};
 use clap::Subcommand;
 
 use crate::commands::SharedFactory;
@@ -42,11 +42,10 @@ pub(crate) enum RefCommand {
 pub(crate) fn run_asset(
     factory: SharedFactory,
     clock: SharedClock,
-    ids: SharedIdGenerator,
     cmd: AssetCommand,
 ) -> Result<(), AppError> {
     let mut assets =
-        assetmesh_core::application::asset_service::AssetService::new(factory.clone(), clock, ids);
+        assetmesh_core::application::asset_service::AssetService::new(factory.clone(), clock);
 
     match cmd {
         AssetCommand::Archive { id } => {

@@ -1,6 +1,6 @@
 //! Desktop Mutation Pattern & Receipt Contract Tests (P5-05).
 //!
-//! Verifies the 4 primary mutation paths required by docs/12 P5-05:
+//! Verifies the mutation paths in docs/12-desktop-contract.md:
 //! 1. Success path: update metadata commits transaction, returns MutationReceiptDto, increments revision.
 //! 2. Validation error path: invalid transport input rejects before transaction.
 //! 3. Stale revision path: outdated revision returns conflict/stale_revision error.
@@ -67,13 +67,13 @@ fn desktop_mutation_contracts_cover_success_validation_stale_and_noop() {
             asset_id: asset_id.clone(),
             expected_revision: Some(initial_rev),
             name: None,
-            summary: None,
-            version: None,
-            install_location: None,
-            executable_path: None,
-            purpose: Some("Rust and TypeScript development environment".into()),
-            notes: Some("Updated configuration with extensions".into()),
-            architecture: None,
+            summary: None.into(),
+            version: None.into(),
+            install_location: None.into(),
+            executable_path: None.into(),
+            purpose: (Some("Rust and TypeScript development environment".into())).into(),
+            notes: (Some("Updated configuration with extensions".into())).into(),
+            architecture: None.into(),
         },
         &state,
     )
@@ -92,7 +92,7 @@ fn desktop_mutation_contracts_cover_success_validation_stale_and_noop() {
     // Read-back verification via library_get_impl
     let detail = library_get_impl(&asset_id, &state).expect("read-back must succeed");
     assert_eq!(detail.revision, initial_rev + 1);
-    let details_json = &detail.details;
+    let details_json = serde_json::to_value(&detail.details).unwrap();
     assert_eq!(
         details_json["purpose"].as_str(),
         Some("Rust and TypeScript development environment")
@@ -113,13 +113,13 @@ fn desktop_mutation_contracts_cover_success_validation_stale_and_noop() {
             asset_id: asset_id.clone(),
             expected_revision: Some(current_rev),
             name: Some("   ".into()), // Whitespace-only name rejected
-            summary: None,
-            version: None,
-            install_location: None,
-            executable_path: None,
-            purpose: None,
-            notes: None,
-            architecture: None,
+            summary: None.into(),
+            version: None.into(),
+            install_location: None.into(),
+            executable_path: None.into(),
+            purpose: None.into(),
+            notes: None.into(),
+            architecture: None.into(),
         },
         &state,
     )
@@ -144,13 +144,13 @@ fn desktop_mutation_contracts_cover_success_validation_stale_and_noop() {
             asset_id: asset_id.clone(),
             expected_revision: Some(initial_rev), // Outdated revision!
             name: None,
-            summary: None,
-            version: None,
-            install_location: None,
-            executable_path: None,
-            purpose: Some("Conflicting edit".into()),
-            notes: None,
-            architecture: None,
+            summary: None.into(),
+            version: None.into(),
+            install_location: None.into(),
+            executable_path: None.into(),
+            purpose: (Some("Conflicting edit".into())).into(),
+            notes: None.into(),
+            architecture: None.into(),
         },
         &state,
     )
@@ -165,7 +165,7 @@ fn desktop_mutation_contracts_cover_success_validation_stale_and_noop() {
     let detail_after_stale = library_get_impl(&asset_id, &state).expect("read-back must succeed");
     assert_eq!(detail_after_stale.revision, current_rev);
     assert_eq!(
-        detail_after_stale.details["purpose"].as_str(),
+        serde_json::to_value(&detail_after_stale.details).unwrap()["purpose"].as_str(),
         Some("Rust and TypeScript development environment")
     );
 
@@ -178,13 +178,13 @@ fn desktop_mutation_contracts_cover_success_validation_stale_and_noop() {
             asset_id: asset_id.clone(),
             expected_revision: Some(current_rev),
             name: None,
-            summary: None,
-            version: None,
-            install_location: None,
-            executable_path: None,
-            purpose: None,
-            notes: None,
-            architecture: None,
+            summary: None.into(),
+            version: None.into(),
+            install_location: None.into(),
+            executable_path: None.into(),
+            purpose: None.into(),
+            notes: None.into(),
+            architecture: None.into(),
         },
         &state,
     )
@@ -207,13 +207,13 @@ fn desktop_mutation_contracts_cover_success_validation_stale_and_noop() {
             asset_id: non_existent_id,
             expected_revision: Some(1),
             name: None,
-            summary: None,
-            version: None,
-            install_location: None,
-            executable_path: None,
-            purpose: Some("Won't work".into()),
-            notes: None,
-            architecture: None,
+            summary: None.into(),
+            version: None.into(),
+            install_location: None.into(),
+            executable_path: None.into(),
+            purpose: (Some("Won't work".into())).into(),
+            notes: None.into(),
+            architecture: None.into(),
         },
         &state,
     )

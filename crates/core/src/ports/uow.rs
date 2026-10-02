@@ -37,6 +37,112 @@ pub trait UnitOfWork {
 /// this trait, and implementations must execute the scope against a single
 /// consistent snapshot.
 pub trait QueryUnitOfWork {
+    /// Visits portable rows in one consistent snapshot. Storage adapters stream
+    /// rows; in-memory adapters can use the default implementation.
+    fn visit_portable(
+        &mut self,
+        visit: &mut dyn FnMut(crate::application::portable::PortableRow) -> AppResult<()>,
+    ) -> AppResult<()> {
+        use crate::application::portable::*;
+        let mut assets = self.assets().list(&crate::ports::repos::AssetFilter {
+            lifecycle: Some(crate::ports::repos::LifecycleFilter::All),
+            ..Default::default()
+        })?;
+        assets.sort_by_key(|row| row.id);
+        for row in assets {
+            visit(PortableRow::Asset(PortableAssetV1::from_domain(&row)))?;
+        }
+        let mut media = self.media().list_all()?;
+        media.sort_by_key(|row| row.asset_id);
+        for row in media {
+            visit(PortableRow::Media(PortableMediaRecordV1::from_domain(&row)))?;
+        }
+        let mut software = self.software().list_all()?;
+        software.sort_by_key(|row| row.asset_id);
+        for row in software {
+            visit(PortableRow::Software(
+                PortableSoftwareRecordV1::from_domain(&row),
+            ))?;
+        }
+        let mut services = self.services().list_all()?;
+        services.sort_by_key(|row| row.asset_id);
+        for row in services {
+            visit(PortableRow::Service(PortableServiceRecordV1::from_domain(
+                &row,
+            )))?;
+        }
+        let mut info = self.info().list()?;
+        info.sort_by_key(|row| row.record.asset_id);
+        for row in info {
+            visit(PortableRow::Info(PortableInfoRecordV1::from_domain(
+                &row.record,
+            )))?;
+        }
+        let mut refs = self.external_refs().list_all()?;
+        refs.sort_by(|a, b| (&a.namespace, &a.external_id).cmp(&(&b.namespace, &b.external_id)));
+        for row in refs {
+            visit(PortableRow::ExternalRef(
+                PortableExternalRefV1::from_domain(&row),
+            ))?;
+        }
+        let mut activity = self.activity().list_all()?;
+        activity.sort_by_key(|row| (row.occurred_at, row.id));
+        for row in activity {
+            visit(PortableRow::Activity(PortableActivityEventV1::from_domain(
+                &row,
+            )))?;
+        }
+        let mut tags = self.tags().list_all()?;
+        tags.sort_by_key(|row| row.id);
+        for row in tags {
+            visit(PortableRow::Tag(PortableTagV1::from_domain(&row)))?;
+        }
+        let mut memberships = self.tags().list_memberships()?;
+        memberships.sort();
+        for (asset_id, tag_id) in memberships {
+            visit(PortableRow::Membership(AssetTagRow {
+                asset_id: asset_id.to_string(),
+                tag_id: tag_id.to_string(),
+            }))?;
+        }
+        let mut relations = self.relations().list_all()?;
+        relations.sort_by_key(|row| row.id);
+        for row in relations {
+            visit(PortableRow::Relation(PortableRelationV1::from_domain(&row)))?;
+        }
+        Ok(())
+    }
+
+    /// API key assets and tombstones redirecting to them, without values.
+    fn private_asset_ids(&mut self) -> AppResult<std::collections::HashSet<String>> {
+        let mut ids: std::collections::HashSet<String> = self
+            .info()
+            .list()?
+            .into_iter()
+            .filter(|entry| entry.record.info_type == crate::domain::info::InfoType::ApiKey)
+            .map(|entry| entry.asset.id.to_string())
+            .collect();
+        let assets = self.assets().list(&crate::ports::repos::AssetFilter {
+            lifecycle: Some(crate::ports::repos::LifecycleFilter::All),
+            ..Default::default()
+        })?;
+        loop {
+            let before = ids.len();
+            for asset in &assets {
+                if asset
+                    .merged_into
+                    .is_some_and(|id| ids.contains(&id.to_string()))
+                {
+                    ids.insert(asset.id.to_string());
+                }
+            }
+            if before == ids.len() {
+                break;
+            }
+        }
+        Ok(ids)
+    }
+
     fn assets(&mut self) -> &mut dyn AssetReader;
     fn media(&mut self) -> &mut dyn MediaReader;
     fn software(&mut self) -> &mut dyn SoftwareReader;

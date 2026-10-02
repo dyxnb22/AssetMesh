@@ -85,6 +85,9 @@ fn record_params(record: &MediaRecord) -> Vec<Box<dyn rusqlite::ToSql>> {
 }
 
 impl MediaReader for SqliteMediaRepo<'_> {
+    fn existing_ids(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetId>> {
+        crate::repos::existing_module_ids(self.conn, "media_records", ids)
+    }
     fn get(&mut self, asset_id: AssetId) -> AppResult<Option<MediaRecord>> {
         let mut stmt = self
             .conn

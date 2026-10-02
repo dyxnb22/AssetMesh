@@ -1,0 +1,83 @@
+.services-workspace { flex: 1; min-width: 0; overflow: auto; background: var(--color-canvas); padding: 22px 24px; color: var(--color-ink); }
+.services-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+.services-header h2 { margin: 0 0 5px; font-size: 23px; font-weight: 650; letter-spacing: -.6px; }
+.services-header p { margin: 0; color: var(--color-muted); font-size: 12px; }
+.service-button, .service-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: inherit; font-size: 12px; font-weight: 550; cursor: pointer; white-space: nowrap; }
+.service-button { min-height: 32px; padding: 7px 12px; border: 1px solid var(--color-border); border-radius: 7px; background: var(--color-surface); color: var(--color-ink); }
+.service-button:hover:not(:disabled) { background: var(--color-surface-hover); border-color: var(--color-muted); }
+.service-button-primary { background: var(--color-mesh); color: #fff; border-color: var(--color-mesh); }
+.service-button-primary:hover:not(:disabled) { background: var(--color-mesh); border-color: var(--color-mesh); filter: brightness(.93); }
+.service-link { padding: 4px 0; border: 0; background: transparent; color: var(--color-mesh); }
+.service-link:hover:not(:disabled) { text-decoration: underline; }
+.service-button:disabled, .service-link:disabled { cursor: default; opacity: .45; }
+.services-workspace button:focus-visible, .services-workspace input:focus-visible, .services-workspace select:focus-visible, .service-row:focus-visible { outline: 2px solid var(--color-mesh); outline-offset: 3px; }
+.services-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.service-status-filters { display: flex; align-items: stretch; border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; background: var(--color-surface-active); }
+.service-status-filters button { display: flex; align-items: center; justify-content: center; gap: 8px; background: transparent; border: 0; padding: 9px 14px; color: var(--color-muted); font-size: 12px; cursor: pointer; }
+.service-status-filters button.is-active { color: var(--color-mesh); background: var(--color-surface); box-shadow: inset 0 0 0 1px var(--color-mesh); border-radius: 7px; font-weight: 600; }
+.service-status-filters span { font-variant-numeric: tabular-nums; }
+.service-search { display: flex; align-items: center; gap: 8px; flex: 0 1 280px; min-width: 140px; color: var(--color-muted); padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); }
+.service-search input { width: 100%; min-width: 0; border: 0; outline: 0; padding: 0; color: var(--color-ink); background: transparent; font: inherit; font-size: 12px; }
+.service-search:focus-within { border-color: var(--color-mesh); }
+.services-content { display: grid; grid-template-columns: minmax(330px, 1.45fr) minmax(310px, 1fr); align-items: start; gap: 18px; }
+.services-list { min-width: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; overflow: hidden; }
+.service-list-columns, .service-row { display: grid; grid-template-columns: minmax(0, 1fr) 85px auto; align-items: center; gap: 14px; padding: 14px 20px; }
+.service-list-columns { min-height: 42px; color: var(--color-muted); font-size: 11px; border-bottom: 1px solid var(--color-border); }
+.service-list-columns span:last-child { width: 126px; text-align: right; }
+.service-row { min-height: 78px; cursor: pointer; border-left: 3px solid transparent; padding-left: 17px; border-bottom: 1px solid var(--color-border-subtle); }
+.service-row:hover { background: var(--color-surface-hover); }
+.service-row.is-selected { border-left-color: var(--color-mesh); background: var(--color-mesh-bg); }
+.service-row-name { display: flex; flex-direction: column; min-width: 0; gap: 5px; }
+.service-row-name strong { font-size: 14px; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.service-row-name span { font-size: 11px; color: var(--color-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.service-mono { font-family: var(--font-mono); }
+.service-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--color-muted); white-space: nowrap; }
+.service-status-dot { width: 8px; height: 8px; background: currentColor; border-radius: 50%; flex-shrink: 0; }
+.service-status-running { color: #18854b; }
+.service-status-starting, .service-status-stopping { color: var(--color-attention); }
+.service-status-failed { color: var(--color-danger); }
+.service-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.service-controls-compact { justify-content: flex-end; flex-wrap: nowrap; min-width: 126px; gap: 14px; }
+.service-controls-compact .service-button { padding: 5px 12px; min-height: 30px; }
+.service-row-error { grid-column: 1 / -1; color: var(--color-danger); font-size: 12px; overflow-wrap: anywhere; cursor: text; }
+.service-list-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 17px; font-size: 11px; color: var(--color-muted); }
+.service-list-footer > div { display: flex; align-items: center; gap: 10px; }
+.service-inspector { min-width: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 20px; }
+.service-inspector-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 18px; }
+.service-kind { display: inline-block; color: var(--color-muted); background: var(--color-canvas); font-size: 10px; padding: 2px 6px; border-radius: 5px; }
+.service-inspector h3 { font-size: 22px; margin: 7px 0 8px; letter-spacing: -.6px; font-weight: 650; overflow-wrap: anywhere; }
+.service-more { padding: 6px; min-width: 30px; }
+.service-inspector h4 { font-size: 12px; margin: 0; font-weight: 600; }
+.service-access h4 { margin-bottom: 7px; }
+.service-address { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 11px; border: 1px solid var(--color-border); border-radius: 7px; margin-bottom: 9px; }
+.service-address code { font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
+.service-access > .service-controls > .service-button-primary { flex: 1; }
+.service-config, .service-log-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border-subtle); }
+.service-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.service-section-heading .service-link { font-size: 11px; }
+.service-config dl { margin: 0; padding: 3px 12px; background: var(--color-canvas); border: 1px solid var(--color-border-subtle); border-radius: 7px; }
+.service-config dl > div { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 12px; padding: 11px 0; }
+.service-config dl > div + div { border-top: 1px solid var(--color-border); }
+.service-config dt { color: var(--color-muted); font-size: 11px; }
+.service-config dd { margin: 0; color: var(--color-ink); font-size: 11.5px; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.service-config-hint, .service-updated, .service-notes, .services-page-note { margin: 8px 0 0; color: var(--color-muted); font-size: 11px; line-height: 1.6; }
+.service-config button.service-config-hint { color: var(--color-mesh); white-space: normal; text-align: left; }
+.service-notes { color: var(--color-ink); white-space: pre-wrap; }
+.service-log-actions { display: flex; gap: 12px; }
+.service-logs { padding: 10px 12px; background: var(--color-canvas); border: 1px solid var(--color-border-subtle); border-radius: 7px; font: 10.5px/1.8 var(--font-mono); color: var(--color-muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 150px; overflow: auto; }
+.service-logs.is-expanded { max-height: 420px; }
+.service-log-stderr { color: var(--color-danger); }
+.services-empty { padding: 36px 20px; text-align: center; color: var(--color-muted); font-size: 12px; }
+.services-empty strong { color: var(--color-ink); font-size: 14px; }
+.services-empty p { margin: 8px 0 16px; line-height: 1.6; }
+.service-error { padding: 10px 12px; margin: 0 0 14px; border: 1px solid var(--color-danger); background: var(--color-danger-bg); color: var(--color-danger); border-radius: 7px; font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 1100px) { .services-content { grid-template-columns: minmax(0, 1fr); } .service-inspector { max-width: none; } }
+@media (max-width: 600px) { .services-workspace { padding: 16px 12px; } .services-header { gap: 10px; } .services-header h2 { font-size: 20px; } .services-toolbar { gap: 8px; } .service-search { flex: 1 1 180px; } .service-row, .service-list-columns { padding-right: 12px; gap: 8px; grid-template-columns: minmax(0, 1fr) 70px auto; } .service-row-name strong { font-size: 12px; } .service-controls-compact { min-width: 0; gap: 8px; } .service-list-columns span:last-child { width: 98px; } .service-status { font-size: 11px; gap: 4px; } .service-controls-compact .service-button { padding: 5px 8px; } .service-inspector { padding: 16px; } .service-list-footer { flex-wrap: wrap; } }
+/* Keep the selected service's controls, configuration and log tail visible in
+   the standard 768px-high desktop window without stretching either panel. */
+.service-inspector-header { margin-bottom: 14px; }
+.service-inspector h3 { line-height: 1.3; }
+.service-address { padding: 8px 10px; }
+.service-config, .service-log-section { margin-top: 14px; padding-top: 12px; }
+.service-section-heading { margin-bottom: 8px; }
+.service-config dl > div { padding: 9px 0; }

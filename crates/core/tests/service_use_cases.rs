@@ -39,6 +39,9 @@ fn create_cmd(name: &str, service_type: ServiceType) -> CreateService {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -718,7 +721,7 @@ fn export_carries_service_records_through_the_portable_services_section() {
 
     let mut exporter = PortableExportService::new(t.factory.clone(), t.clock.clone());
     let bundle = exporter.export("test").unwrap();
-    assert_eq!(bundle.manifest.modules["services"].schema_version, 1);
+    assert_eq!(bundle.manifest.modules["services"].schema_version, 3);
     assert_eq!(bundle.manifest.record_counts["services"], 2);
     let section = bundle.file("modules/services.jsonl").unwrap();
     assert!(section.contains("OpenAI"), "{section}");

@@ -4,6 +4,7 @@
 //! change, its activity event, and the synchronous search projection
 //! together (ADR 0007, docs/08).
 
+use crate::application::patch::Patch;
 use crate::application::projection::project_media;
 use crate::application::{SharedClock, SharedIdGenerator};
 use crate::domain::activity::{actors, event_types, ActivityEvent};
@@ -56,10 +57,10 @@ pub use crate::application::shared::{
 pub struct UpdateMediaMetadata {
     pub asset_id: AssetId,
     pub title: Option<String>,
-    pub summary: Option<String>,
-    pub year: Option<i32>,
-    pub platform: Option<String>,
-    pub notes: Option<String>,
+    pub summary: Patch<String>,
+    pub year: Patch<i32>,
+    pub platform: Patch<String>,
+    pub notes: Patch<String>,
     pub expected_revision: Option<i64>,
 }
 
@@ -209,18 +210,19 @@ impl<F: UnitOfWorkFactory> MediaService<F> {
                 }
                 asset.name = title.to_string();
             }
-            if cmd.summary.is_some() {
-                asset.summary = cmd.summary.clone();
-            }
-            if cmd.year.is_some() {
-                record.year = cmd.year;
-            }
-            if cmd.platform.is_some() {
-                record.platform = cmd.platform.clone();
-            }
-            if cmd.notes.is_some() {
-                record.notes = cmd.notes.clone();
-            }
+            cmd.summary
+                .clone()
+                .normalize_text()
+                .apply_to(&mut asset.summary);
+            cmd.year.apply_to(&mut record.year);
+            cmd.platform
+                .clone()
+                .normalize_text()
+                .apply_to(&mut record.platform);
+            cmd.notes
+                .clone()
+                .normalize_text()
+                .apply_to(&mut record.notes);
 
             asset.validate()?;
             record.validate()?;

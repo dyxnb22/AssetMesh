@@ -1,0 +1,210 @@
+{
+  "scope": "Built macOS application, private SQLite library copy, process spawn to two frames after the initial list is ready. Long-idle and Dock/LaunchServices conditions are not reproduced.",
+  "assets": 787,
+  "frontend_js_bytes": 258109,
+  "runs": [
+    {
+      "run": 1,
+      "first_list_ready_ms": 1804.31,
+      "stages": [
+        {
+          "stage": "native_start",
+          "native_ms": 0.203375,
+          "process_ms": 608.3817909820937
+        },
+        {
+          "stage": "setup_started",
+          "native_ms": 452.241875,
+          "process_ms": 1060.1894999854267
+        },
+        {
+          "stage": "database_ready",
+          "native_ms": 453.540834,
+          "process_ms": 1061.3975829910487
+        },
+        {
+          "stage": "frontend_loaded",
+          "native_ms": 854.239125,
+          "web_ms": 135.0,
+          "process_ms": 1466.9692909810692
+        },
+        {
+          "stage": "webview_loaded",
+          "native_ms": 916.5124999999999,
+          "process_ms": 1533.0245000077412
+        },
+        {
+          "stage": "workspace_mounted",
+          "native_ms": 1118.175667,
+          "web_ms": 437.0,
+          "process_ms": 1730.0413330085576
+        },
+        {
+          "stage": "shell_visible",
+          "native_ms": 1118.378667,
+          "web_ms": 437.0,
+          "process_ms": 1730.21116599557
+        },
+        {
+          "stage": "first_list_ready",
+          "native_ms": 1196.356,
+          "web_ms": 515.0,
+          "process_ms": 1804.3107079865877
+        }
+      ]
+    },
+    {
+      "run": 2,
+      "first_list_ready_ms": 436.12,
+      "stages": [
+        {
+          "stage": "native_start",
+          "native_ms": 0.013167,
+          "process_ms": 9.770790988113731
+        },
+        {
+          "stage": "setup_started",
+          "native_ms": 203.6085,
+          "process_ms": 213.39512499980628
+        },
+        {
+          "stage": "database_ready",
+          "native_ms": 204.14016700000002,
+          "process_ms": 213.93420800450258
+        },
+        {
+          "stage": "webview_loaded",
+          "native_ms": 292.303209,
+          "process_ms": 302.0493749936577
+        },
+        {
+          "stage": "frontend_loaded",
+          "native_ms": 348.360834,
+          "web_ms": 60.0,
+          "process_ms": 358.1281249935273
+        },
+        {
+          "stage": "workspace_mounted",
+          "native_ms": 422.81095899999997,
+          "web_ms": 135.0,
+          "process_ms": 432.58770799729973
+        },
+        {
+          "stage": "shell_visible",
+          "native_ms": 422.96325,
+          "web_ms": 135.0,
+          "process_ms": 432.69016599515453
+        },
+        {
+          "stage": "first_list_ready",
+          "native_ms": 426.379917,
+          "web_ms": 138.0,
+          "process_ms": 436.1154579964932
+        }
+      ]
+    },
+    {
+      "run": 3,
+      "first_list_ready_ms": 395.11,
+      "stages": [
+        {
+          "stage": "native_start",
+          "native_ms": 0.014417,
+          "process_ms": 17.918124998686835
+        },
+        {
+          "stage": "setup_started",
+          "native_ms": 185.774042,
+          "process_ms": 203.64445800078101
+        },
+        {
+          "stage": "database_ready",
+          "native_ms": 186.243375,
+          "process_ms": 204.05050000408664
+        },
+        {
+          "stage": "webview_loaded",
+          "native_ms": 262.937542,
+          "process_ms": 280.7835830026306
+        },
+        {
+          "stage": "frontend_loaded",
+          "native_ms": 313.961875,
+          "web_ms": 55.0,
+          "process_ms": 331.8597080069594
+        },
+        {
+          "stage": "workspace_mounted",
+          "native_ms": 376.79075,
+          "web_ms": 118.0,
+          "process_ms": 394.6682500245515
+        },
+        {
+          "stage": "shell_visible",
+          "native_ms": 376.936375,
+          "web_ms": 118.0,
+          "process_ms": 394.74045802489854
+        },
+        {
+          "stage": "first_list_ready",
+          "native_ms": 377.301625,
+          "web_ms": 119.0,
+          "process_ms": 395.1070410257671
+        }
+      ]
+    }
+  ],
+  "installed_app_verification": {
+    "application": "/Applications/AssetMesh.app",
+    "previous_version": "/Applications/AssetMesh-20261001-191921-backup.app",
+    "checks": [
+      "Initial Todo list rendered",
+      "Lazy asset detail rendered",
+      "Lazy new-media dialog rendered and cancelled",
+      "Installed application signature verified"
+    ],
+    "timing_scope": "Native entry to first list ready; excludes LaunchServices and time before main",
+    "startup": {
+      "app_version": "0.3.0",
+      "started_at": "2026-10-01T11:19:26.947976+00:00",
+      "stages": [
+        {
+          "stage": "native_start",
+          "native_ms": 0.33145800000000003
+        },
+        {
+          "stage": "setup_started",
+          "native_ms": 309.89425
+        },
+        {
+          "stage": "database_ready",
+          "native_ms": 312.239041
+        },
+        {
+          "stage": "webview_loaded",
+          "native_ms": 656.908375
+        },
+        {
+          "stage": "frontend_loaded",
+          "native_ms": 714.291291,
+          "web_ms": 66.0
+        },
+        {
+          "stage": "workspace_mounted",
+          "native_ms": 797.722666,
+          "web_ms": 149.0
+        },
+        {
+          "stage": "shell_visible",
+          "native_ms": 798.048833,
+          "web_ms": 150.0
+        },
+        {
+          "stage": "first_list_ready",
+          "native_ms": 809.425291,
+          "web_ms": 161.0
+        }
+      ]
+    }
+  }
+}

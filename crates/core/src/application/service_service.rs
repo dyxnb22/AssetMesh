@@ -57,52 +57,17 @@ pub struct CreateService {
     pub expires_at: Option<Timestamp>,
     pub auto_renew: Option<bool>,
     pub notes: Option<String>,
+    /// Local-service launch metadata; rejected for non-local types by the
+    /// domain validation.
+    pub project_dir: Option<String>,
+    pub start_command: Option<String>,
+    pub stop_command: Option<String>,
     pub tags: Vec<String>,
     pub external_refs: Vec<ExternalRefInput>,
 }
 
-/// Explicit patch semantics (docs/10): an update must distinguish "leave
-/// unchanged" from "clear this optional field", so an omitted CLI/UI value
-/// can never be deserialized as null and erase canonical data.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub enum Patch<T> {
-    /// Leave the canonical value untouched.
-    #[default]
-    Leave,
-    /// Replace the canonical value.
-    Set(T),
-    /// Remove the canonical value.
-    Clear,
-}
-
-impl<T> Patch<T> {
-    /// Borrows so a patch held by an `FnMut` closure (a transaction body)
-    /// can be applied without moving out of a captured command.
-    fn apply_to(&self, field: &mut Option<T>)
-    where
-        T: Clone,
-    {
-        match self {
-            Patch::Leave => {}
-            Patch::Set(value) => *field = Some(value.clone()),
-            Patch::Clear => *field = None,
-        }
-    }
-}
-
-impl Patch<String> {
-    /// CLI/UI text mapping: an absent argument leaves the field alone; an
-    /// explicit empty/whitespace value clears it; anything else sets it.
-    /// Normalization (trim, control-character rejection, bounds) happens in
-    /// [`ServiceRecord::validate`], the single canonicalization point.
-    pub fn from_text(value: Option<String>) -> Self {
-        match value {
-            None => Patch::Leave,
-            Some(text) if text.trim().is_empty() => Patch::Clear,
-            Some(text) => Patch::Set(text),
-        }
-    }
-}
+// Preserve the service import path while sharing update semantics across modules.
+pub use crate::application::patch::Patch;
 
 /// Records that a subscription/service renewed (docs/10 renewal use case).
 ///
@@ -167,14 +132,28 @@ pub fn parse_money_patch(
     cost: Option<&str>,
     currency: Option<&str>,
 ) -> AppResult<(Patch<i64>, Patch<String>)> {
-    match (cost, currency) {
-        (None, None) => Ok((Patch::Leave, Patch::Leave)),
-        (Some(c), Some(cur)) if c.trim().is_empty() && cur.trim().is_empty() => {
-            Ok((Patch::Clear, Patch::Clear))
-        }
-        (Some(c), Some(cur)) if !c.trim().is_empty() && !cur.trim().is_empty() => {
-            let (minor, cur_norm) = parse_money_pair(Some(c), Some(cur))?;
-            Ok((Patch::Set(minor.unwrap()), Patch::Set(cur_norm.unwrap())))
+    parse_money_update(
+        Patch::from_text(cost.map(str::to_owned)),
+        Patch::from_text(currency.map(str::to_owned)),
+    )
+}
+
+/// Parses the paired wire update without losing omission versus null.
+pub fn parse_money_update(
+    cost: Patch<String>,
+    currency: Patch<String>,
+) -> AppResult<(Patch<i64>, Patch<String>)> {
+    match (cost.normalize_text(), currency.normalize_text()) {
+        (Patch::Leave, Patch::Leave) => Ok((Patch::Leave, Patch::Leave)),
+        (Patch::Clear, Patch::Clear) => Ok((Patch::Clear, Patch::Clear)),
+        (Patch::Set(cost), Patch::Set(currency)) => {
+            let (minor, currency) = parse_money_pair(Some(&cost), Some(&currency))?;
+            match (minor, currency) {
+                (Some(minor), Some(currency)) => Ok((Patch::Set(minor), Patch::Set(currency))),
+                _ => Err(AppError::validation(
+                    "cost and currency must both have values",
+                )),
+            }
         }
         _ => Err(AppError::validation(
             "cost and currency must be set together or cleared together",
@@ -203,6 +182,9 @@ pub struct UpdateService {
     pub expires_at: Patch<Timestamp>,
     pub auto_renew: Patch<bool>,
     pub notes: Patch<String>,
+    pub project_dir: Patch<String>,
+    pub start_command: Patch<String>,
+    pub stop_command: Patch<String>,
     pub expected_revision: Option<i64>,
 }
 
@@ -258,6 +240,9 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
         record.expires_at = cmd.expires_at;
         record.auto_renew = cmd.auto_renew;
         record.notes = cmd.notes;
+        record.project_dir = cmd.project_dir;
+        record.start_command = cmd.start_command;
+        record.stop_command = cmd.stop_command;
         // The domain layer is the single canonicalization point: text,
         // money pairing, URL shape, and domain-specific rules are all
         // normalized/rejected here, before any write.
@@ -378,6 +363,9 @@ impl<F: UnitOfWorkFactory> ServiceService<F> {
                 (&cmd.domain_name, &mut record.domain_name),
                 (&cmd.plan, &mut record.plan),
                 (&cmd.notes, &mut record.notes),
+                (&cmd.project_dir, &mut record.project_dir),
+                (&cmd.start_command, &mut record.start_command),
+                (&cmd.stop_command, &mut record.stop_command),
             ] {
                 patch.apply_to(field);
             }

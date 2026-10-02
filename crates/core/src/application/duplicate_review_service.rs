@@ -16,13 +16,13 @@
 //!   that is deliberately *not* a candidate signal here — it belongs to the
 //!   import/discovery review path, which already reports it. Inventing a
 //!   condition that cannot occur would only produce unreachable code.
-//! - **Bucketed, not pairwise.** Candidates come from buckets keyed by
-//!   (kind, normalized name) and by module-specific deterministic keys, so the
-//!   work is bounded by bucket size rather than by N².
+//! - **Bounded work.** Identity buckets avoid unrelated comparisons; an
+//!   explicit pair budget also bounds large buckets. A partial scan reports
+//!   `total: None`, never an exact count for an incomplete result.
 //! - **Deterministic pairs.** Every pair is ordered by canonical Asset id, so
 //!   `A/B` and `B/A` are one candidate.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::application::library_service::{
     load_library_rows, AssetDetails, AssetSummary, LibraryModule, Page, PageRequest,
@@ -32,7 +32,10 @@ use crate::domain::asset::LifecycleState;
 use crate::domain::ids::AssetId;
 use crate::ports::uow::UnitOfWorkFactory;
 use crate::AppResult;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+pub const MAX_DUPLICATE_PAIR_CHECKS: usize = 10_000;
+type CandidatePairs = BTreeMap<(AssetId, AssetId), Vec<DuplicateEvidence>>;
 
 /// Why two assets look like the same thing.
 ///
@@ -41,7 +44,7 @@ use serde::Serialize;
 /// Serialized as `{"evidence": "same_normalized_name", …}` so a transport
 /// consumer sees a self-describing union. The tag is `evidence` rather than
 /// `kind` because one variant already carries an asset `kind` field.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "evidence", rename_all = "snake_case")]
 pub enum DuplicateEvidence {
     /// Same normalized (casefolded, whitespace-collapsed) name **and** the
@@ -51,7 +54,7 @@ pub enum DuplicateEvidence {
         normalized_name: String,
         kind: crate::domain::asset::AssetKind,
     },
-    /// Same non-secret provider label (Services).
+    /// Same provider label, supplementary to matching name or domain.
     SameProvider { provider: String },
     /// Same canonical domain text (Services, domain records only).
     SameDomain { domain: String },
@@ -128,12 +131,20 @@ impl<F: UnitOfWorkFactory> DuplicateReviewService<F> {
     pub fn candidates(&mut self, query: &DuplicateQuery) -> AppResult<Page<DuplicateCandidate>> {
         let limit = query.page.effective_limit();
         self.factory.read(&mut |q| {
-            let rows = load_library_rows(q, &LibraryModule::ALL)?;
+            let modules: Vec<_> = LibraryModule::ALL
+                .into_iter()
+                .filter(|module| {
+                    query.kinds.is_empty() || query.kinds.iter().any(|kind| module.matches(*kind))
+                })
+                .collect();
+            let rows = load_library_rows(q, &modules)?;
 
-            let eligible: Vec<&crate::application::library_service::LibraryRow> = rows
+            let mut eligible: Vec<&crate::application::library_service::LibraryRow> = rows
                 .iter()
                 .filter(|row| {
-                    if row.asset.lifecycle_state == LifecycleState::Merged {
+                    if row.asset.lifecycle_state == LifecycleState::Merged
+                        || row.asset.kind == crate::domain::asset::AssetKind::InfoItem
+                    {
                         // A tombstone is a redirect, not an inventory entry.
                         return false;
                     }
@@ -146,20 +157,26 @@ impl<F: UnitOfWorkFactory> DuplicateReviewService<F> {
                 })
                 .collect();
 
-            let mut candidates = collect_candidates(&eligible);
-            candidates.sort_by_key(|candidate| (candidate.left.id, candidate.right.id));
-
-            let total = candidates.len();
-            let items = candidates
+            eligible.sort_by_key(|row| row.asset.id);
+            let (pairs, truncated) = collect_candidates(&eligible);
+            let total = (!truncated).then_some(pairs.len());
+            let by_id: BTreeMap<_, _> = eligible.iter().map(|row| (row.asset.id, *row)).collect();
+            // Hydrate summaries only for the returned page, not every pair.
+            let items = pairs
                 .into_iter()
                 .skip(query.page.offset)
                 .take(limit)
+                .map(|((left, right), evidence)| DuplicateCandidate {
+                    left: crate::application::library_service::summarize_row(by_id[&left]),
+                    right: crate::application::library_service::summarize_row(by_id[&right]),
+                    evidence,
+                })
                 .collect();
             Ok(Page {
                 items,
                 offset: query.page.offset,
                 limit,
-                total: Some(total),
+                total,
             })
         })
     }
@@ -171,16 +188,16 @@ impl<F: UnitOfWorkFactory> DuplicateReviewService<F> {
 /// Two bucket families:
 ///
 /// 1. `(kind, normalized name)` — the general, module-independent rule;
-/// 2. module-specific deterministic keys (provider, domain, install location).
+/// 2. module-specific identity keys (domain, install location).
 ///
-/// Only rows inside the same bucket are compared, so the cost is bounded by the
-/// largest bucket instead of by the square of the library size.
+/// Buckets and pairs are visited deterministically. Large groups stop at the
+/// work budget; the partial set remains stable across adapters and retries.
 fn collect_candidates(
     rows: &[&crate::application::library_service::LibraryRow],
-) -> Vec<DuplicateCandidate> {
+) -> (CandidatePairs, bool) {
     // Bucket key → row indexes. A pair may share several keys; the evidence is
     // merged and de-duplicated per pair rather than reported twice.
-    let mut buckets: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut buckets: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (index, row) in rows.iter().enumerate() {
         let keys = bucket_keys(row);
         for key in keys {
@@ -188,8 +205,10 @@ fn collect_candidates(
         }
     }
 
-    let mut found: HashMap<(AssetId, AssetId), Vec<DuplicateEvidence>> = HashMap::new();
-    for indexes in buckets.values() {
+    let mut found = CandidatePairs::new();
+    let mut checks = 0;
+    let mut truncated = false;
+    'buckets: for indexes in buckets.values() {
         if indexes.len() < 2 {
             continue;
         }
@@ -204,39 +223,29 @@ fn collect_candidates(
                 } else {
                     (rows[*right], rows[*left])
                 };
+                let pair = (first.asset.id, second.asset.id);
+                if found.contains_key(&pair) {
+                    continue;
+                }
+                if checks == MAX_DUPLICATE_PAIR_CHECKS {
+                    truncated = true;
+                    break 'buckets;
+                }
+                checks += 1;
                 let Some(evidence) = evidence_between(first, second) else {
                     continue;
                 };
                 if evidence.is_empty() {
                     continue;
                 }
-                let entry = found.entry((first.asset.id, second.asset.id)).or_default();
-                for item in evidence {
-                    if !entry.contains(&item) {
-                        entry.push(item);
-                    }
-                }
+                let mut evidence = evidence;
+                evidence.sort_by_key(|item| format!("{item:?}"));
+                found.insert(pair, evidence);
             }
         }
     }
 
-    let by_id: HashMap<AssetId, &crate::application::library_service::LibraryRow> =
-        rows.iter().map(|row| (row.asset.id, *row)).collect();
-
-    found
-        .into_iter()
-        .filter_map(|((left_id, right_id), mut evidence)| {
-            let left = by_id.get(&left_id)?;
-            let right = by_id.get(&right_id)?;
-            // Stable evidence order for a stable API.
-            evidence.sort_by_key(|item| format!("{:?}", item));
-            Some(DuplicateCandidate {
-                left: crate::application::library_service::summarize_row(left),
-                right: crate::application::library_service::summarize_row(right),
-                evidence,
-            })
-        })
-        .collect()
+    (found, truncated)
 }
 
 /// The deterministic bucket keys one row contributes to.
@@ -248,21 +257,16 @@ fn bucket_keys(row: &crate::application::library_service::LibraryRow) -> Vec<Str
     )];
     match &row.details {
         AssetDetails::Service(record) => {
-            if let Some(provider) = record.provider.as_deref().map(str::trim) {
-                if !provider.is_empty() {
-                    keys.push(format!("provider:{}", provider.to_lowercase()));
-                }
-            }
             if let Some(domain) = record.domain_name.as_deref().map(str::trim) {
                 if !domain.is_empty() {
-                    keys.push(format!("domain:{domain}"));
+                    keys.push(format!("domain:{}:{domain}", row.asset.kind.as_str()));
                 }
             }
         }
         AssetDetails::Software(record) => {
             if let Some(location) = record.install_location.as_deref().map(str::trim) {
                 if !location.is_empty() {
-                    keys.push(format!("location:{location}"));
+                    keys.push(format!("location:{}:{location}", row.asset.kind.as_str()));
                 }
             }
         }

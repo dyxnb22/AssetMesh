@@ -49,17 +49,35 @@ const serviceB: AssetSummary = {
   updated_at: '2024-03-21T10:00:00Z',
 };
 
+const softwarePair: DuplicateCandidateDto = {
+  left: softwareA, right: softwareB,
+  evidence: [{ evidence: 'same_normalized_name', normalized_name: 'ripgrep', kind: 'software.cli' }],
+  evidence_labels: ['same normalized name (ripgrep)'],
+};
+
 describe('Activity and Duplicate Review Workflow UI (P5-08)', () => {
   let fakeTransport: FakeDesktopTransport;
 
   beforeEach(() => {
     fakeTransport = new FakeDesktopTransport([
-      JSON.parse(JSON.stringify(softwareA)),
-      JSON.parse(JSON.stringify(softwareB)),
-      JSON.parse(JSON.stringify(serviceA)),
-      JSON.parse(JSON.stringify(serviceB)),
+      structuredClone(softwareA),
+      structuredClone(softwareB),
+      structuredClone(serviceA),
+      structuredClone(serviceB),
     ]);
+    fakeTransport.duplicateMatches = [structuredClone(softwarePair)];
     setTransport(fakeTransport);
+  });
+
+  it('labels a bounded duplicate scan as partial without claiming an exact count', async () => {
+    vi.spyOn(fakeTransport, 'duplicateCandidates').mockResolvedValue({
+      items: [structuredClone(softwarePair)], total: null, offset: 0, limit: 50,
+    });
+    render(<DuplicateReview capabilities={null} />);
+    await screen.findByText(/This scan reached its limit/);
+    expect(screen.getByText(/Results are partial/)).toBeInTheDocument();
+    expect(screen.getByTestId('duplicate-review-container')).toHaveTextContent('ripgrep');
+    expect(screen.queryByText('1 candidate')).not.toBeInTheDocument();
   });
 
   it('Flow 1 (Global Activity Feed & Filters): lists events, filters by module and kind, toggles payload', async () => {
@@ -235,12 +253,7 @@ describe('Activity and Duplicate Review Workflow UI (P5-08)', () => {
   });
 
   it('Flow 4 (Explicit Winner Selection & Merge Preview Modal): switches winner and shows preview', async () => {
-    const candidate: DuplicateCandidateDto = {
-      left: softwareA,
-      right: softwareB,
-      evidence: [{ evidence: 'same_normalized_name', normalized_name: 'ripgrep', kind: 'software.cli' }],
-      evidence_labels: ['same normalized name (ripgrep)'],
-    };
+    const candidate = softwarePair;
 
     const previewSpy = vi.spyOn(fakeTransport, 'mergePreview');
 
@@ -280,12 +293,7 @@ describe('Activity and Duplicate Review Workflow UI (P5-08)', () => {
   });
 
   it('Flow 5 (Merge Apply & Redirection): executes merge, updates survivor and tombstones loser', async () => {
-    const candidate: DuplicateCandidateDto = {
-      left: softwareA,
-      right: softwareB,
-      evidence: [{ evidence: 'same_normalized_name', normalized_name: 'ripgrep', kind: 'software.cli' }],
-      evidence_labels: ['same normalized name (ripgrep)'],
-    };
+    const candidate = softwarePair;
 
     const mergeSpy = vi.spyOn(fakeTransport, 'mergeApply');
     const onMerged = vi.fn();
@@ -304,8 +312,7 @@ describe('Activity and Duplicate Review Workflow UI (P5-08)', () => {
     await screen.findByTestId('merge-preview-container');
 
     // Check confirmation checkbox
-    const confirmBox = screen.getByTestId('merge-confirm-checkbox');
-    fireEvent.click(confirmBox);
+    expect(screen.queryByTestId('merge-confirm-checkbox')).not.toBeInTheDocument();
 
     // Execute merge
     const executeBtn = screen.getByTestId('execute-merge-button');
@@ -328,72 +335,12 @@ describe('Activity and Duplicate Review Workflow UI (P5-08)', () => {
   });
 
   it('Flow 6 (Conflict Detection & Blocked Merge): prevents merge when field conflicts exist', async () => {
-    // Setup service detail records with conflicting plans
-    fakeTransport.details.set(serviceA.id, {
-      id: serviceA.id,
-      kind: serviceA.kind,
-      name: serviceA.name,
-      summary: serviceA.subtitle,
-      lifecycle: 'active',
-      revision: 1,
-      created_at: serviceA.updated_at,
-      updated_at: serviceA.updated_at,
-      archived_at: null,
-      merged_into: null,
-      tags: serviceA.tags,
-      external_refs: [],
-      details: {
-        module: 'services',
-        asset_id: serviceA.id,
-        service_type: 'saas',
-        provider: 'OpenAI',
-        account_label: 'Personal',
-        endpoint_url: null,
-        dashboard_url: null,
-        domain_name: null,
-        plan: 'Plus',
-        cost_minor: 2000,
-        currency: 'USD',
-        billing_cadence: 'monthly',
-        renews_at: null,
-        expires_at: null,
-        auto_renew: true,
-        notes: null,
-      },
-    });
-
-    fakeTransport.details.set(serviceB.id, {
-      id: serviceB.id,
-      kind: serviceB.kind,
-      name: serviceB.name,
-      summary: serviceB.subtitle,
-      lifecycle: 'active',
-      revision: 1,
-      created_at: serviceB.updated_at,
-      updated_at: serviceB.updated_at,
-      archived_at: null,
-      merged_into: null,
-      tags: serviceB.tags,
-      external_refs: [],
-      details: {
-        module: 'services',
-        asset_id: serviceB.id,
-        service_type: 'saas',
-        provider: 'OpenAI',
-        account_label: 'Personal',
-        endpoint_url: null,
-        dashboard_url: null,
-        domain_name: null,
-        plan: 'Team',
-        cost_minor: 3000,
-        currency: 'USD',
-        billing_cadence: 'monthly',
-        renews_at: null,
-        expires_at: null,
-        auto_renew: true,
-        notes: null,
-      },
-    });
+    // Render the conflict returned by the core; field comparison is covered
+    // by desktop_activity_duplicate_contracts against real SQLite.
+    fakeTransport.mergePreviewOverrides = {
+      can_merge: false,
+      conflicts: ["Service details conflict on: plan: 'Plus' vs 'Team'; cost: 2000 vs 3000"],
+    };
 
     const candidate: DuplicateCandidateDto = {
       left: serviceA,
@@ -436,6 +383,9 @@ describe('Activity and Duplicate Review Workflow UI (P5-08)', () => {
   it('Flow 7 (Navigation Rail - Workspaces): navigates to Activity and Duplicates sections', async () => {
     render(<App />);
 
+    await screen.findByTestId('nav-all');
+    fireEvent.click(screen.getByText('Tools', { selector: 'summary' }));
+
     // Click Activity tab in navigation rail
     const actTab = await screen.findByTestId('nav-activity');
     fireEvent.click(actTab);
@@ -452,12 +402,7 @@ describe('Activity and Duplicate Review Workflow UI (P5-08)', () => {
   });
 
   it('Flow 8 (Optimistic Concurrency & Stale Revision Handling): preserves user selection and displays merge-error-banner upon concurrent modification', async () => {
-    const candidate: DuplicateCandidateDto = {
-      left: softwareA,
-      right: softwareB,
-      evidence: [{ evidence: 'same_normalized_name', normalized_name: 'ripgrep', kind: 'software.cli' }],
-      evidence_labels: ['same normalized name (ripgrep)'],
-    };
+    const candidate = softwarePair;
 
     // Mock mergeApply to throw a stale_revision error
     const staleErr = new Error('Asset revision mismatch: expected 1, found 2') as Error & { category?: string };
@@ -478,8 +423,7 @@ describe('Activity and Duplicate Review Workflow UI (P5-08)', () => {
     await screen.findByTestId('merge-preview-container');
 
     // Confirm and execute merge
-    const confirmBox = await screen.findByTestId('merge-confirm-checkbox');
-    fireEvent.click(confirmBox);
+    expect(screen.queryByTestId('merge-confirm-checkbox')).not.toBeInTheDocument();
     const executeBtn = screen.getByTestId('execute-merge-button');
     expect(executeBtn).not.toBeDisabled();
     fireEvent.click(executeBtn);

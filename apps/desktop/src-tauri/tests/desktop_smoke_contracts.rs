@@ -234,6 +234,9 @@ fn library_list_smoke_renders_real_asset_summaries_from_temp_db() {
                     expires_at: None,
                     auto_renew: None,
                     notes: None,
+                    project_dir: None,
+                    start_command: None,
+                    stop_command: None,
                     tags: vec!["ai".into()],
                     external_refs: Vec::new(),
                 })

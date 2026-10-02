@@ -1,4 +1,5 @@
 pub mod activity;
+pub mod backup;
 pub mod capabilities;
 pub mod duplicate;
 pub mod info;
@@ -7,9 +8,11 @@ pub mod media;
 pub mod portable;
 pub mod relation;
 pub mod service;
+pub mod service_runtime;
 pub mod software;
 
 pub use activity::*;
+pub use backup::*;
 pub use capabilities::*;
 pub use duplicate::*;
 pub use info::*;
@@ -18,6 +21,7 @@ pub use media::*;
 pub use portable::*;
 pub use relation::*;
 pub use service::*;
+pub use service_runtime::*;
 pub use software::*;
 
 /// Existing canonical rows must carry an observed revision on desktop writes.

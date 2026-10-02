@@ -88,3 +88,33 @@ pub(crate) fn uuid_from_string(value: &str) -> AppResult<Uuid> {
     Uuid::parse_str(value)
         .map_err(|e| assetmesh_core::AppError::storage(format!("invalid stored id: {e}")))
 }
+
+pub(crate) mod portable;
+
+pub(crate) fn existing_module_ids(
+    conn: &rusqlite::Connection,
+    table: &str,
+    ids: &[assetmesh_core::domain::ids::AssetId],
+) -> assetmesh_core::AppResult<Vec<assetmesh_core::domain::ids::AssetId>> {
+    let mut found = Vec::new();
+    for chunk in ids.chunks(250) {
+        let placeholders = vec!["?"; chunk.len()].join(",");
+        let mut statement = conn
+            .prepare(&format!(
+                "SELECT asset_id FROM {table} WHERE asset_id IN ({placeholders})"
+            ))
+            .map_err(crate::map_error)?;
+        let rows = statement
+            .query_map(
+                rusqlite::params_from_iter(chunk.iter().map(|id| id.to_string())),
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(crate::map_error)?;
+        for row in rows {
+            found.push(assetmesh_core::domain::ids::AssetId::from_uuid(
+                uuid_from_string(&row.map_err(crate::map_error)?)?,
+            ));
+        }
+    }
+    Ok(found)
+}

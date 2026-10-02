@@ -1,0 +1,114 @@
+{
+  "verified_at": "2026-10-01T20:19:04.550822+08:00",
+  "scope": "Frontend interaction regression tests using controlled transport responses. Request counts and render behavior, not user-perceived wall-clock latency.",
+  "checks": {
+    "frontend_tests": 136,
+    "test_files": 21,
+    "typecheck": "passed",
+    "lint": "passed",
+    "build_macos_app": "passed",
+    "signature": "verified"
+  },
+  "observations": [
+    {
+      "scenario": "Media list, then sort and next page",
+      "before_count_queries": 3,
+      "after_count_queries": 1
+    },
+    {
+      "scenario": "Canonical progress read-back on a complete Todo page",
+      "before_additional_list_queries": 1,
+      "after_additional_list_queries": 0
+    },
+    {
+      "scenario": "Complete and Undo on a complete Todo page",
+      "after_additional_list_queries": 0
+    },
+    {
+      "scenario": "Progress read-back on first newest-first partial page",
+      "before_additional_list_queries": 1,
+      "after_additional_list_queries": 0
+    },
+    {
+      "scenario": "Hidden service view over six seconds",
+      "before_periodic_status_queries": 4,
+      "after_periodic_status_queries": 0
+    },
+    {
+      "scenario": "Unchanged process snapshots over six seconds",
+      "after_additional_render_commits": 0
+    },
+    {
+      "scenario": "Cached module revisit while background read is pending",
+      "result": "Previous rows visible immediately; canonical response replaces them"
+    },
+    {
+      "scenario": "Save while an older list read is pending",
+      "result": "Late response cannot revert the new status"
+    },
+    {
+      "scenario": "Completion on a partial Todo page",
+      "result": "Immediate removal followed by canonical backfill; last-page recovery remains covered"
+    }
+  ],
+  "cache_page_limit": 8,
+  "service_poll_ms": {
+    "active": 1500,
+    "idle": 5000,
+    "hidden": null
+  },
+  "installed_application": "/Applications/AssetMesh.app",
+  "previous_application": "/Applications/AssetMesh-20261001-201926-backup.app",
+  "installed_ui_checks": [
+    "Initial Todo list",
+    "Media list and status controls",
+    "Software list",
+    "Return to Media list",
+    "Local Services workspace",
+    "Return to original Todo page"
+  ],
+  "installed_signature": "verified",
+  "installed_startup": {
+    "app_version": "0.3.0",
+    "started_at": "2026-10-01T12:19:32.736279+00:00",
+    "stages": [
+      {
+        "stage": "native_start",
+        "native_ms": 0.170959
+      },
+      {
+        "stage": "setup_started",
+        "native_ms": 550.200875
+      },
+      {
+        "stage": "database_ready",
+        "native_ms": 552.5912920000001
+      },
+      {
+        "stage": "frontend_loaded",
+        "native_ms": 964.952667,
+        "web_ms": 111.0
+      },
+      {
+        "stage": "webview_loaded",
+        "native_ms": 967.692625
+      },
+      {
+        "stage": "workspace_mounted",
+        "native_ms": 1053.258,
+        "web_ms": 203.0
+      },
+      {
+        "stage": "shell_visible",
+        "native_ms": 1053.412959,
+        "web_ms": 203.0
+      },
+      {
+        "stage": "first_list_ready",
+        "native_ms": 1126.238792,
+        "web_ms": 276.0
+      }
+    ]
+  },
+  "installed_startup_scope": "Native entry to first list ready, excluding LaunchServices/pre-main; no long-idle latency claim."
+}

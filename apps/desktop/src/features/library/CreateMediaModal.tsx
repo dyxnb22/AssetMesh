@@ -3,6 +3,7 @@ import { Badge } from '../../ui/Badge';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { DesktopError } from './types';
 import { t } from '../../i18n';
+import { MEDIA_STATUSES, defaultProgressUnit } from './media-presentation';
 
 interface CreateMediaModalProps {
   isOpen: boolean;
@@ -22,7 +23,9 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
   const [rating, setRating] = useState<number | ''>('');
   const [year, setYear] = useState<number | ''>('');
   const [platform, setPlatform] = useState('');
-  const [progressUnit, setProgressUnit] = useState('episodes');
+  const [progressUnit, setProgressUnit] = useState(defaultProgressUnit('anime'));
+  const [customUnit, setCustomUnit] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(true);
   const [progressCurrent, setProgressCurrent] = useState<number | ''>('');
   const [progressTotal, setProgressTotal] = useState<number | ''>('');
   const [notes, setNotes] = useState('');
@@ -76,7 +79,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
         rating: rating !== '' ? Number(rating) : undefined,
         year: year !== '' ? Number(year) : undefined,
         platform: platform.trim() || undefined,
-        progress_unit: progressUnit.trim() || undefined,
+        progress_unit: progressCurrent !== '' || progressTotal !== '' ? progressUnit.trim() || undefined : undefined,
         progress_current: progressCurrent !== '' ? Number(progressCurrent) : undefined,
         progress_total: progressTotal !== '' ? Number(progressTotal) : undefined,
         notes: notes.trim() || undefined,
@@ -222,7 +225,12 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                 id="create-type"
                 data-testid="media-create-type-select"
                 value={mediaType}
-                onChange={(e) => setMediaType(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setMediaType(next);
+                  if (!customUnit) setProgressUnit(defaultProgressUnit(next));
+                  setProgressOpen(next !== 'movie');
+                }}
                 disabled={submitting}
                 style={{
                   width: '100%',
@@ -262,118 +270,120 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="planned">{t('Planned')}</option>
-                <option value="in_progress">{t('In Progress')}</option>
-                <option value="completed">{t('Completed')}</option>
-                <option value="paused">{t('Paused')}</option>
-                <option value="dropped">{t('Dropped')}</option>
+                {MEDIA_STATUSES.map((status) => <option key={status} value={status}>{t(status)}</option>)}
               </select>
             </div>
           </div>
 
-          <div>
-            <label
-              htmlFor="create-summary"
-              style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >{t('Summary')}</label>
-            <input
-              id="create-summary"
-              data-testid="media-create-summary-input"
-              type="text"
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              disabled={submitting}
-              placeholder={t('Short tagline or premise')}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                fontSize: '13px',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
+          <details className="media-form-details">
+            <summary>{t('More details')}</summary>
+            <div className="media-form-fields">
+              <div>
+                <label
+                  htmlFor="create-summary"
+                  style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
+                >{t('Summary')}</label>
+                <input
+                  id="create-summary"
+                  data-testid="media-create-summary-input"
+                  type="text"
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  disabled={submitting}
+                  placeholder={t('Short tagline or premise')}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    fontSize: '13px',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-            <div>
-              <label
-                htmlFor="create-rating"
-                style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >{t('Rating (0-10)')}</label>
-              <input
-                id="create-rating"
-                data-testid="media-create-rating-input"
-                type="number"
-                min="0"
-                max="10"
-                step="0.5"
-                value={rating}
-                onChange={(e) => setRating(e.target.value === '' ? '' : Number(e.target.value))}
-                disabled={submitting}
-                placeholder="e.g. 9.5"
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: '13px',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  boxSizing: 'border-box',
-                }}
-              />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label
+                    htmlFor="create-rating"
+                    style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
+                  >{t('Rating (0-10)')}</label>
+                  <input
+                    id="create-rating"
+                    data-testid="media-create-rating-input"
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.5"
+                    value={rating}
+                    onChange={(e) => setRating(e.target.value === '' ? '' : Number(e.target.value))}
+                    disabled={submitting}
+                    placeholder="e.g. 9.5"
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      fontSize: '13px',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="create-year"
+                    style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
+                  >{t('Year')}</label>
+                  <input
+                    id="create-year"
+                    data-testid="media-create-year-input"
+                    type="number"
+                    value={year}
+                    onChange={(e) => setYear(e.target.value === '' ? '' : Number(e.target.value))}
+                    disabled={submitting}
+                    placeholder="e.g. 2023"
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      fontSize: '13px',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="create-platform"
+                    style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
+                  >{t('Platform')}</label>
+                  <input
+                    id="create-platform"
+                    data-testid="media-create-platform-input"
+                    type="text"
+                    value={platform}
+                    onChange={(e) => setPlatform(e.target.value)}
+                    disabled={submitting}
+                    placeholder={t('e.g. Crunchyroll')}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      fontSize: '13px',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              </div>
+
             </div>
+          </details>
 
-            <div>
-              <label
-                htmlFor="create-year"
-                style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >{t('Year')}</label>
-              <input
-                id="create-year"
-                data-testid="media-create-year-input"
-                type="number"
-                value={year}
-                onChange={(e) => setYear(e.target.value === '' ? '' : Number(e.target.value))}
-                disabled={submitting}
-                placeholder="e.g. 2023"
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: '13px',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="create-platform"
-                style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-              >{t('Platform')}</label>
-              <input
-                id="create-platform"
-                data-testid="media-create-platform-input"
-                type="text"
-                value={platform}
-                onChange={(e) => setPlatform(e.target.value)}
-                disabled={submitting}
-                placeholder={t('e.g. Crunchyroll')}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: '13px',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '10px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-muted)', display: 'block', marginBottom: '8px' }}>{t('Progress (Optional)')}</span>
+          <details className="media-form-details" open={progressOpen} onToggle={(event) => setProgressOpen(event.currentTarget.open)} style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '10px' }}>
+            <summary style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-muted)', marginBottom: '8px' }}>{t('Progress (Optional)')}</summary>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
               <div>
                 <label
@@ -385,7 +395,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                   data-testid="media-create-unit-input"
                   type="text"
                   value={progressUnit}
-                  onChange={(e) => setProgressUnit(e.target.value)}
+                  onChange={(e) => { setProgressUnit(e.target.value); setCustomUnit(true); }}
                   disabled={submitting}
                   placeholder={t('episodes, chapters')}
                   style={{
@@ -451,7 +461,7 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
                 />
               </div>
             </div>
-          </div>
+          </details>
 
           <div>
             <label
@@ -477,30 +487,33 @@ export const CreateMediaModal: React.FC<CreateMediaModalProps> = ({
             />
           </div>
 
-          <div>
-            <label
-              htmlFor="create-notes"
-              style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-            >{t('Notes')}</label>
-            <textarea
-              id="create-notes"
-              data-testid="media-create-notes-input"
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              disabled={submitting}
-              placeholder={t('Personal reflections or initial notes')}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                fontSize: '13px',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                boxSizing: 'border-box',
-                fontFamily: 'inherit',
-              }}
-            />
-          </div>
+          <details className="media-form-details"><summary>{t('Notes (Optional)')}</summary>
+            <div>
+              <label
+                htmlFor="create-notes"
+                style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
+              >{t('Notes')}</label>
+              <textarea
+                id="create-notes"
+                data-testid="media-create-notes-input"
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                disabled={submitting}
+                placeholder={t('Personal reflections or initial notes')}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  fontSize: '13px',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  boxSizing: 'border-box',
+                  fontFamily: 'inherit',
+                }}
+              />
+            </div>
+
+          </details>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
             <button

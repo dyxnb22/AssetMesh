@@ -83,6 +83,9 @@ enum Command {
     Export {
         /// Target directory (created if missing).
         dir: PathBuf,
+        /// Include API key assets and their history in this unencrypted export.
+        #[arg(long)]
+        include_api_keys: bool,
     },
     /// Import a portable export bundle (restores canonical data by ID).
     Import {
@@ -116,12 +119,15 @@ fn run(cli: Cli) -> Result<(), AppError> {
         Command::Software { cmd } => run_software(factory, clock, ids, cmd),
         Command::Service { cmd } => run_service(factory, clock, ids, cmd),
         Command::Info { cmd } => run_info(factory, clock, ids, cmd),
-        Command::Asset { cmd } => run_asset(factory, clock, ids, cmd),
+        Command::Asset { cmd } => run_asset(factory, clock, cmd),
         Command::Relation { cmd } => run_relation(factory.clone(), clock, ids, cmd),
         Command::Library { cmd } => run_library(factory, cmd),
         Command::Activity { cmd } => run_activity(factory, cmd),
         Command::Duplicates { cmd } => run_duplicates(factory, cmd),
-        Command::Export { dir } => run_export(factory, clock, dir),
+        Command::Export {
+            dir,
+            include_api_keys,
+        } => run_export(factory, clock, dir, include_api_keys),
         Command::Import { path, dry_run } => run_import(factory, path, dry_run),
     }
 }

@@ -691,7 +691,6 @@ fn merge_repoints_relations_to_winner() {
     let mut assets = assetmesh_core::application::asset_service::AssetService::new(
         env.factory.clone(),
         env.clock.clone(),
-        env.ids.clone(),
     );
     assets.merge_assets(loser, winner).unwrap();
 

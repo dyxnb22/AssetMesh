@@ -296,6 +296,7 @@ describe('Search, filters and navigation (P5-04)', () => {
     fireEvent.doubleClick(row);
 
     await act(async () => {
+      await vi.dynamicImportSettled();
       await vi.runAllTimersAsync();
     });
 

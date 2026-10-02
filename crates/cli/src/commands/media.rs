@@ -1,6 +1,7 @@
 use crate::format::{print_import_report, print_media_detail, print_media_list, print_search_hits};
 use assetmesh_core::application::import_media::{ImportFormatHint, MediaImportService};
 use assetmesh_core::application::media_service::{CreateMedia, MediaService, UpdateMediaMetadata};
+use assetmesh_core::application::patch::Patch;
 use assetmesh_core::application::search_service::SearchService;
 use assetmesh_core::domain::media::{MediaStatus, MediaType, Progress};
 use assetmesh_core::ports::repos::{MediaFilter, MediaSort};
@@ -65,8 +66,11 @@ pub(crate) enum MediaCommand {
         title: Option<String>,
         #[arg(long)]
         summary: Option<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "clear_year")]
         year: Option<i32>,
+        /// Remove the release year.
+        #[arg(long)]
+        clear_year: bool,
         #[arg(long)]
         platform: Option<String>,
         #[arg(long)]
@@ -254,6 +258,7 @@ pub(crate) fn run_media(
             title,
             summary,
             year,
+            clear_year,
             platform,
             notes,
         } => {
@@ -261,10 +266,14 @@ pub(crate) fn run_media(
             let view = media.update_metadata(UpdateMediaMetadata {
                 asset_id,
                 title,
-                summary,
-                year,
-                platform,
-                notes,
+                summary: summary.into(),
+                year: if clear_year {
+                    Patch::Clear
+                } else {
+                    year.into()
+                },
+                platform: platform.into(),
+                notes: notes.into(),
                 ..Default::default()
             })?;
             println!("updated {}", view.entry.asset.id);
@@ -315,7 +324,7 @@ pub(crate) fn run_media(
             println!("rated {} → {rating}", view.entry.asset.id);
         }
         MediaCommand::Search { query, limit } => {
-            let mut search = SearchService::new(factory, clock);
+            let mut search = SearchService::new(factory);
             let hits = search.search(&query, limit)?;
             print_search_hits(&hits);
         }

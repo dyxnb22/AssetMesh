@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Badge } from '../../../ui/Badge';
 import type { MediaRecordDto } from '../types';
+import { MEDIA_STATUSES, defaultProgressUnit } from '../media-presentation';
 import { t } from '../../../i18n';
 
 interface MediaPanelProps {
@@ -23,7 +24,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
   const [editingProgress, setEditingProgress] = useState(false);
   const [progressCurrent, setProgressCurrent] = useState<number | ''>(record.progress?.current ?? 0);
   const [progressTotal, setProgressTotal] = useState<number | ''>(record.progress?.total ?? '');
-  const [progressUnit, setProgressUnit] = useState<string>(record.progress?.unit ?? 'episodes');
+  const [progressUnit, setProgressUnit] = useState<string>(record.progress?.unit ?? defaultProgressUnit(record.media_type));
 
   const [editingRating, setEditingRating] = useState(false);
   const [ratingInput, setRatingInput] = useState<number | ''>(record.rating ?? '');
@@ -35,7 +36,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
     setBusy(true);
     try {
       await onTransitionStatus(newStatus);
-    } finally {
+    } catch { /* Shared feedback displays the failure. */ } finally {
       setBusy(false);
     }
   };
@@ -51,7 +52,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
         total: progressTotal !== '' ? Number(progressTotal) : undefined,
       });
       setEditingProgress(false);
-    } finally {
+    } catch { /* Preserve the progress draft for retry. */ } finally {
       setBusy(false);
     }
   };
@@ -63,7 +64,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
     try {
       await onRate(Number(ratingInput));
       setEditingRating(false);
-    } finally {
+    } catch { /* Preserve the rating draft for retry. */ } finally {
       setBusy(false);
     }
   };
@@ -125,6 +126,13 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
             <span style={{ fontWeight: 500 }} data-testid="media-status-text">
               {t(record.status)}
             </span>
+            {isEditable && onTransitionStatus && (
+              <select aria-label={t('Change status')} data-testid="media-status-select"
+                value={record.status} disabled={busy}
+                onChange={(event) => handleStatusTransition(event.target.value)}>
+                {MEDIA_STATUSES.map((status) => <option key={status} value={status}>{t(status)}</option>)}
+              </select>
+            )}
             {isEditable && onTransitionStatus && (
               <div style={{ display: 'flex', gap: '4px' }}>
                 {record.status === 'planned' && (
@@ -287,6 +295,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                 max="10"
                 step="0.5"
                 data-testid="media-rating-input"
+                disabled={busy}
                 value={ratingInput}
                 onChange={(e) => setRatingInput(e.target.value === '' ? '' : Number(e.target.value))}
                 style={{ width: '60px', padding: '2px 4px', fontSize: '12px' }}
@@ -297,7 +306,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                 data-testid="save-rating-button"
                 disabled={busy}
                 style={{ padding: '2px 6px', fontSize: '11px' }}
-              >{t('Save')}</button>
+              >{busy ? t('Saving...') : t('Save')}</button>
               <button
                 type="button"
                 onClick={() => setEditingRating(false)}
@@ -372,7 +381,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
               onClick={() => {
                 setProgressCurrent(record.progress?.current ?? 0);
                 setProgressTotal(record.progress?.total ?? '');
-                setProgressUnit(record.progress?.unit ?? 'episodes');
+                setProgressUnit(record.progress?.unit ?? defaultProgressUnit(record.media_type));
                 setEditingProgress(true);
               }}
               style={{
@@ -406,6 +415,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                   min="0"
                   step="any"
                   data-testid="media-progress-current-input"
+                  disabled={busy}
                   value={progressCurrent}
                   onChange={(e) =>
                     setProgressCurrent(e.target.value === '' ? '' : Number(e.target.value))
@@ -418,6 +428,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                   min="0"
                   step="any"
                   data-testid="media-progress-total-input"
+                  disabled={busy}
                   value={progressTotal}
                   onChange={(e) =>
                     setProgressTotal(e.target.value === '' ? '' : Number(e.target.value))
@@ -428,6 +439,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
               <label style={{ fontSize: '11px' }}>{t('Unit:')}<input
                   type="text"
                   data-testid="media-progress-unit-input"
+                  disabled={busy}
                   value={progressUnit}
                   onChange={(e) => setProgressUnit(e.target.value)}
                   style={{ width: '70px', marginLeft: '4px', padding: '2px 4px', fontSize: '11px' }}
@@ -453,7 +465,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
                   border: 'none',
                   borderRadius: 'var(--radius-sm)',
                 }}
-              >{t('Save Progress')}</button>
+              >{busy ? t('Saving...') : t('Save Progress')}</button>
             </div>
           </form>
         ) : (
@@ -462,7 +474,7 @@ export const MediaPanel: React.FC<MediaPanelProps> = ({
               <span>
                 {record.progress.current}
                 {record.progress.total != null ? ` / ${record.progress.total}` : ''}{' '}
-                <span style={{ color: 'var(--color-muted)' }}>{record.progress.unit || t('units')}</span>
+                <span style={{ color: 'var(--color-muted)' }}>{record.progress.unit ? t(record.progress.unit) : t('units')}</span>
               </span>
             ) : (
               <span style={{ color: 'var(--color-muted)' }}>{t('No progress recorded')}</span>

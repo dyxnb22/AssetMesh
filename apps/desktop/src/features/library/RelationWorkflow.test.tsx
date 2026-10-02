@@ -4,7 +4,7 @@ import { App } from '../../app/App';
 import { RelationExplorer } from './RelationExplorer';
 import { setTransport } from './transport';
 import { FakeDesktopTransport } from '../../test/fake-transport';
-import type { AssetSummary } from './types';
+import type { AssetSummary, TraversalViewDto } from './types';
 
 const assetA: AssetSummary = {
   id: 'asset-a',
@@ -54,9 +54,9 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
 
   beforeEach(() => {
     fakeTransport = new FakeDesktopTransport([
-      JSON.parse(JSON.stringify(assetA)),
-      JSON.parse(JSON.stringify(assetB)),
-      JSON.parse(JSON.stringify(assetC)),
+      structuredClone(assetA),
+      structuredClone(assetB),
+      structuredClone(assetC),
     ]);
     setTransport(fakeTransport);
   });
@@ -82,6 +82,8 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
     expect(screen.getByText('→ depends_on')).toBeInTheDocument();
     expect(screen.getByText('← dependency_of')).toBeInTheDocument();
 
+    fireEvent.click(screen.getByText('Advanced analysis', { selector: 'summary' }));
+
     // Filter to Outgoing only
     const directionSelect = screen.getByTestId('relation-direction-select');
     fireEvent.change(directionSelect, { target: { value: 'outgoing' } });
@@ -100,10 +102,20 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
     });
   });
 
-  it('Flow 2 (Impact & Dependency Path Explorer): explores impact and dependencies with depth and path evidence', async () => {
-    // Chain: A depends_on B, B depends_on C
-    await attach(fakeTransport, assetA.id, assetB.id, 'depends_on');
-    await attach(fakeTransport, assetB.id, assetC.id, 'depends_on');
+  it('Flow 2 (Impact & Dependency Path Explorer): presents backend depth and path evidence in list and graph views', async () => {
+    // Display a backend path result; traversal correctness belongs to SQLite.
+    const traversal: TraversalViewDto = {
+      root: assetA, truncated: false,
+      nodes: [
+        { asset: assetB, depth: 1, path: [{ from_asset_id: assetA.id, to_asset_id: assetB.id, relation_type: 'depends_on' }] },
+        { asset: assetC, depth: 2, path: [
+          { from_asset_id: assetA.id, to_asset_id: assetB.id, relation_type: 'depends_on' },
+          { from_asset_id: assetB.id, to_asset_id: assetC.id, relation_type: 'depends_on' },
+        ] },
+      ],
+    };
+    fakeTransport.traversalResult = traversal;
+    const query = vi.spyOn(fakeTransport, 'relationTraverse');
 
     render(
       <RelationExplorer
@@ -113,6 +125,8 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
     );
 
     await screen.findByTestId('neighbors-list-container');
+
+    fireEvent.click(screen.getByText('Advanced analysis', { selector: 'summary' }));
 
     // Switch mode to Dependencies
     const modeSelect = screen.getByTestId('relation-mode-select');
@@ -132,6 +146,13 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
 
     // Path evidence is visible
     expect(screen.getByTestId(`path-evidence-${assetC.id}`)).toHaveTextContent('Path:App Alpha');
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({ asset_id: assetA.id, mode: 'dependencies', max_depth: 8 }));
+    fireEvent.click(screen.getByTestId('toggle-graph-view'));
+    expect(screen.getByTestId('traversal-graph-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('traversal-list-view')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('toggle-list-view'));
+    expect(screen.getByTestId('traversal-list-view')).toBeInTheDocument();
+
   });
 
   it('Flow 3 (Add Relation via Modal): opens modal, selects target, and attaches relation', async () => {
@@ -232,47 +253,13 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
     });
   });
 
-  it('Flow 5 (Graph View / List View Toggle): switches between visual SVG graph and accessible list', async () => {
-    await attach(fakeTransport, assetA.id, assetB.id, 'depends_on');
-
-    render(
-      <RelationExplorer
-        rootAsset={assetA}
-        capabilities={fakeTransport.capabilities}
-      />
-    );
-
-    // Switch to dependencies mode
-    const modeSelect = screen.getByTestId('relation-mode-select');
-    fireEvent.change(modeSelect, { target: { value: 'dependencies' } });
-
-    await screen.findByTestId('traversal-container');
-
-    // Default viewMode is 'list'
-    expect(screen.getByTestId('traversal-list-view')).toBeInTheDocument();
-    expect(screen.queryByTestId('traversal-graph-view')).not.toBeInTheDocument();
-
-    // Toggle to Graph view
-    const graphToggleBtn = screen.getByTestId('toggle-graph-view');
-    fireEvent.click(graphToggleBtn);
-
-    // SVG graph rendered
-    expect(screen.getByTestId('traversal-graph-view')).toBeInTheDocument();
-    expect(screen.queryByTestId('traversal-list-view')).not.toBeInTheDocument();
-
-    // Toggle back to List view
-    const listToggleBtn = screen.getByTestId('toggle-list-view');
-    fireEvent.click(listToggleBtn);
-
-    expect(screen.getByTestId('traversal-list-view')).toBeInTheDocument();
-    expect(screen.queryByTestId('traversal-graph-view')).not.toBeInTheDocument();
-  });
-
   it('Flow 6 (Navigation Rail - Relations Workspace in App): navigates to relations section in main shell', async () => {
     render(<App />);
 
     // Wait for ledger
     await screen.findAllByText('App Alpha');
+
+    fireEvent.click(screen.getByText('Tools', { selector: 'summary' }));
 
     // Click Relations in rail
     const relNavBtn = await screen.findByTestId('nav-relations');
@@ -282,8 +269,8 @@ describe('Relations and Impact Explorer Workflow UI (P5-07)', () => {
     const workspace = await screen.findByTestId('relations-workspace');
     expect(workspace).toBeInTheDocument();
 
-    // Explorer header is visible for selected asset
-    expect(screen.getByTestId('relation-explorer')).toBeInTheDocument();
+    // The workspace shell can appear before its lazy explorer has loaded.
+    expect(await screen.findByTestId('relation-explorer')).toBeInTheDocument();
     expect(screen.getByText('App Alpha')).toBeInTheDocument();
   });
 });

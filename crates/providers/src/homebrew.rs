@@ -30,7 +30,7 @@ impl HomebrewProvider<crate::SystemCommandRunner> {
     pub fn system_default() -> Self {
         HomebrewProvider {
             brew_path: "brew".to_string(),
-            runner: crate::SystemCommandRunner,
+            runner: crate::SystemCommandRunner::default(),
         }
     }
 }
@@ -46,18 +46,13 @@ where
         }
     }
 
-    fn run_installed(&self) -> AppResult<String> {
+    fn run_installed(&self) -> AppResult<Option<String>> {
         let output = match self
             .runner
             .run(&self.brew_path, &["info", "--json=v2", "--installed"])
         {
             Ok(output) => output,
-            Err(CommandError::NotFound) => {
-                return Err(AppError::provider_unavailable(format!(
-                    "{} is not installed or not on PATH",
-                    self.brew_path
-                )))
-            }
+            Err(CommandError::NotFound) => return Ok(None),
             Err(CommandError::Failed(e)) => {
                 return Err(AppError::provider_unavailable(format!(
                     "failed to run {}: {e}",
@@ -66,14 +61,14 @@ where
             }
         };
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = crate::diagnostic_text(&output.stderr);
             return Err(AppError::provider_unavailable(format!(
                 "brew info failed ({}): {}",
                 output.status,
                 stderr.trim()
             )));
         }
-        String::from_utf8(output.stdout).map_err(|e| {
+        String::from_utf8(output.stdout).map(Some).map_err(|e| {
             AppError::provider_unavailable(format!("brew produced non-UTF-8 output: {e}"))
         })
     }
@@ -92,7 +87,9 @@ where
     }
 
     fn scan(&self) -> AppResult<Vec<SoftwareCandidate>> {
-        let stdout = self.run_installed()?;
+        let Some(stdout) = self.run_installed()? else {
+            return Ok(Vec::new());
+        };
         let payload: BrewInfo = serde_json::from_str(&stdout).map_err(|e| {
             AppError::provider_unavailable(format!("brew output is not valid JSON: {e}"))
         })?;

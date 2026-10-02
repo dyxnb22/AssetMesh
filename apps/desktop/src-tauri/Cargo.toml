@@ -17,7 +17,17 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+
+
+# Unix process-group control for the local-service runtime: spawning a child
+# into its own process group and signalling the whole group. Not needed on
+# platforms where the runtime refuses to manage processes.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

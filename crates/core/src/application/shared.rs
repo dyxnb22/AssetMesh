@@ -81,7 +81,7 @@ pub fn normalize_tags(tags: &[String]) -> Vec<String> {
     normalized
 }
 
-/// Standard receipt returned by mutating commands (docs/12 Section 6.3 & P5-05).
+/// Standard receipt returned by mutating commands (docs/12-desktop-contract.md).
 /// Contains the operation name, affected canonical asset IDs, the resulting revision,
 /// and any advisory warnings.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

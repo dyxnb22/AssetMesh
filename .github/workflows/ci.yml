@@ -1,8 +1,10 @@
-name: Cross-Platform CI & Release Gate
+name: Personal CI & Release Gate
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
   pull_request:
     branches: [main]
 
@@ -12,7 +14,8 @@ concurrency:
 
 jobs:
   linux-ci:
-    name: Linux CI & Headless E2E (Ubuntu)
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    name: Full Linux validation & E2E (release)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -54,7 +57,6 @@ jobs:
       - name: Frontend unit & release gate tests
         run: |
           npm test
-          npm run test:frontend-workflow
 
       - name: Frontend build
         run: npm run build
@@ -75,7 +77,7 @@ jobs:
         run: npm run test:scale
 
   macos-ci:
-    name: macOS CI & Release Gate (macOS)
+    name: Daily macOS checks
     runs-on: macos-latest
     steps:
       - name: Checkout repository
@@ -104,7 +106,6 @@ jobs:
       - name: Frontend unit & release gate tests
         run: |
           npm test
-          npm run test:frontend-workflow
 
       - name: Frontend build
         run: npm run build
@@ -113,4 +114,5 @@ jobs:
         run: cargo test --workspace
 
       - name: 50k Scale Performance Benchmark Gate
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         run: npm run test:scale

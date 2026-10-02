@@ -123,6 +123,8 @@ describe('Release Gate: cross-workspace desktop workflows (P5-10)', () => {
       expect(screen.queryByTestId('asset-detail-view')).not.toBeInTheDocument();
     });
 
+    fireEvent.click(screen.getByText('Tools', { selector: 'summary' }));
+
     // 5. ATTACH RELATION: Switch to Relations workspace
     const relationsTab = await screen.findByTestId('nav-relations');
     fireEvent.click(relationsTab);
@@ -202,15 +204,13 @@ describe('Release Gate: cross-workspace desktop workflows (P5-10)', () => {
     });
   });
 
-  it('Settings environment: inspects DB status, providers, and enforces theme attribute switching', async () => {
+  it('applies and persists theme changes from Settings', async () => {
     render(<App />);
 
     const settingsTab = await screen.findByTestId('nav-settings');
     fireEvent.click(settingsTab);
 
     await screen.findByTestId('settings-workspace');
-    expect(screen.getByTestId('settings-db-path')).toHaveTextContent(/assetmesh\.db/);
-    expect(screen.getByTestId('settings-db-status')).toHaveTextContent('Ready');
 
     // Switch theme to Dark
     const darkBtn = screen.getByTestId('theme-dark');
@@ -218,10 +218,12 @@ describe('Release Gate: cross-workspace desktop workflows (P5-10)', () => {
 
     // Document element receives dataset attribute
     expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(localStorage.getItem('assetmesh-theme')).toBe('dark');
 
     // Switch theme to Light
     const lightBtn = screen.getByTestId('theme-light');
     fireEvent.click(lightBtn);
     expect(document.documentElement.dataset.theme).toBe('light');
+    expect(localStorage.getItem('assetmesh-theme')).toBe('light');
   });
 });

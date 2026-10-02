@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { t } from '../../i18n';
 import { getTransport, normalizeDesktopError } from './transport';
 import type { AssetDetailDto, InfoRecordDto, InfoType, MutationReceiptDto } from './types';
@@ -73,6 +73,7 @@ export const InfoEditor: React.FC<EditorProps> = ({ detail, onSaved, onCancel })
       <label>{t('Value')}
         <textarea data-testid="info-value-input" style={{ ...fieldStyle, minHeight: '88px', resize: 'vertical' }} value={value} onChange={(e) => setValue(e.target.value)} maxLength={16384} />
       </label>
+      {infoType === 'api_key' && <p style={{ margin: '0 0 8px', fontSize: '12px', color: 'var(--color-muted)' }}>{t('API keys are stored without encryption in this library and its recovery backups. Use encrypted storage for sensitive keys.')}</p>}
       <label>{t('Notes')}
         <textarea data-testid="info-notes-input" style={{ ...fieldStyle, minHeight: '64px', resize: 'vertical' }} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={8192} />
       </label>
@@ -108,6 +109,8 @@ export const InfoPanel: React.FC<{
 }> = ({ detail, record, onSaved }) => {
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => { setRevealed(false); setCopied(false); }, [detail.id, record.value]);
   const [error, setError] = useState('');
   if (editing) return <InfoEditor detail={detail} onCancel={() => setEditing(false)} onSaved={(receipt, fresh) => {
     if (fresh) onSaved(receipt, fresh);
@@ -118,6 +121,7 @@ export const InfoPanel: React.FC<{
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
         <strong>{t(kindLabels[record.info_type])}</strong>
         <div style={{ display: 'flex', gap: '8px' }}>
+          {record.info_type === 'api_key' && <button type="button" onClick={() => setRevealed(!revealed)}>{revealed ? t('Hide value') : t('Show value')}</button>}
           <button type="button" data-testid="info-copy-button" onClick={async () => {
             try { await navigator.clipboard.writeText(record.value); setCopied(true); setError(''); }
             catch { setError(t('Could not copy value.')); }
@@ -125,7 +129,7 @@ export const InfoPanel: React.FC<{
           {detail.lifecycle === 'active' && <button type="button" onClick={() => setEditing(true)}>{t('Edit')}</button>}
         </div>
       </div>
-      <pre data-testid="info-value" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit', margin: '12px 0' }}>{record.value}</pre>
+      <pre data-testid="info-value" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit', margin: '12px 0' }}>{record.info_type === 'api_key' && !revealed ? '••••••••••••' : record.value}</pre>
       {record.notes && <p style={{ color: 'var(--color-muted)', whiteSpace: 'pre-wrap' }}>{record.notes}</p>}
       {error && <p role="alert" style={{ color: 'var(--color-danger)' }}>{error}</p>}
     </section>

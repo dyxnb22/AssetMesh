@@ -18,7 +18,43 @@ const BUSY_TIMEOUT: Duration = Duration::from_millis(5_000);
 const INIT_ATTEMPTS: u32 = 8;
 
 pub(crate) fn connect(path: &str) -> Result<Connection, AppError> {
+    if expects_wal(path) {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let file = options.open(path).map_err(|error| {
+            AppError::storage(format!("cannot open private database file: {error}"))
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|error| {
+                    AppError::storage(format!("cannot make database private: {error}"))
+                })?;
+        }
+    }
     let conn = Connection::open(path).map_err(crate::map_error)?;
+    #[cfg(unix)]
+    if expects_wal(path) {
+        use std::os::unix::fs::PermissionsExt;
+        for suffix in ["-wal", "-shm"] {
+            let companion = format!("{path}{suffix}");
+            match std::fs::set_permissions(&companion, std::fs::Permissions::from_mode(0o600)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(AppError::storage(format!(
+                        "cannot make database sidecar private: {error}"
+                    )))
+                }
+            }
+        }
+    }
     // Must precede the journal-mode switch: PRAGMA journal_mode=WAL takes a
     // lock and fails immediately when another process holds it.
     conn.busy_timeout(BUSY_TIMEOUT).map_err(crate::map_error)?;
@@ -50,6 +86,20 @@ fn configure(conn: &Connection, expect_wal: bool) -> Result<(), AppError> {
         1,
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
         |ctx| Ok(ctx.get::<String>(0)?.to_lowercase()),
+    )
+    .map_err(crate::map_error)?;
+    conn.create_scalar_function(
+        "assetmesh_activity_module",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| {
+            Ok(
+                assetmesh_core::domain::activity::ActivityModule::of_event_type(
+                    &ctx.get::<String>(0)?,
+                )
+                .map(|module| module.as_str().to_string()),
+            )
+        },
     )
     .map_err(crate::map_error)?;
     conn.pragma_update(None, "foreign_keys", "ON")

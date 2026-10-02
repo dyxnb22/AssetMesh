@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方案 B · 温和信息型</title>
+<style>
+:root {
+  --color-canvas: #F3F5F6;
+  --color-surface: #FFFFFF;
+  --color-surface-hover: #F8FAFA;
+  --color-surface-active: #EEF2F3;
+  --color-border: #E2E6E8;
+  --color-border-subtle: #EDF1F2;
+  --color-ink: #172126;
+  --color-muted: #66747B;
+  --color-mesh: #147D78;
+  --color-mesh-bg: #E8F5F4;
+  --color-attention: #A86716;
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;
+  --media-bg: #ECEEFB; --media-ink: #4750AE;
+  --software-bg: #E7F1FB; --software-ink: #1E63A8;
+  --service-bg: #FBF2E3; --service-ink: #8F5E0B;
+  --info-bg: #E1F3F1; --info-ink: #0F6B66;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+  font-size: 13px; line-height: 1.5; color: var(--color-ink);
+  background: var(--color-canvas); -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column;
+}
+
+.titlebar {
+  height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+  background: var(--color-canvas); border-bottom: 1px solid var(--color-border-subtle);
+}
+.lights { display: flex; gap: 7px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.l-red { background: #FF5F57; } .l-yel { background: #FEBC2E; } .l-grn { background: #28C840; }
+.tb-title { font-size: 12px; font-weight: 600; color: var(--color-muted); margin-left: 4px; }
+
+.shell { flex: 1; display: flex; min-height: 0; }
+
+/* sidebar — softer, rounded active pill */
+.rail {
+  width: 200px; flex-shrink: 0; background: var(--color-canvas);
+  border-right: 1px solid var(--color-border); padding: 10px 10px 12px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.rail .brand { padding: 2px 8px 12px; }
+.rail .brand .name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.rail .brand .ver { font-size: 11px; color: var(--color-muted); }
+.nav-item {
+  display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 9px;
+  border-radius: var(--radius-lg); font-size: 13px; color: var(--color-ink);
+}
+.nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+.nav-item .n-count { margin-left: auto; font-size: 11px; color: var(--color-muted); }
+.nav-item.active { background: var(--color-surface); font-weight: 600; box-shadow: 0 1px 2px rgba(23,33,38,0.08), 0 0 0 1px var(--color-border-subtle); }
+.nav-label { font-size: 10.5px; font-weight: 600; color: var(--color-muted); letter-spacing: 0.06em; padding: 14px 9px 4px; }
+.rail .spacer { flex: 1; }
+.rail hr { border: none; border-top: 1px solid var(--color-border-subtle); margin: 10px 4px; }
+
+/* workspace */
+.workspace { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--color-canvas); }
+
+/* page header */
+.page-head { display: flex; align-items: flex-end; gap: 12px; padding: 18px 20px 10px; }
+.page-head h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+.page-head .sub { font-size: 12.5px; color: var(--color-muted); padding-bottom: 2px; }
+.page-head .grow { flex: 1; }
+.primary-btn {
+  display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px;
+  background: var(--color-mesh); color: #fff; border: none; border-radius: var(--radius-lg);
+  font-size: 13px; font-weight: 600;
+}
+.primary-btn svg { width: 13px; height: 13px; }
+
+/* filter row */
+.filter-row { display: flex; align-items: center; gap: 8px; padding: 4px 20px 12px; }
+.search {
+  display: flex; align-items: center; gap: 7px; flex: 1; max-width: 380px; height: 32px; padding: 0 10px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-lg); color: var(--color-muted);
+  font-size: 13px; background: var(--color-surface);
+}
+.search kbd {
+  margin-left: auto; font-size: 10px; color: var(--color-muted); background: var(--color-canvas);
+  border: 1px solid var(--color-border); border-radius: 4px; padding: 0 4px; line-height: 16px;
+}
+.sel {
+  display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface);
+  font-size: 12.5px; color: var(--color-ink); white-space: nowrap;
+}
+.sel .chev { color: var(--color-muted); font-size: 10px; }
+.sel.bookmark svg { width: 14px; height: 14px; color: var(--color-muted); }
+.saved-pill {
+  display: flex; align-items: center; gap: 5px; height: 32px; padding: 0 11px;
+  background: var(--color-mesh-bg); color: var(--color-mesh); border-radius: var(--radius-lg);
+  font-size: 12.5px; font-weight: 550; white-space: nowrap;
+}
+
+/* cards list */
+.cards { flex: 1; overflow: hidden; padding: 2px 20px 10px; display: flex; flex-direction: column; gap: 8px; }
+.card {
+  background: var(--color-surface); border: 1px solid var(--color-border-subtle); border-radius: 10px;
+  padding: 11px 16px; display: flex; align-items: center; gap: 14px;
+  box-shadow: 0 1px 2px rgba(23,33,38,0.04);
+}
+.card.selected { border-color: var(--color-mesh); box-shadow: 0 0 0 1px var(--color-mesh), 0 1px 3px rgba(20,125,120,0.10); }
+.badge {
+  display: inline-block; font-size: 11px; font-weight: 600; border-radius: 99px; padding: 1px 9px; flex-shrink: 0;
+}
+.badge.media { background: var(--media-bg); color: var(--media-ink); }
+.badge.service { background: var(--service-bg); color: var(--service-ink); }
+.badge.software { background: var(--software-bg); color: var(--software-ink); }
+.badge.info { background: var(--info-bg); color: var(--info-ink); }
+.card .mid { flex: 1; min-width: 0; }
+.card .l1 { display: flex; align-items: center; gap: 8px; }
+.card .name { font-size: 13.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .l2 { font-size: 12px; color: var(--color-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .l2 b { color: var(--color-attention); font-weight: 600; }
+.card .right { text-align: right; flex-shrink: 0; }
+.card .when { font-size: 11px; color: var(--color-muted); }
+.card .fact-mini { font-size: 11.5px; color: var(--color-ink); font-weight: 550; margin-bottom: 2px; }
+
+.pager {
+  height: 42px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 20px;
+  border-top: 1px solid var(--color-border); background: var(--color-canvas);
+  font-size: 12px; color: var(--color-muted);
+}
+.pager .grow { flex: 1; }
+.pager-btn {
+  height: 26px; padding: 0 11px; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface); font-size: 12px; color: var(--color-ink);
+}
+.pager-btn.disabled { color: var(--color-border); }
+
+/* inspector — friendly */
+.inspector {
+  width: 340px; flex-shrink: 0; border-left: 1px solid var(--color-border); background: var(--color-surface);
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 15px; overflow: hidden;
+}
+.insp-top { display: flex; align-items: center; gap: 7px; }
+.insp-close { margin-left: auto; color: var(--color-muted); font-size: 14px; }
+.insp-title { font-size: 18px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; }
+.insp-meta { font-size: 12.5px; color: var(--color-muted); margin-top: 3px; }
+.fact-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.fact-cell { background: var(--color-canvas); border-radius: var(--radius-lg); padding: 9px 12px; }
+.fact-cell .k { font-size: 11px; color: var(--color-muted); }
+.fact-cell .v { font-size: 13px; font-weight: 600; margin-top: 1px; }
+.fact-cell .v .bar { display: block; height: 4px; border-radius: 99px; background: var(--color-border-subtle); margin-top: 6px; overflow: hidden; }
+.fact-cell .v .bar i { display: block; height: 100%; width: 50%; background: var(--color-mesh); border-radius: 99px; }
+.sec-title { font-size: 12px; font-weight: 650; margin-bottom: 7px; }
+.rel-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--color-canvas); border-radius: var(--radius-md); }
+.rel-row + .rel-row { margin-top: 5px; }
+.rel-type { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10px; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; padding: 0 5px; line-height: 16px; }
+.rel-target { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rel-kind { margin-left: auto; font-size: 11px; color: var(--color-muted); flex-shrink: 0; }
+.rel-link { font-size: 12px; color: var(--color-mesh); font-weight: 550; margin-top: 8px; }
+.tag-chip { display: inline-block; font-size: 12px; color: var(--color-muted); background: var(--color-canvas); border-radius: 99px; padding: 2px 10px; margin-right: 6px; }
+.insp-meta-card { font-size: 11px; color: var(--color-muted); display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--color-border-subtle); padding-top: 12px; }
+.insp-meta-card .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.copy-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--color-mesh); font-weight: 550; }
+.copy-btn svg { width: 10px; height: 10px; }
+.insp-actions { display: flex; gap: 8px; }
+.insp-actions .primary-btn { flex: 1; justify-content: center; }
+.secondary-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; height: 32px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface);
+  font-size: 12.5px; font-weight: 550; color: var(--color-ink);
+}
+.detail-link { text-align: center; font-size: 12.5px; color: var(--color-mesh); font-weight: 550; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="lights"><i class="l-red"></i><i class="l-yel"></i><i class="l-grn"></i></div>
+  <span class="tb-title">AssetMesh</span>
+</div>
+
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand"><div class="name">AssetMesh</div><div class="ver">v0.3.0</div></div>
+    <div class="nav-item active"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>全部资产<span class="n-count">785</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M1.5 5.5h13M5 2.5v3"/></svg>媒体<span class="n-count">741</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2" width="13" height="12" rx="2"/><path d="M1.5 5h13M5.5 8.5l-2 1.75 2 1.75M10.5 8.5l2 1.75-2 1.75"/></svg>软件<span class="n-count">29</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 10a2.5 2.5 0 0 0 0-5 4 4 0 0 0-7.8 1A2.75 2.75 0 0 0 4.5 10.5h7Z"/><path d="M6.5 12.5 5 15M9.5 12.5 8 15M12.5 12.5 11 15"/></svg>服务<span class="n-count">12</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="4.5" r="2.5"/><path d="m9.2 6.3-6.7 6.7v1.5h2l1-1v-1.3h1.3v-1.3h1.4l1-1V8.6"/><path d="m10.6 4.9.01 0"/></svg>常用信息<span class="n-count">3</span></div>
+    <hr>
+    <div class="nav-label">库</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="4" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><path d="M6 4h4M4 6v4M12 6v4M6 12h4"/></svg>关系</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8h3l2-4.5 3 9 2-4.5h3"/></svg>动态</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/><path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1"/></svg>重复项</div>
+    <div class="spacer"></div>
+    <div class="nav-label">数据</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5.5h12v8a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-8Z"/><path d="M1.5 3h13v2.5h-13zM6.5 8h3"/></svg>便携数据</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M13 8c0-.5-.05-1-.15-1.45l1.35-1.05-1.5-2.6-1.6.65A5.5 5.5 0 0 0 9.65 2.2L9.4.55H6.6L6.35 2.2a5.5 5.5 0 0 0-1.45.85l-1.6-.65-1.5 2.6 1.35 1.05a5.6 5.6 0 0 0 0 2.9l-1.35 1.05 1.5 2.6 1.6-.65c.43.36.92.65 1.45.85l.25 1.65h2.8l.25-1.65a5.5 5.5 0 0 0 1.45-.85l1.6.65 1.5-2.6-1.35-1.05c.1-.45.15-.95.15-1.45Z"/></svg>设置</div>
+  </aside>
+
+  <main class="workspace">
+    <div class="page-head">
+      <h1>全部资产</h1><span class="sub">已记录 785 项资产</span>
+      <div class="grow"></div>
+      <div class="primary-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2.5v11M2.5 8h11"/></svg>新建资产</div>
+    </div>
+    <div class="filter-row">
+      <div class="search"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/></svg>搜索资产<kbd>⌘K</kbd></div>
+      <div class="sel">仅显示在用 <span class="chev">▾</span></div>
+      <div class="sel">全部类型 <span class="chev">▾</span></div>
+      <div class="sel">最近更新 <span class="chev">▾</span></div>
+      <div class="sel saved-pill">★ 在用的资产</div>
+      <div class="sel bookmark"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h8a1 1 0 0 1 1 1v12l-5-3-5 3v-12a1 1 0 0 1 1-1Z"/></svg><span class="chev">▾</span></div>
+    </div>
+
+    <div class="cards">
+      <div class="card selected">
+        <span class="badge media">剧集</span>
+        <div class="mid">
+          <div class="l1"><span class="name">黑袍纠察队 第五季</span></div>
+          <div class="l2">2026 · Amazon · 在看 S05 E04/08 · <b>★ 8.5</b></div>
+        </div>
+        <div class="right"><div class="fact-mini">E04 / 08</div><div class="when">6 天前</div></div>
+      </div>
+      <div class="card">
+        <span class="badge media">剧集</span>
+        <div class="mid">
+          <div class="l1"><span class="name">幕府将军 第一季</span></div>
+          <div class="l2">2024 · FX · 看完 · <b>★ 9.0</b></div>
+        </div>
+        <div class="right"><div class="fact-mini">全 10 集</div><div class="when">6 天前</div></div>
+      </div>
+      <div class="card">
+        <span class="badge media">电影</span>
+        <div class="mid">
+          <div class="l1"><span class="name">毒液:最后一舞</span></div>
+          <div class="l2">2024 · 动作 科幻 · 看过 · <b>★ 7.5</b></div>
+        </div>
+        <div class="right"><div class="when">6 天前</div></div>
+      </div>
+      <div class="card">
+        <span class="badge media">电影</span>
+        <div class="mid">
+          <div class="l1"><span class="name">寄生虫</span></div>
+          <div class="l2">2019 · 剧情 喜剧 · 看过 · <b>★ 9.0</b></div>
+        </div>
+        <div class="right"><div class="when">6 天前</div></div>
+      </div>
+      <div class="card">
+        <span class="badge media">电影</span>
+        <div class="mid">
+          <div class="l1"><span class="name">马粥街残酷史</span></div>
+          <div class="l2">2004 · 剧情 · 想看</div>
+        </div>
+        <div class="right"><div class="when">6 天前</div></div>
+      </div>
+      <div class="card">
+        <span class="badge media">电影</span>
+        <div class="mid">
+          <div class="l1"><span class="name">沙丘:第二部</span></div>
+          <div class="l2">2024 · 科幻 · 看过 · <b>★ 8.5</b></div>
+        </div>
+        <div class="right"><div class="when">1 周前</div></div>
+      </div>
+      <div class="card">
+        <span class="badge service">服务</span>
+        <div class="mid">
+          <div class="l1"><span class="name">Fastmail</span></div>
+          <div class="l2">service.saas · 标准版 · ¥15/月 · 下次续费 10月14日</div>
+        </div>
+        <div class="right"><div class="fact-mini">14 天后续费</div><div class="when">2 周前</div></div>
+      </div>
+      <div class="card">
+        <span class="badge software">软件</span>
+        <div class="mid">
+          <div class="l1"><span class="name">Homebrew</span></div>
+          <div class="l2">命令行工具 · Homebrew 安装 · /opt/homebrew · 装它是因为"包管理"</div>
+        </div>
+        <div class="right"><div class="when">3 周前</div></div>
+      </div>
+      <div class="card">
+        <span class="badge info">信息</span>
+        <div class="mid">
+          <div class="l1"><span class="name">GitHub PAT</span></div>
+          <div class="l2">API key · 关联 4 项资产 · #开发</div>
+        </div>
+        <div class="right"><div class="when">3 周前</div></div>
+      </div>
+    </div>
+
+    <div class="pager">
+      <span>第 1–9 项,共 785 项</span>
+      <div class="grow"></div>
+      <span>每页 25 ▾</span>
+      <button class="pager-btn disabled">‹ 上一页</button>
+      <button class="pager-btn">下一页 ›</button>
+    </div>
+  </main>
+
+  <aside class="inspector">
+    <div class="insp-top"><span class="badge media">剧集</span><span class="insp-close">✕</span></div>
+    <div>
+      <div class="insp-title">黑袍纠察队 第五季</div>
+      <div class="insp-meta">2026 · Amazon · 8 集 · 动作 科幻</div>
+    </div>
+    <div class="fact-grid">
+      <div class="fact-cell"><div class="k">状态</div><div class="v">在看</div></div>
+      <div class="fact-cell"><div class="k">我的评分</div><div class="v" style="color:var(--color-attention)">★ 8.5</div></div>
+      <div class="fact-cell" style="grid-column: span 2"><div class="k">进度</div><div class="v">S05 · E04 / 08<span class="bar"><i></i></span></div></div>
+    </div>
+    <div>
+      <div class="sec-title">关系 · 3</div>
+      <div class="rel-row"><span class="rel-type">uses</span><span class="rel-target">Prime Video 年度订阅</span><span class="rel-kind">服务</span></div>
+      <div class="rel-row"><span class="rel-type">related_to</span><span class="rel-target">追剧清单</span><span class="rel-kind">信息</span></div>
+      <div class="rel-row"><span class="rel-type">related_to</span><span class="rel-target">黑袍纠察队 第四季</span><span class="rel-kind">剧集</span></div>
+      <div class="rel-link">在关系图中查看 →</div>
+    </div>
+    <div>
+      <div class="sec-title" style="margin-bottom:7px">标签</div>
+      <span class="tag-chip">#超英</span><span class="tag-chip">#亚马逊</span>
+    </div>
+    <div class="insp-meta-card" style="margin-top:auto"><span class="id">01a0d380…6aa9</span><span class="copy-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1"/></svg>复制</span><span>·</span><span>更新于 6 天前</span></div>
+    <div class="insp-actions">
+      <div class="primary-btn">编辑</div>
+      <div class="secondary-btn">标记看完</div>
+    </div>
+    <div class="detail-link">查看完整详情 →</div>
+  </aside>
+
+</div>
+
+</body>
+</html>

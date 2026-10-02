@@ -1,53 +1,66 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AssetDetailView } from '../features/library/AssetDetailView';
+import { WindowToolbar } from './WindowToolbar';
+import React, { lazy, useEffect, useState } from 'react';
+import { DeferredFeature } from './DeferredFeature';
+import { FirstListTiming, useStartupStage } from './startup-timing';
 import { AssetInspector } from '../features/library/AssetInspector';
 import { AssetLedger } from '../features/library/AssetLedger';
-import { CreateMediaModal } from '../features/library/CreateMediaModal';
-import { CreateSoftwareModal } from '../features/library/CreateSoftwareModal';
-import { SoftwareDiscoveryModal } from '../features/library/SoftwareDiscoveryModal';
-import { CreateServiceModal } from '../features/library/CreateServiceModal';
-import { CreateInfoModal } from '../features/library/InfoEditor';
-import { InfoCsvImport } from '../features/library/InfoCsvImport';
+import { MutationFeedback } from '../features/library/MutationFeedback';
+import { useMediaStatusActions } from '../features/library/useMediaStatusActions';
+import { useLibraryPage } from '../features/library/useLibraryPage';
+import { TodoList } from '../features/library/TodoList';
 import { NavigationRail } from '../features/library/NavigationRail';
-import { RelationExplorer } from '../features/library/RelationExplorer';
-import { ActivityFeed } from '../features/library/ActivityFeed';
-import { DuplicateReview } from '../features/library/DuplicateReview';
-import { ImportExportView } from '../features/library/ImportExportView';
-import { SettingsView } from '../features/library/SettingsView';
-import { getTransport, normalizeDesktopError } from '../features/library/transport';
+import { getTransport } from '../features/library/transport';
 import type {
-  AppCapabilities,
-  AppStatus,
-  AssetSummary,
-  DesktopError,
   LibraryQuery,
-  LibrarySearchQuery,
-  MediaStatusCountDto,
-  Page,
-  ThemePreference,
 } from '../features/library/types';
 import { useNavigation } from '../features/library/useNavigation';
-import { localeTag, t, useLang } from '../i18n';
-import { Badge } from '../ui/Badge';
+import { t } from '../i18n';
+import { useDesktopSession } from './useDesktopSession';
+import { StartupScreen } from './StartupScreen';
 import type { SavedFilterState } from '../features/library/SavedFilters';
 import '../ui/theme.css';
 
+const AssetDetailView = lazy(() => import('../features/library/AssetDetailView').then((m) => ({ default: m.AssetDetailView })));
+const CreateMediaModal = lazy(() => import('../features/library/CreateMediaModal').then((m) => ({ default: m.CreateMediaModal })));
+const CreateSoftwareModal = lazy(() => import('../features/library/CreateSoftwareModal').then((m) => ({ default: m.CreateSoftwareModal })));
+const SoftwareDiscoveryModal = lazy(() => import('../features/library/SoftwareDiscoveryModal').then((m) => ({ default: m.SoftwareDiscoveryModal })));
+const CreateServiceModal = lazy(() => import('../features/library/CreateServiceModal').then((m) => ({ default: m.CreateServiceModal })));
+const CreateLocalServiceModal = lazy(() => import('../features/library/CreateLocalServiceModal').then((m) => ({ default: m.CreateLocalServiceModal })));
+const ServicesWorkspace = lazy(() => import('../features/library/ServicesWorkspace').then((m) => ({ default: m.ServicesWorkspace })));
+const CreateInfoModal = lazy(() => import('../features/library/InfoEditor').then((m) => ({ default: m.CreateInfoModal })));
+const InfoCsvImport = lazy(() => import('../features/library/InfoCsvImport').then((m) => ({ default: m.InfoCsvImport })));
+const RelationExplorer = lazy(() => import('../features/library/RelationExplorer').then((m) => ({ default: m.RelationExplorer })));
+const ActivityFeed = lazy(() => import('../features/library/ActivityFeed').then((m) => ({ default: m.ActivityFeed })));
+const DuplicateReview = lazy(() => import('../features/library/DuplicateReview').then((m) => ({ default: m.DuplicateReview })));
+const ImportExportView = lazy(() => import('../features/library/ImportExportView').then((m) => ({ default: m.ImportExportView })));
+const SettingsView = lazy(() => import('../features/library/SettingsView').then((m) => ({ default: m.SettingsView })));
+
 export const App: React.FC = () => {
-  const lang = useLang();
-  const [status, setStatus] = useState<AppStatus>({ status: 'loading' });
-  const [capabilities, setCapabilities] = useState<AppCapabilities | null>(null);
-  const [pageData, setPageData] = useState<Page<AssetSummary> | null>(null);
-  const [statusCounts, setStatusCounts] = useState<MediaStatusCountDto[] | null>(null);
-  const [loadingAssets, setLoadingAssets] = useState(false);
-  const [error, setError] = useState<DesktopError | null>(null);
-  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+  const transport = getTransport();
+  const { status, capabilities, restorePending, setupBusy, retrySetup, chooseDatabaseFolder, theme, handleThemeChange } = useDesktopSession(transport);
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(() => window.innerWidth >= 760);
+  const [dialog, setDialog] = useState<'media' | 'software' | 'softwareDiscovery' | 'subscription' | 'localService' | 'info' | 'infoImport' | null>(null);
   const [activeDetailId, setActiveDetailId] = useState<string | null>(null);
-  const [createMediaOpen, setCreateMediaOpen] = useState(false);
-  const [createSoftwareOpen, setCreateSoftwareOpen] = useState(false);
-  const [softwareDiscoveryOpen, setSoftwareDiscoveryOpen] = useState(false);
-  const [createServiceOpen, setCreateServiceOpen] = useState(false);
-  const [createInfoOpen, setCreateInfoOpen] = useState(false);
-  const [importInfoOpen, setImportInfoOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 760);
+  const [todoSearch, setTodoSearch] = useState('');
+  const [todoQuery, setTodoQuery] = useState('');
+  const [todoKind, setTodoKind] = useState<string | null>(null);
+  const [todoSort, setTodoSort] = useState<LibraryQuery['sort']>('updated_desc');
+  useEffect(() => {
+    const openService = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const assetId: unknown = event.detail;
+      if (typeof assetId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assetId)) return;
+      setActiveDetailId(assetId);
+    };
+    const manageServices = () => setActiveDetailId(null);
+    window.addEventListener('assetmesh-open-service', openService);
+    window.addEventListener('assetmesh-manage-services', manageServices);
+    return () => {
+      window.removeEventListener('assetmesh-open-service', openService);
+      window.removeEventListener('assetmesh-manage-services', manageServices);
+    };
+  }, []);
 
   const {
     nav,
@@ -65,43 +78,17 @@ export const App: React.FC = () => {
     applySavedFilter,
   } = useNavigation();
 
+  const dataViewKey = nav.section === 'todos' ? JSON.stringify(['todos', todoQuery, todoKind, todoSort]) : JSON.stringify([nav.section, nav.module, nav.lifecycle, nav.mediaStatus, nav.sort, nav.kind, nav.tag, nav.search]);
+  const viewKey = `${dataViewKey}:${nav.page}:${nav.pageSize}`;
+
   const [searchInput, setSearchInput] = useState(nav.search);
 
-  // Sync search input if nav.search changes externally (hash change / resetFilters)
-  const [theme, setTheme] = useState<ThemePreference>(() => {
-    try {
-      const saved = localStorage.getItem('assetmesh-theme');
-      if (saved === 'light' || saved === 'dark' || saved === 'system') {
-        return saved as ThemePreference;
-      }
-    } catch {
-      // Fallback if localStorage unavailable
-    }
-    return 'system';
-  });
-
-  const handleThemeChange = (newTheme: ThemePreference) => {
-    setTheme(newTheme);
-    try {
-      localStorage.setItem('assetmesh-theme', newTheme);
-    } catch {
-      // ignore
-    }
-  };
-
   useEffect(() => {
-    const root = document.documentElement;
-    root.lang = localeTag();
-    if (theme === 'system') {
-      const prefersDark =
-        typeof window !== 'undefined' &&
-        window.matchMedia &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.dataset.theme = prefersDark ? 'dark' : 'light';
-    } else {
-      root.dataset.theme = theme;
-    }
-  }, [theme, lang]);
+    const timer = setTimeout(() => { setTodoQuery(todoSearch.trim()); }, 300);
+    return () => clearTimeout(timer);
+  }, [todoSearch]);
+
+  useEffect(() => { setSearchInput(nav.search); }, [nav.section, nav.module, nav.search]);
 
   // Debounce search input changes (300ms) to update navigation state
   useEffect(() => {
@@ -125,357 +112,140 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeDetailId]);
 
-  const transport = getTransport();
-
-  // Load application capabilities and verify status
-  const loadInitialState = useCallback(async () => {
-    try {
-      const appStatus = await transport.getStatus();
-      setStatus(appStatus);
-
-      if (appStatus.status === 'ready') {
-        const caps = await transport.getCapabilities();
-        setCapabilities(caps);
-      }
-    } catch (err: unknown) {
-      setStatus({
-        status: 'setup_failure',
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [transport]);
-
-  useEffect(() => {
-    loadInitialState();
-  }, [loadInitialState]);
-
-  const [setupBusy, setSetupBusy] = useState(false);
-
-  // Actually re-opens the database: `getStatus` alone can never leave the failure
-  // state, because the backend only retries when it is asked to initialize.
-  const retrySetup = useCallback(
-    async (dbPath?: string) => {
-      setSetupBusy(true);
-      try {
-        const next = await transport.init(dbPath);
-        setStatus(next);
-        if (next.status === 'ready') {
-          setCapabilities(await transport.getCapabilities());
-        }
-      } catch (err: unknown) {
-        setStatus({
-          status: 'setup_failure',
-          message: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        setSetupBusy(false);
-      }
-    },
-    [transport],
+  // 服务 manages local projects; 订阅 keeps the billed services.
+  const moduleScope = nav.module === 'all' ? {}
+    : nav.module === 'services' ? { modules: ['services'], kinds: nav.kind ? [nav.kind] : ['service.local'] }
+    : nav.module === 'subscriptions' ? { modules: ['services'], kinds: nav.kind ? [nav.kind] : ['service.saas', 'service.api', 'service.vps', 'service.domain'] }
+    : { modules: [nav.module], kinds: nav.kind ? [nav.kind] : undefined };
+  const query: LibraryQuery = nav.section === 'todos'
+    ? { lifecycle: 'active', modules: ['media'], media_status: 'in_progress',
+        kinds: todoKind ? [todoKind] : undefined, sort: todoSort,
+        limit: nav.pageSize, offset: (nav.page - 1) * nav.pageSize }
+    : { lifecycle: nav.module === 'services' ? 'active' : nav.lifecycle, ...moduleScope, tags: nav.tag ? [nav.tag] : undefined,
+        media_status: nav.module === 'media' && nav.mediaStatus ? nav.mediaStatus : undefined,
+        sort: nav.sort, limit: nav.pageSize, offset: (nav.page - 1) * nav.pageSize };
+  const countsQuery: LibraryQuery | null = nav.section === 'library' && nav.module === 'media'
+    ? { lifecycle: nav.lifecycle, modules: ['media'], kinds: nav.kind ? [nav.kind] : undefined,
+        tags: nav.tag ? [nav.tag] : undefined } : null;
+  const { data: currentPageData, statusCounts, loading: loadingAssets, error, refresh: loadAssets, updateMedia } = useLibraryPage(
+    transport, status.status === 'ready' && ['library', 'todos', 'relations'].includes(nav.section),
+    query, nav.section === 'todos' ? todoQuery : nav.search.trim(), countsQuery, nav.section,
   );
-
-  const chooseDatabaseFolder = useCallback(async () => {
-    const dir = await transport.pickDirectory(t('Choose a folder for the AssetMesh database'));
-    if (dir) await retrySetup(`${dir}/assetmesh.db`);
-  }, [retrySetup, t, transport]);
-
-  const selectedAssetIdRef = React.useRef<string | null>(nav.selectedAssetId);
-  selectedAssetIdRef.current = nav.selectedAssetId;
-
-  // Stale request guard: older responses never overwrite newer ones
-  const searchSeqRef = React.useRef(0);
-
-  // Load library page according to navigation / filter state
-  const loadAssets = useCallback(async () => {
-    if (status.status !== 'ready') return;
-
-    const currentSeq = ++searchSeqRef.current;
-    setLoadingAssets(true);
-    setError(null);
-
-    try {
-      let result: Page<AssetSummary>;
-      const trimmedSearch = nav.search.trim();
-
-      if (trimmedSearch) {
-        const query: LibrarySearchQuery = {
-          text: trimmedSearch,
-          lifecycle: nav.lifecycle,
-          modules: nav.module === 'all' ? undefined : [nav.module],
-          kinds: nav.kind ? [nav.kind] : undefined,
-          tags: nav.tag ? [nav.tag] : undefined,
-          limit: nav.pageSize,
-          offset: (nav.page - 1) * nav.pageSize,
-        };
-        result = await transport.searchAssets(query);
-      } else {
-        const query: LibraryQuery = {
-          lifecycle: nav.lifecycle,
-          modules: nav.module === 'all' ? undefined : [nav.module],
-          kinds: nav.kind ? [nav.kind] : undefined,
-          tags: nav.tag ? [nav.tag] : undefined,
-          media_status:
-            nav.module === 'media' && nav.mediaStatus ? nav.mediaStatus : undefined,
-          sort: nav.sort,
-          limit: nav.pageSize,
-          offset: (nav.page - 1) * nav.pageSize,
-        };
-        result = await transport.listAssets(query);
-      }
-
-      // Discard stale response if a newer query has been dispatched
-      if (currentSeq !== searchSeqRef.current) return;
-
-      setPageData(result);
-
-      // Media status segmented-control counts: same filters as the list but
-      // ignoring the status itself, refreshed on the same triggers.
-      if (nav.module === 'media') {
-        try {
-          const counts = await transport.mediaStatusCounts({
-            lifecycle: nav.lifecycle,
-            modules: ['media'],
-            kinds: nav.kind ? [nav.kind] : undefined,
-            tags: nav.tag ? [nav.tag] : undefined,
-          });
-          if (currentSeq !== searchSeqRef.current) return;
-          setStatusCounts(counts);
-        } catch {
-          if (currentSeq === searchSeqRef.current) setStatusCounts(null);
-        }
-      } else {
-        setStatusCounts(null);
-      }
-
-      // Auto-select first asset if none selected or selected not in page
-      if (result.items.length > 0) {
-        const stillExists = result.items.some((i) => i.id === selectedAssetIdRef.current);
-        if (!selectedAssetIdRef.current || !stillExists) {
-          setSelectedAssetId(result.items[0].id);
-        }
-      } else if (selectedAssetIdRef.current !== null) {
-        setSelectedAssetId(null);
-      }
-    } catch (err: unknown) {
-      if (currentSeq !== searchSeqRef.current) return;
-      setError(normalizeDesktopError(err));
-    } finally {
-      if (currentSeq === searchSeqRef.current) {
-        setLoadingAssets(false);
-      }
-    }
-  }, [
-    status.status,
-    nav.lifecycle,
-    nav.module,
-    nav.mediaStatus,
-    nav.kind,
-    nav.tag,
-    nav.sort,
-    nav.search,
-    nav.pageSize,
-    nav.page,
-    transport,
-    setSelectedAssetId,
-  ]);
-
   useEffect(() => {
-    if (status.status === 'ready') {
-      loadAssets();
+    if (!currentPageData) return;
+    if (nav.section === 'todos' && currentPageData.total !== null && nav.page > 1 && currentPageData.offset >= currentPageData.total) {
+      setPage(Math.max(1, Math.ceil(currentPageData.total / nav.pageSize)));
+      return;
     }
-  }, [status.status, loadAssets]);
+    if (!currentPageData.items.some((item) => item.id === nav.selectedAssetId)) {
+      setSelectedAssetId(currentPageData.items[0]?.id ?? null);
+    }
+  }, [currentPageData, nav.section, nav.page, nav.pageSize, nav.selectedAssetId, setPage, setSelectedAssetId]);
 
-  if (status.status === 'loading') {
-    return (
-      <div
-        role="status"
-        aria-live="polite"
-        style={{
-          display: 'flex',
-          height: '100vh',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'var(--color-canvas)',
-          color: 'var(--color-muted)',
-        }}
-      >
-        <div style={{ textAlign: 'center' }}>
-          <div
-            style={{
-              fontSize: '18px',
-              fontWeight: 600,
-              color: 'var(--color-ink)',
-              marginBottom: '8px',
-            }}
-          >
-            AssetMesh
-          </div>
-          <div>{t('Opening library and verifying state...')}</div>
-        </div>
-      </div>
-    );
-  }
+  const refreshAssetsRef = React.useRef(loadAssets);
+  refreshAssetsRef.current = loadAssets;
+  const mediaActions = useMediaStatusActions(updateMedia);
+  const transitionMedia = mediaActions.transition;
 
-  if (status.status === 'setup_failure') {
-    return (
-      <div
-        role="alert"
-        style={{
-          display: 'flex',
-          height: '100vh',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'var(--color-canvas)',
-          padding: '24px',
-        }}
-      >
-        <div
-          style={{
-            maxWidth: '480px',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '24px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
-          }}
-        >
-          <Badge variant="attention" className="mb-2">
-            {t('Setup Required')}
-          </Badge>
-          <h2
-            style={{
-              fontSize: '16px',
-              fontWeight: 600,
-              margin: '8px 0 12px',
-              color: 'var(--color-ink)',
-            }}
-          >
-            {t('Unable to initialize database')}
-          </h2>
-          <p
-            style={{
-              color: 'var(--color-muted)',
-              marginBottom: '16px',
-              wordBreak: 'break-word',
-            }}
-          >
-            {t(status.message)}
-          </p>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => retrySetup()}
-              disabled={setupBusy}
-              style={{
-                padding: '6px 14px',
-                backgroundColor: 'var(--color-mesh)',
-                color: '#FFFFFF',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                cursor: 'pointer',
-                fontWeight: 500,
-              }}
-            >
-              {t('Retry')}
-            </button>
-            <button
-              onClick={chooseDatabaseFolder}
-              disabled={setupBusy}
-              style={{
-                padding: '6px 14px',
-                backgroundColor: 'transparent',
-                color: 'var(--color-ink)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                cursor: 'pointer',
-                fontWeight: 500,
-              }}
-            >
-              {t('Choose another folder…')}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  useStartupStage('shell_visible', status.status === 'ready');
+  const initialStartupView = React.useRef(`${nav.section}:${nav.module}`);
+  const startupListReady = status.status === 'ready'
+    && initialStartupView.current === `${nav.section}:${nav.module}`
+    && (nav.section === 'library' || nav.section === 'todos')
+    && currentPageData !== null && !loadingAssets && !error;
 
-  if (status.status === 'corrupt_failure') {
-    return (
-      <div
-        role="alert"
-        style={{
-          display: 'flex',
-          height: '100vh',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'var(--color-canvas)',
-          padding: '24px',
-        }}
-      >
-        <div
-          style={{
-            maxWidth: '480px',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-danger)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '24px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
-          }}
-        >
-          <Badge variant="danger" className="mb-2">
-            {t('Corrupt Data')}
-          </Badge>
-          <h2
-            style={{
-              fontSize: '16px',
-              fontWeight: 600,
-              margin: '8px 0 12px',
-              color: 'var(--color-danger)',
-            }}
-          >
-            {t('Database Integrity Verification Failed')}
-          </h2>
-          <p
-            style={{
-              color: 'var(--color-muted)',
-              marginBottom: '16px',
-              wordBreak: 'break-word',
-            }}
-          >
-            {t(status.message)}
-          </p>
-          <p style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
-            {t(
-              'AssetMesh refused to load this database because migrations or checksums do not match expected canonical definitions.'
-            )}
-          </p>
-        </div>
-      </div>
-    );
+  if (status.status !== 'ready' || restorePending) {
+    return <StartupScreen status={status} restorePending={restorePending} setupBusy={setupBusy}
+      retrySetup={retrySetup} chooseDatabaseFolder={chooseDatabaseFolder} />;
   }
 
   const selectedAsset =
-    pageData?.items.find((i) => i.id === nav.selectedAssetId) || pageData?.items[0] || null;
+    currentPageData?.items.find((i) => i.id === nav.selectedAssetId) || currentPageData?.items[0] || null;
+
+  const inspector = selectedAsset && mobileInspectorOpen && (
+    <AssetInspector
+      asset={selectedAsset}
+      mobileOpen={mobileInspectorOpen}
+      onClose={() => setMobileInspectorOpen(false)}
+      onSelectTag={(tag) => setTag(tag)}
+      onOpenDetail={(id) => setActiveDetailId(id)}
+      onOpenRelations={() => setSection('relations')}
+      mutationPending={mediaActions.feedback.pending}
+      onUpdateProgress={async (asset, progress) => { await mediaActions.updateProgress(asset, progress); }}
+      onMediaStatusChange={async (asset, nextStatus) => {
+        await transitionMedia(asset, nextStatus);
+      }}
+    />
+  );
+
+  const canInspect = nav.section === 'todos' || (nav.section === 'library' && nav.module !== 'services');
+  const canSearch = canInspect;
+  const createAsset = nav.section === 'todos' || nav.module === 'media' || nav.module === 'all'
+    ? () => setDialog('media') : nav.module === 'software' ? () => setDialog('software')
+    : nav.module === 'subscriptions' ? () => setDialog('subscription')
+    : nav.module === 'services' ? () => setDialog('localService') : () => setDialog('info');
+  const sectionTitle = nav.section === 'todos' ? t('To-do List') : nav.section === 'settings' ? t('Settings')
+    : nav.section === 'relations' ? t('Relations') : nav.section === 'activity' ? t('Activity')
+    : nav.section === 'duplicates' ? t('Duplicates') : nav.section === 'import-export' ? t('Portable Data')
+    : nav.module === 'all' ? t('All Assets') : nav.module === 'media' ? t('Media')
+    : nav.module === 'software' ? t('Software') : nav.module === 'services' ? t('Services')
+    : nav.module === 'subscriptions' ? t('Subscriptions') : t('Information');
 
   return (
-    <div
-      className="app-shell"
-      style={{
-        background:
-          'radial-gradient(900px 420px at 18% -8%, rgba(20, 125, 120, 0.08), transparent 62%),' +
-          'radial-gradient(760px 400px at 78% -12%, rgba(94, 106, 210, 0.06), transparent 60%)',
-      }}
-    >
+    <div className={`app-shell${nav.section === 'todos' ? ' app-shell-todos' : ''}${sidebarOpen ? '' : ' sidebar-collapsed'}`}>
+      <WindowToolbar title={sectionTitle} sidebarOpen={sidebarOpen} inspectorOpen={mobileInspectorOpen}
+        onToggleSidebar={() => setSidebarOpen((open) => !open)}
+        onToggleInspector={canInspect ? () => setMobileInspectorOpen((open) => !open) : undefined}
+        hideCreateButton={nav.section === 'library' && nav.module === 'services'}
+        onCreate={nav.section === 'library' || nav.section === 'todos' ? createAsset : undefined}
+        search={nav.section === 'todos' ? todoSearch : searchInput}
+        searchLabel={nav.section === 'todos' ? t('Search media to-dos') : t('Search library assets')}
+        onSearch={canSearch ? (value) => { if (nav.section === 'todos') { setTodoSearch(value); setPage(1); } else setSearchInput(value); } : undefined}
+        onFilter={canSearch ? () => document.querySelector<HTMLSelectElement>('[aria-label="' + t('Filter by kind') + '"]')?.focus() : undefined}
+      />
+      <div className="app-body">
       {/* 1. Navigation Rail */}
       <NavigationRail
         currentSection={nav.section}
         currentModule={nav.module}
         capabilities={capabilities}
-        onSelectModule={setModule}
-        onSelectSection={setSection}
+        onSelectModule={(module) => { setModule(module); if (window.innerWidth < 760) setSidebarOpen(false); }}
+        onSelectSection={(section) => { setSection(section); if (window.innerWidth < 760) setSidebarOpen(false); }}
       />
 
       {/* Main Workspace Area */}
-      {nav.section === 'relations' ? (
+      <DeferredFeature key={`${nav.section}:${nav.module}`}>
+      <FirstListTiming ready={startupListReady} />
+      {nav.section === 'todos' ? (
+        <>
+          <TodoList
+            data={currentPageData}
+            viewKey={viewKey}
+            feedback={mediaActions.feedback}
+            loading={loadingAssets}
+            error={error}
+            page={nav.page}
+            pageSize={nav.pageSize}
+            selectedAssetId={selectedAsset?.id || null}
+            onSelectAsset={(id) => {
+              setSelectedAssetId(id);
+              setMobileInspectorOpen(true);
+            }}
+            onSelectPage={setPage}
+            kinds={capabilities?.asset_kinds.filter((kind) => kind.startsWith('media.')) ?? []}
+            selectedKind={todoKind}
+            sort={todoSort ?? 'updated_desc'}
+            filtered={!!todoQuery || !!todoKind}
+            onSelectKind={(kind) => { setTodoKind(kind); setPage(1); }}
+            onSelectSort={(sort) => { setTodoSort(sort); setPage(1); }}
+            onResetFilters={() => { setTodoSearch(''); setTodoQuery(''); setTodoKind(null); setPage(1); }}
+            onOpenMedia={() => setModule('media')}
+            onRetry={loadAssets}
+            onTransition={transitionMedia}
+          />
+          {inspector}
+        </>
+      ) : nav.section === 'relations' ? (
         <main
           data-testid="relations-workspace"
           style={{
@@ -490,7 +260,7 @@ export const App: React.FC = () => {
               rootAsset={selectedAsset}
               capabilities={capabilities}
               onOpenAssetDetail={(id) => setActiveDetailId(id)}
-              onAssetUpdated={() => loadAssets()}
+              onAssetUpdated={() => refreshAssetsRef.current()}
             />
           ) : (
             <div
@@ -548,51 +318,21 @@ export const App: React.FC = () => {
           <SettingsView currentTheme={theme} onThemeChange={handleThemeChange} />
         </main>
       ) : (
-        <>
-          {/* 2. Collection Workspace (Ledger Rows) */}
-          <AssetLedger
-            module={nav.module}
-            lifecycle={nav.lifecycle}
-            sort={nav.sort}
-            selectedKind={nav.kind}
-            selectedTag={nav.tag}
-            selectedMediaStatus={nav.module === 'media' ? nav.mediaStatus : null}
-            statusCounts={statusCounts}
+        nav.module === 'services' ? (
+          <ServicesWorkspace
+            data={currentPageData}
+            error={error}
+            loading={loadingAssets}
             searchQuery={searchInput}
             page={nav.page}
             pageSize={nav.pageSize}
-            data={pageData}
-            error={error}
-            loading={loadingAssets}
             selectedAssetId={selectedAsset?.id || null}
-            capabilities={capabilities}
-            onNewAsset={() => {
-              if (nav.module === 'software') {
-                setCreateSoftwareOpen(true);
-              } else if (nav.module === 'services') {
-                setCreateServiceOpen(true);
-              } else if (nav.module === 'info') {
-                setCreateInfoOpen(true);
-              } else {
-                setCreateMediaOpen(true);
-              }
-            }}
-            onImportInfo={() => setImportInfoOpen(true)}
-            onApplySavedFilter={(filter: SavedFilterState) => {
-              setSearchInput(filter.search);
-              applySavedFilter(filter);
-            }}
-            onDiscoverSoftware={() => setSoftwareDiscoveryOpen(true)}
+            runtimeSupported={capabilities?.features.local_service_runtime ?? false}
+            onNewAsset={() => setDialog('localService')}
             onSelectAsset={(id) => {
               setSelectedAssetId(id);
               setMobileInspectorOpen(true);
             }}
-            onOpenDetail={(id) => setActiveDetailId(id)}
-            onSelectLifecycle={setLifecycle}
-            onSelectMediaStatus={setMediaStatus}
-            onSelectSort={setSort}
-            onSelectKind={setKind}
-            onSelectTag={setTag}
             onSearchChange={setSearchInput}
             onSelectPage={setPage}
             onResetFilters={() => {
@@ -600,31 +340,64 @@ export const App: React.FC = () => {
               resetFilters();
             }}
             onRetry={loadAssets}
+            onOpenDetail={(id) => setActiveDetailId(id)}
           />
-
-          {/* 3. Asset Inspector (Desktop column / responsive sheet) */}
-          {(selectedAsset || mobileInspectorOpen) && (
-            <AssetInspector
-              asset={selectedAsset}
-              onClose={() => setMobileInspectorOpen(false)}
-              onSelectTag={(tag) => setTag(tag)}
-              onOpenDetail={(id) => setActiveDetailId(id)}
-              onOpenRelations={() => setSection('relations')}
-              onMediaStatusChange={async (asset, nextStatus) => {
-                // Errors propagate to the inspector, which shows them inline
-                // instead of replacing the whole ledger with an error banner.
-                await transport.mediaCommand({
-                  action: 'transition_status',
-                  asset_id: asset.id,
-                  status: nextStatus,
-                  expected_revision: asset.revision ?? 1,
-                });
-                loadAssets();
+        ) : (
+        <>
+          {/* 2. Collection Workspace (Ledger Rows) */}
+          <div className="collection-workspace">
+            <div style={{ padding: '0 16px' }}><MutationFeedback {...mediaActions.feedback} /></div>
+            <AssetLedger
+              viewKey={viewKey}
+              module={nav.module}
+              lifecycle={nav.lifecycle}
+              sort={nav.sort}
+              selectedKind={nav.kind}
+              selectedTag={nav.tag}
+              selectedMediaStatus={nav.module === 'media' ? nav.mediaStatus : null}
+              statusCounts={statusCounts}
+              searchQuery={searchInput}
+              page={nav.page}
+              pageSize={nav.pageSize}
+              data={currentPageData}
+              error={error}
+              loading={loadingAssets}
+              selectedAssetId={selectedAsset?.id || null}
+              capabilities={capabilities}
+              onNewAsset={createAsset}
+              onImportInfo={() => setDialog('infoImport')}
+              onApplySavedFilter={(filter: SavedFilterState) => {
+                setSearchInput(filter.search);
+                applySavedFilter(filter);
               }}
+              onDiscoverSoftware={() => setDialog('softwareDiscovery')}
+              onSelectAsset={(id) => {
+                setSelectedAssetId(id);
+                setMobileInspectorOpen(true);
+              }}
+              onOpenDetail={(id) => setActiveDetailId(id)}
+              onSelectLifecycle={setLifecycle}
+              onSelectMediaStatus={setMediaStatus}
+              onSelectSort={setSort}
+              onSelectKind={setKind}
+              onSelectTag={setTag}
+              onSearchChange={setSearchInput}
+              onSelectPage={setPage}
+              onResetFilters={() => {
+                setSearchInput('');
+                resetFilters();
+              }}
+              onRetry={loadAssets}
             />
-          )}
+
+          </div>
+          {inspector}
         </>
+        )
       )}
+      </DeferredFeature>
+
+      </div>
 
       {/* 4. Full Unified Asset Detail View */}
       {activeDetailId && (
@@ -663,7 +436,7 @@ export const App: React.FC = () => {
               overflow: 'hidden',
             }}
           >
-            <AssetDetailView
+            <DeferredFeature key={activeDetailId} onClose={() => setActiveDetailId(null)}><AssetDetailView
               assetId={activeDetailId}
               capabilities={capabilities}
               onOpenAssetDetail={(id) => setActiveDetailId(id)}
@@ -676,67 +449,78 @@ export const App: React.FC = () => {
                 setTag(tag);
                 setActiveDetailId(null);
               }}
-              onAssetUpdated={() => loadAssets()}
-            />
+              onAssetUpdated={(receipt, fresh) => { void updateMedia(receipt, fresh); }}
+            /></DeferredFeature>
           </div>
         </div>
       )}
 
-      {createInfoOpen && <CreateInfoModal onClose={() => setCreateInfoOpen(false)} onCreated={(id) => {
-        setCreateInfoOpen(false);
+      {dialog === 'info' && <DeferredFeature dialog onClose={() => setDialog(null)}><CreateInfoModal onClose={() => setDialog(null)} onCreated={(id) => {
+        setDialog(null);
         setSelectedAssetId(id);
         loadAssets();
         setActiveDetailId(id);
-      }} />}
-      {importInfoOpen && <InfoCsvImport onClose={() => setImportInfoOpen(false)} onImported={() => {
-        setImportInfoOpen(false);
+      }} /></DeferredFeature>}
+      {dialog === 'infoImport' && <DeferredFeature dialog onClose={() => setDialog(null)}><InfoCsvImport onClose={() => setDialog(null)} onImported={() => {
+        setDialog(null);
         if (nav.page === 1) loadAssets();
         else setPage(1);
-      }} />}
+      }} /></DeferredFeature>}
 
       {/* 5. Create Media Modal */}
-      <CreateMediaModal
-        isOpen={createMediaOpen}
-        onClose={() => setCreateMediaOpen(false)}
+      {dialog === 'media' && <DeferredFeature dialog onClose={() => setDialog(null)}><CreateMediaModal
+        isOpen={dialog === 'media'}
+        onClose={() => setDialog(null)}
         onCreated={(newId) => {
           loadAssets();
           setSelectedAssetId(newId);
           setActiveDetailId(newId);
         }}
-      />
+      /></DeferredFeature>}
 
       {/* 6. Create Software Modal */}
-      <CreateSoftwareModal
-        isOpen={createSoftwareOpen}
-        onClose={() => setCreateSoftwareOpen(false)}
+      {dialog === 'software' && <DeferredFeature dialog onClose={() => setDialog(null)}><CreateSoftwareModal
+        isOpen={dialog === 'software'}
+        onClose={() => setDialog(null)}
         onCreated={(newId) => {
           loadAssets();
           setSelectedAssetId(newId);
           setActiveDetailId(newId);
         }}
-      />
+      /></DeferredFeature>}
 
       {/* 7. Software Discovery & Adoption Modal */}
-      <SoftwareDiscoveryModal
-        isOpen={softwareDiscoveryOpen}
-        onClose={() => setSoftwareDiscoveryOpen(false)}
+      {dialog === 'softwareDiscovery' && <DeferredFeature dialog onClose={() => setDialog(null)}><SoftwareDiscoveryModal
+        isOpen={dialog === 'softwareDiscovery'}
+        onClose={() => setDialog(null)}
         onAdopted={(adoptedId) => {
           loadAssets();
           setSelectedAssetId(adoptedId);
           setActiveDetailId(adoptedId);
         }}
-      />
+      /></DeferredFeature>}
 
-      {/* 8. Create Service Modal */}
-      <CreateServiceModal
-        isOpen={createServiceOpen}
-        onClose={() => setCreateServiceOpen(false)}
+      {/* 8. Create Service Modal (订阅 page) */}
+      {dialog === 'subscription' && <DeferredFeature dialog onClose={() => setDialog(null)}><CreateServiceModal
+        isOpen={dialog === 'subscription'}
+        onClose={() => setDialog(null)}
         onCreated={(newId) => {
           loadAssets();
           setSelectedAssetId(newId);
           setActiveDetailId(newId);
         }}
-      />
+      /></DeferredFeature>}
+
+      {/* 9. Create Local Service Modal (服务 page) */}
+      {dialog === 'localService' && <DeferredFeature dialog onClose={() => setDialog(null)}><CreateLocalServiceModal
+        isOpen={dialog === 'localService'}
+        onClose={() => setDialog(null)}
+        onCreated={(newId) => {
+          loadAssets();
+          setSelectedAssetId(newId);
+          setActiveDetailId(newId);
+        }}
+      /></DeferredFeature>}
     </div>
   );
 };

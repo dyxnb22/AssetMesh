@@ -33,6 +33,9 @@ fn create_cmd(name: &str, service_type: ServiceType) -> CreateService {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -127,7 +130,7 @@ fn services_round_trip_preserves_canonical_state() {
 
     let mut export = env.export_service();
     let bundle = export.export("test").unwrap();
-    assert_eq!(bundle.manifest.modules["services"].schema_version, 1);
+    assert_eq!(bundle.manifest.modules["services"].schema_version, 3);
     assert_eq!(bundle.manifest.record_counts["services"], 2);
     assert!(bundle
         .file("modules/services.jsonl")
@@ -991,4 +994,56 @@ fn service_records_of_every_type_round_trip() {
         })
         .unwrap();
     assert_eq!(count, 5);
+}
+
+#[test]
+fn local_stop_configuration_round_trips_and_v2_bundles_remain_readable() {
+    let source = test_env();
+    create_service(
+        &source,
+        CreateService {
+            project_dir: Some("/tmp/my-service".into()),
+            start_command: Some("bash start.sh".into()),
+            stop_command: Some("bash stop.sh".into()),
+            ..create_cmd("My local service", ServiceType::Local)
+        },
+    );
+    let bundle = source.export_service().export("test").unwrap();
+    let destination = test_env();
+    destination
+        .portable_import_service()
+        .import_bundle(&bundle, false)
+        .unwrap();
+    assert_eq!(canonical_json(&destination), canonical_json(&source));
+    // A schema 2 export lacks stop_command; it must import without losing
+    // start_command or triggering any process operation.
+    let mut legacy = bundle.clone();
+    legacy
+        .manifest
+        .modules
+        .get_mut("services")
+        .unwrap()
+        .schema_version = 2;
+    for file in &mut legacy.files {
+        if file.path == "modules/services.jsonl" {
+            let text = file.content.clone();
+            let mut row: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+            row.as_object_mut().unwrap().remove("stop_command");
+            file.content = format!("{row}\n");
+        }
+    }
+    let legacy_destination = test_env();
+    legacy_destination
+        .portable_import_service()
+        .import_bundle(&legacy, false)
+        .unwrap();
+    let records = legacy_destination
+        .service_service()
+        .list_services(&ServiceFilter::default())
+        .unwrap();
+    assert_eq!(records[0].entry.record.stop_command, None);
+    assert_eq!(
+        records[0].entry.record.start_command.as_deref(),
+        Some("bash start.sh")
+    );
 }

@@ -24,7 +24,10 @@ use assetmesh_core::ports::search::{SearchIndex, SearchReader};
 use assetmesh_core::ports::uow::{QueryUnitOfWork, UnitOfWork, UnitOfWorkFactory};
 use assetmesh_core::{AppError, AppResult};
 use rusqlite::Connection;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use crate::repos::{
     SqliteActivityRepo, SqliteAssetRepo, SqliteExternalRefRepo, SqliteInfoRepo, SqliteLibraryRepo,
@@ -32,8 +35,62 @@ use crate::repos::{
     SqliteTagRepo,
 };
 
+#[cfg(test)]
+mod pool_tests {
+    use super::*;
+    use std::sync::Barrier;
+    #[test]
+    fn concurrent_snapshot_reads_leave_only_four_idle_connections() {
+        let directory =
+            std::env::temp_dir().join(format!("assetmesh-pool-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("library.db");
+        let factory = Arc::new(crate::open(path.to_str().unwrap()).unwrap());
+        let id = assetmesh_core::domain::ids::AssetId::from_uuid(uuid::Uuid::now_v7());
+        let ready = Arc::new(Barrier::new(9));
+        let written = Arc::new(Barrier::new(9));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let factory = factory.clone();
+                let ready = ready.clone();
+                let written = written.clone();
+                std::thread::spawn(move || {
+                    factory
+                        .read_impl(&mut |query| {
+                            assert!(query.assets().get(id)?.is_none());
+                            ready.wait();
+                            written.wait();
+                            assert!(
+                                query.assets().get(id)?.is_none(),
+                                "a reader keeps its original snapshot"
+                            );
+                            Ok(())
+                        })
+                        .unwrap()
+                })
+            })
+            .collect();
+        ready.wait();
+        factory.with_raw_connection(|conn| conn.execute("INSERT INTO assets(id,kind,name,lifecycle_state,revision,created_at,updated_at) VALUES (?1,'info.item','new','active',1,?2,?2)", rusqlite::params![id.to_string(),chrono::Utc::now().to_rfc3339()]).unwrap()).unwrap();
+        written.wait();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(factory.readers.lock().unwrap().len(), 4);
+        factory
+            .read_impl(&mut |query| {
+                assert!(query.assets().get(id)?.is_some());
+                Ok(())
+            })
+            .unwrap();
+        drop(factory);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
 pub struct SqliteFactory {
     path: String,
+    writes_disabled: AtomicBool,
     is_memory: bool,
     /// Single writer connection: IMMEDIATE write transactions and, for
     /// in-memory databases, read scopes too (there is nothing else to read).
@@ -48,15 +105,30 @@ pub struct SqliteFactory {
 }
 
 impl SqliteFactory {
+    pub(crate) fn writes_are_disabled(&self) -> bool {
+        self.writes_disabled.load(Ordering::Acquire)
+    }
     pub(crate) fn new(path: String, conn: Connection) -> Self {
         let is_memory = path == ":memory:";
         SqliteFactory {
             path,
+            writes_disabled: AtomicBool::new(false),
             is_memory,
             writer: Mutex::new(conn),
             readers: Mutex::new(Vec::new()),
             tracer: Mutex::new(None),
         }
+    }
+
+    /// After selecting a recovered library, reads remain available but no
+    /// subsequent canonical writes may be lost in the old running session.
+    pub fn disable_writes(&self) -> AppResult<()> {
+        let _writer = self
+            .writer
+            .lock()
+            .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
+        self.writes_disabled.store(true, Ordering::Release);
+        Ok(())
     }
 
     /// Raw connection access for diagnostics and tests.
@@ -130,6 +202,11 @@ impl SqliteFactory {
             .writer
             .lock()
             .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
+        if self.writes_disabled.load(Ordering::Acquire) {
+            return Err(AppError::conflict(
+                "restart AssetMesh to use the restored library",
+            ));
+        }
         let tx = conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(crate::map_error)?;
@@ -174,7 +251,9 @@ impl SqliteFactory {
                 .readers
                 .lock()
                 .map_err(|_| AppError::storage("sqlite lock poisoned"))?;
-            pool.push(conn);
+            if pool.len() < 4 {
+                pool.push(conn);
+            }
         }
         result
     }
@@ -403,6 +482,16 @@ impl<'conn> SqliteQueryUow<'conn> {
 }
 
 impl<'conn> QueryUnitOfWork for SqliteQueryUow<'conn> {
+    fn visit_portable(
+        &mut self,
+        visit: &mut dyn FnMut(assetmesh_core::application::portable::PortableRow) -> AppResult<()>,
+    ) -> AppResult<()> {
+        crate::repos::portable::visit(self.repos.assets.conn, visit)
+    }
+    fn private_asset_ids(&mut self) -> AppResult<std::collections::HashSet<String>> {
+        crate::repos::portable::private_asset_ids(self.repos.assets.conn)
+    }
+
     fn assets(&mut self) -> &mut dyn AssetReader {
         &mut self.repos.assets
     }

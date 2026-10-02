@@ -8,7 +8,7 @@ use crate::application::media_service::update_projection;
 use crate::application::service_service::update_service_projection;
 use crate::application::shared::load_active_asset;
 use crate::application::software_service::update_software_projection;
-use crate::application::{SharedClock, SharedIdGenerator};
+use crate::application::SharedClock;
 use crate::domain::activity::{actors, event_types, ActivityEvent};
 use crate::domain::asset::{Asset, LifecycleState};
 use crate::domain::external_ref::AssetExternalRef;
@@ -28,17 +28,11 @@ pub struct AssetView {
 pub struct AssetService<F: UnitOfWorkFactory> {
     factory: F,
     clock: SharedClock,
-    #[allow(dead_code)]
-    ids: SharedIdGenerator,
 }
 
 impl<F: UnitOfWorkFactory> AssetService<F> {
-    pub fn new(factory: F, clock: SharedClock, ids: SharedIdGenerator) -> Self {
-        AssetService {
-            factory,
-            clock,
-            ids,
-        }
+    pub fn new(factory: F, clock: SharedClock) -> Self {
+        AssetService { factory, clock }
     }
 
     pub fn get_asset(&mut self, asset_id: AssetId) -> AppResult<AssetView> {
@@ -486,6 +480,24 @@ fn merge_service_records(
         "domain_name",
         &mut merged.domain_name,
         &loser.domain_name,
+        &mut conflicts,
+    );
+    resolve(
+        "project_dir",
+        &mut merged.project_dir,
+        &loser.project_dir,
+        &mut conflicts,
+    );
+    resolve(
+        "start_command",
+        &mut merged.start_command,
+        &loser.start_command,
+        &mut conflicts,
+    );
+    resolve(
+        "stop_command",
+        &mut merged.stop_command,
+        &loser.stop_command,
         &mut conflicts,
     );
     resolve("plan", &mut merged.plan, &loser.plan, &mut conflicts);

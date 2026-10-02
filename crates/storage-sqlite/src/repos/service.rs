@@ -19,7 +19,7 @@ const ASSET_COLS: &str =
 pub(crate) const SERVICE_COLS: &str =
     "s.service_type, s.provider, s.account_label, s.endpoint_url, s.dashboard_url, \
      s.domain_name, s.plan, s.cost_minor, s.currency, s.billing_cadence, s.renews_at, \
-     s.expires_at, s.auto_renew, s.notes";
+     s.expires_at, s.auto_renew, s.notes, s.project_dir, s.start_command, s.stop_command";
 
 fn col<T: rusqlite::types::FromSql>(row: &rusqlite::Row, idx: usize) -> AppResult<T> {
     row.get(idx).map_err(crate::map_error)
@@ -45,6 +45,9 @@ pub(crate) fn parse_record(
     // Stored as NULL / 0 / 1 per the migration CHECK.
     let auto_renew: Option<i64> = col(row, offset + 12)?;
     let notes: Option<String> = col(row, offset + 13)?;
+    let project_dir: Option<String> = col(row, offset + 14)?;
+    let start_command: Option<String> = col(row, offset + 15)?;
+    let stop_command: Option<String> = col(row, offset + 16)?;
 
     Ok(ServiceRecord {
         asset_id,
@@ -71,6 +74,9 @@ pub(crate) fn parse_record(
         expires_at: expires_at.as_deref().map(ts_from_string).transpose()?,
         auto_renew: auto_renew.map(|value| value != 0),
         notes,
+        project_dir,
+        start_command,
+        stop_command,
     })
 }
 
@@ -91,6 +97,9 @@ fn record_params(record: &ServiceRecord) -> Vec<Box<dyn rusqlite::ToSql>> {
         Box::new(record.expires_at.map(ts_to_string)),
         Box::new(record.auto_renew.map(|value| value as i64)),
         Box::new(record.notes.clone()),
+        Box::new(record.project_dir.clone()),
+        Box::new(record.start_command.clone()),
+        Box::new(record.stop_command.clone()),
     ]
 }
 
@@ -128,13 +137,17 @@ impl SqliteServiceRepo<'_> {
 }
 
 impl ServiceReader for SqliteServiceRepo<'_> {
+    fn existing_ids(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetId>> {
+        crate::repos::existing_module_ids(self.conn, "service_records", ids)
+    }
     fn get(&mut self, asset_id: AssetId) -> AppResult<Option<ServiceRecord>> {
         let mut stmt = self
             .conn
             .prepare(
                 "SELECT s.service_type, s.provider, s.account_label, s.endpoint_url, \
                       s.dashboard_url, s.domain_name, s.plan, s.cost_minor, s.currency, \
-                      s.billing_cadence, s.renews_at, s.expires_at, s.auto_renew, s.notes \
+                      s.billing_cadence, s.renews_at, s.expires_at, s.auto_renew, s.notes, \
+                      s.project_dir, s.start_command, s.stop_command \
                       FROM service_records s WHERE s.asset_id = ?1",
             )
             .map_err(crate::map_error)?;
@@ -233,7 +246,8 @@ impl ServiceReader for SqliteServiceRepo<'_> {
             .prepare(
                 "SELECT s.asset_id, s.service_type, s.provider, s.account_label, s.endpoint_url, \
                       s.dashboard_url, s.domain_name, s.plan, s.cost_minor, s.currency, \
-                      s.billing_cadence, s.renews_at, s.expires_at, s.auto_renew, s.notes \
+                      s.billing_cadence, s.renews_at, s.expires_at, s.auto_renew, s.notes, \
+                      s.project_dir, s.start_command, s.stop_command \
                       FROM service_records s ORDER BY s.asset_id",
             )
             .map_err(crate::map_error)?;
@@ -269,12 +283,13 @@ impl ServiceRepository for SqliteServiceRepo<'_> {
             .execute(
                 "INSERT INTO service_records (asset_id, service_type, provider, account_label, \
                  endpoint_url, dashboard_url, domain_name, plan, cost_minor, currency, \
-                 billing_cadence, renews_at, expires_at, auto_renew, notes) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
+                 billing_cadence, renews_at, expires_at, auto_renew, notes, project_dir, \
+                 start_command, stop_command) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18) \
                  ON CONFLICT(asset_id) DO UPDATE SET service_type=?2, provider=?3, \
                  account_label=?4, endpoint_url=?5, dashboard_url=?6, domain_name=?7, plan=?8, \
                  cost_minor=?9, currency=?10, billing_cadence=?11, renews_at=?12, \
-                 expires_at=?13, auto_renew=?14, notes=?15",
+                 expires_at=?13, auto_renew=?14, notes=?15, project_dir=?16, start_command=?17, stop_command=?18",
                 refs.as_slice(),
             )
             .map_err(crate::map_error)?;

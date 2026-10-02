@@ -11,7 +11,7 @@ pub struct SqliteInfoRepo<'conn> {
     pub(crate) conn: &'conn Connection,
 }
 
-fn parse_record(
+pub(crate) fn parse_record(
     asset_id: AssetId,
     kind: String,
     value: String,
@@ -27,6 +27,9 @@ fn parse_record(
 }
 
 impl InfoReader for SqliteInfoRepo<'_> {
+    fn existing_ids(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetId>> {
+        crate::repos::existing_module_ids(self.conn, "info_records", ids)
+    }
     fn get(&mut self, asset_id: AssetId) -> AppResult<Option<InfoRecord>> {
         let result = self.conn.query_row(
             "SELECT info_type, value, notes FROM info_records WHERE asset_id = ?1",

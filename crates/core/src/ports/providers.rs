@@ -1,4 +1,4 @@
-//! Discovery provider port (docs/06 provider design).
+//! Discovery provider port (docs/02 providers and discovery).
 //!
 //! Providers discover candidates in the external environment; they never
 //! write canonical data. Scans run entirely outside transactions (ADR 0007):

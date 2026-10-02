@@ -32,6 +32,90 @@ fn run(dir: &std::path::Path, db: &str, args: &[&str]) -> (String, String, bool)
 }
 
 #[test]
+fn media_updates_clear_explicit_fields_and_preserve_omitted_fields() {
+    use assetmesh_core::application::library_service::{AssetDetails, LibraryService};
+    use assetmesh_core::domain::ids::AssetId;
+    use assetmesh_storage_sqlite::{open, SharedSqlite};
+    use std::sync::Arc;
+
+    let dir = unique_dir("media-clear");
+    let db = "patch.db";
+    let (output, error, ok) = run(
+        &dir,
+        db,
+        &[
+            "media",
+            "add",
+            "--title",
+            "Patch movie",
+            "--media-type",
+            "movie",
+            "--summary",
+            "Old summary",
+            "--year",
+            "2001",
+            "--platform",
+            "Blu-ray",
+            "--notes",
+            "Old notes",
+        ],
+    );
+    assert!(ok, "create failed: {error}");
+    let id = output
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("created ")
+        .trim();
+
+    let (_, error, ok) = run(
+        &dir,
+        db,
+        &["media", "update", id, "--year", "2026", "--clear-year"],
+    );
+    assert!(!ok, "setting and clearing a year must be rejected: {error}");
+    let factory = SharedSqlite(Arc::new(open(dir.join(db).to_str().unwrap()).unwrap()));
+    let mut library = LibraryService::new(factory);
+    let asset_id = AssetId::from_uuid(uuid::Uuid::parse_str(id).unwrap());
+    let original = library.get_asset(asset_id).unwrap();
+    assert_eq!(original.asset.revision, 1);
+    match original.details {
+        AssetDetails::Media(record) => assert_eq!(record.year, Some(2001)),
+        other => panic!("expected media, got {other:?}"),
+    }
+
+    let (_, error, ok) = run(
+        &dir,
+        db,
+        &[
+            "media",
+            "update",
+            id,
+            "--clear-year",
+            "--summary",
+            "",
+            "--notes",
+            "   ",
+        ],
+    );
+    assert!(ok, "clear failed: {error}");
+    let fresh = library.get_asset(asset_id).unwrap();
+    assert_eq!(fresh.asset.name, "Patch movie");
+    assert_eq!(fresh.asset.summary, None);
+    assert_eq!(fresh.asset.revision, 2);
+    match fresh.details {
+        AssetDetails::Media(record) => {
+            assert_eq!(record.year, None);
+            assert_eq!(record.notes, None);
+            assert_eq!(record.platform.as_deref(), Some("Blu-ray"));
+        }
+        other => panic!("expected media, got {other:?}"),
+    }
+    drop(library);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn full_lifecycle_works_end_to_end() {
     let dir = unique_dir("lifecycle");
     let db = "e2e.db";
@@ -849,6 +933,95 @@ fn service_lifecycle_works_end_to_end() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// A local service carries launch metadata: `--project-dir` and
+/// `--start-command` are the fields the desktop runtime starts and stops the
+/// process from, so the CLI must round-trip them, refuse them on other
+/// service types, and let an edit clear them (docs/10 schema v2).
+#[test]
+fn local_service_launch_metadata_round_trips() {
+    let dir = unique_dir("service-local");
+    let db = "e2e.db";
+
+    let (out, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "SillyTavern",
+            "--type",
+            "local",
+            "--endpoint",
+            "http://localhost:8000",
+            "--project-dir",
+            "/Users/me/SillyTavern",
+            "--start-command",
+            "node server.js",
+            "--stop-command",
+            "bash stop-local.sh",
+            "--tag",
+            "ai",
+        ],
+    );
+    assert!(ok, "add should succeed: {err}");
+    assert!(out.contains("service.local"), "{out}");
+    let id = out
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("created ")
+        .trim()
+        .to_string();
+
+    // The detail view shows the launch configuration.
+    let (out, _, ok) = run(&dir, db, &["service", "get", &id]);
+    assert!(ok);
+    assert!(out.contains("Type:          local"), "{out}");
+    assert!(
+        out.contains("Project dir:   /Users/me/SillyTavern"),
+        "{out}"
+    );
+    assert!(out.contains("Start command: node server.js"), "{out}");
+    assert!(out.contains("Stop command:  bash stop-local.sh"), "{out}");
+
+    // Launch metadata belongs to a local service only: recording it on
+    // another type is a validation error, never a silent write.
+    let (_, err, ok) = run(
+        &dir,
+        db,
+        &[
+            "service",
+            "add",
+            "--name",
+            "OpenAI",
+            "--type",
+            "saas",
+            "--project-dir",
+            "/tmp/somewhere",
+        ],
+    );
+    assert!(!ok, "project_dir must be refused on a saas service");
+    assert!(err.contains("launch metadata"), "{err}");
+
+    // An empty value clears the field; the sibling field survives.
+    let (out, err, ok) = run(&dir, db, &["service", "update", &id, "--start-command", ""]);
+    assert!(ok, "update should succeed: {err}");
+    assert!(out.starts_with("updated "), "{out}");
+    let (out, _, ok) = run(&dir, db, &["service", "get", &id]);
+    assert!(ok);
+    assert!(
+        !out.contains("Start command:"),
+        "cleared field must disappear: {out}"
+    );
+    assert!(
+        out.contains("Project dir:   /Users/me/SillyTavern"),
+        "{out}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn service_cli_rejects_bad_money_and_credentials() {
     let dir = unique_dir("service-validation");
@@ -1250,7 +1423,7 @@ fn services_round_trip_through_the_portable_bundle_end_to_end() {
     let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
     assert_eq!(
         manifest["modules"]["services"]["schema_version"],
-        serde_json::json!(1),
+        serde_json::json!(3),
         "{manifest:#}"
     );
     assert_eq!(manifest["record_counts"]["services"], serde_json::json!(2));

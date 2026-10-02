@@ -97,6 +97,8 @@ describe('Software Workflow UI (P5-06)', () => {
 
   it('Flow 2 (Discovery and Adoption): scans system, displays candidates, adopts candidate preserving user fields', async () => {
     const discoverSpy = vi.spyOn(fakeTransport, 'softwareDiscover');
+    const report = await fakeTransport.softwareDiscover();
+    discoverSpy.mockResolvedValue({ ...report, failed_sources: [{ source: 'pipx', message: 'command exceeded its time budget' }] });
     const softwareCmdSpy = vi.spyOn(fakeTransport, 'softwareCommand');
 
     render(<App />);
@@ -118,6 +120,8 @@ describe('Software Workflow UI (P5-06)', () => {
 
     // Discovery modal appears and lists candidates
     const candidateItem = await screen.findByTestId('discovery-candidate-ripgrep');
+    expect(screen.getByText('Some sources could not be scanned. Completed results remain available.')).toBeInTheDocument();
+    expect(screen.getByText(/command exceeded its time budget/)).toBeInTheDocument();
     expect(candidateItem).toBeInTheDocument();
     fireEvent.click(candidateItem);
 
@@ -152,56 +156,52 @@ describe('Software Workflow UI (P5-06)', () => {
     await screen.findByTestId('adopt-success-receipt');
   });
 
-  it('Flow 3 (Edit Metadata): edits purpose, notes, version with read-back', async () => {
+  it('sends the edited fields and observed revision, then displays canonical read-back values', async () => {
     const onUpdated = vi.fn();
-    const softwareCmdSpy = vi.spyOn(fakeTransport, 'softwareCommand');
-
-    render(
-      <AssetDetailView
-        assetId="asset-software-001"
-        onAssetUpdated={onUpdated}
-      />
-    );
-
+    const initial = await fakeTransport.getAsset(initialSoftwareAsset.id);
+    if (initial.details.module !== 'software') throw new Error('Expected software fixture');
+    const canonical = {
+      ...initial, revision: 2,
+      details: { ...initial.details, purpose: 'Primary text editor (synced)', notes: 'Canonical server notes' },
+    };
+    const receipt = { operation: 'software.update_metadata', asset_ids: [initial.id], revision: 2, changed: true, warnings: [] };
+    const command = vi.spyOn(fakeTransport, 'softwareCommand').mockImplementationOnce(async () => {
+      fakeTransport.details.set(initial.id, canonical);
+      return receipt;
+    });
+    render(<AssetDetailView assetId={initial.id} onAssetUpdated={onUpdated} />);
     await screen.findByTestId('asset-detail-view');
-
-    // Click edit software button
-    const editBtn = screen.getByTestId('edit-software-button');
-    fireEvent.click(editBtn);
-
-    const form = screen.getByTestId('software-edit-form');
-    expect(form).toBeInTheDocument();
-
-    const purposeInput = screen.getByTestId('software-purpose-input') as HTMLInputElement;
-    const notesInput = screen.getByTestId('software-notes-input') as HTMLTextAreaElement;
-
-    fireEvent.change(purposeInput, { target: { value: 'Primary text editor' } });
-    fireEvent.change(notesInput, { target: { value: 'License renewed for version 4' } });
-
-    // Submit
+    fireEvent.click(screen.getByTestId('edit-software-button'));
+    fireEvent.change(screen.getByTestId('software-purpose-input'), { target: { value: 'Primary text editor' } });
+    fireEvent.change(screen.getByTestId('software-notes-input'), { target: { value: 'My local draft' } });
     fireEvent.click(screen.getByTestId('save-software-button'));
+    await screen.findByText('Canonical server notes');
+    expect(screen.getByText('Primary text editor (synced)')).toBeInTheDocument();
+    expect(screen.queryByTestId('software-edit-form')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mutation-receipt-badge')).toHaveTextContent('Saved successfully');
+    expect(command).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'update_metadata', asset_id: initial.id, expected_revision: 1,
+      purpose: 'Primary text editor', notes: 'My local draft',
+    }));
+    expect(onUpdated).toHaveBeenCalledWith(receipt);
+  });
 
-    await waitFor(() => {
-      expect(softwareCmdSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'update_metadata',
-          asset_id: 'asset-software-001',
-          expected_revision: 1,
-          purpose: 'Primary text editor',
-          notes: 'License renewed for version 4',
-        })
-      );
+  it('sends explicit clears for purpose and notes and displays canonical empty values', async () => {
+    const initial = await fakeTransport.getAsset(initialSoftwareAsset.id);
+    if (initial.details.module !== 'software') throw new Error('Expected software fixture');
+    const canonical = { ...initial, revision: 2, details: { ...initial.details, purpose: null, notes: null } };
+    const command = vi.spyOn(fakeTransport, 'softwareCommand').mockImplementationOnce(async () => {
+      fakeTransport.details.set(initial.id, canonical);
+      return { operation: 'software.update_metadata', asset_ids: [initial.id], revision: 2, changed: true, warnings: [] };
     });
-
-    // Read back closed form and updated presentation
-    await waitFor(() => {
-      expect(screen.queryByTestId('software-edit-form')).not.toBeInTheDocument();
-      expect(screen.getByText('Primary text editor')).toBeInTheDocument();
-      expect(screen.getByText('License renewed for version 4')).toBeInTheDocument();
-      expect(screen.getByText('rev 2')).toBeInTheDocument();
-    });
-
-    expect(onUpdated).toHaveBeenCalled();
+    render(<AssetDetailView assetId={initial.id} />);
+    fireEvent.click(await screen.findByTestId('edit-software-button'));
+    fireEvent.change(screen.getByTestId('software-purpose-input'), { target: { value: '' } });
+    fireEvent.change(screen.getByTestId('software-notes-input'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('save-software-button'));
+    await waitFor(() => expect(screen.queryByTestId('software-edit-form')).not.toBeInTheDocument());
+    expect(command).toHaveBeenCalledWith(expect.objectContaining({ purpose: null, notes: null }));
+    expect(screen.queryByText('Productivity tool')).not.toBeInTheDocument();
   });
 
   it('Flow 4 (Archive): prompts confirmation, executes software archive, makes read-only', async () => {

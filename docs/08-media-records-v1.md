@@ -62,7 +62,11 @@ paused
 dropped
 ```
 
-Future UI labels may differ by media type (“Watching”, “Playing”), but storage should avoid unnecessary type-specific status enums unless behavior genuinely differs.
+Users can correct any status directly to any other status; same-status commands
+are no-ops. Entering `in_progress` initializes `started_at` when absent; entering
+`completed` initializes both timestamps when absent. Leaving `completed` clears
+`completed_at`, and returning to `planned` clears `started_at`. Completed time
+must not precede started time. Display labels may differ by media type.
 
 ## Progress
 
@@ -76,7 +80,9 @@ total: 28
 unit: episode
 ```
 
-For games where numeric progress is unknown, allow progress to be omitted and rely on status + notes.
+Progress may be omitted when no numeric count is known. A unit without a current
+or total value is invalid. Present values are finite and non-negative; current
+must not exceed total. Ratings are finite numbers on the 0–10 scale.
 
 ## External references
 
@@ -173,39 +179,55 @@ Do not write noisy activity for every trivial text edit unless it provides futur
 
 ## Import contract
 
-Legacy import should support a dry-run summary:
+Pipeline: parse → validate/normalize → match → plan → review (`--dry-run`) →
+commit → report. JSON (array, or object with a `records`/`items`/`data` array)
+and CSV are supported; format-specific parsing is isolated in
+`application/import_parse.rs`.
 
-```text
-Input: 292 records
-Valid: 290
-Exact matches: 0
-Potential duplicates: 2
-Rejected: 0
-```
+Matching precedence (ADR 0005):
 
-The importer should conceptually operate as an import session:
+1. canonical `asset_id` (for AssetMesh-native data) — but every ref the row
+   carries must agree with the named target: a ref owned by any other asset
+   (committed, planned, active, archived or merged) makes the row a
+   reviewable conflict instead of an update that would fail at commit;
+2. exact namespaced external ref — including refs claimed by records
+   committed or planned earlier in the same run, so batch duplicates and
+   200-row boundary cases resolve to one asset. A ref owned by an
+   *archived or merged* asset is an explicit conflict, never a create;
+3. normalized key: casefolded/whitespace-collapsed title + media type + year
+   — reported as a **potential duplicate**, never auto-applied (ADR 0005
+   classifies title/type/year matching as heuristic; two distinct releases
+   may share the tuple);
+4. heuristic: same normalized title + type with a different/missing year —
+   same: reported, never written.
 
-```text
-parse
-  ↓
-validate
-  ↓
-normalize
-  ↓
-match by IDs/external refs
-  ↓
-produce create/update/conflict candidates
-  ↓
-user reviews uncertain conflicts
-  ↓
-commit canonical changes
-  ↓
-report
-```
+Only canonical IDs and exact external references auto-update canonical data,
+and only when every ref on the row agrees with the target. Report indexes
+are physical source row numbers, stable across malformed rows.
 
-Duplicate matching may use normalized title + type + year as a heuristic, but the importer must allow explicit review rather than silently merging uncertain matches.
+Update policy on match: imported `Some` fields overwrite, `None` keeps the
+existing value, tags and refs are unioned (new refs are inserted owned by the
+matched asset — never a placeholder owner). Status is set directly on update, with the same timestamp invariants
+as interactive corrections. All record-level invariants (finite rating/progress,
+ranges, timestamps) are still enforced. Commits run in bounded 200-record
+transaction batches; if a batch fails, the report discloses it in
+`report.failed` with `records_committed` — earlier batches remain committed
+and the CLI exits non-zero. Parsing and matching always run outside write
+transactions.
 
-The first implementation does not need a fully generic durable `ImportSession` table if a simpler in-memory preview flow safely handles the historical migration. The application boundary should still reflect the stages above.
+### Implemented legacy update safeguards
+
+Legacy import keeps the source read-only. Existing archived or merged assets are
+not editable import targets. An incoming progress count merges with the stored
+count using the greater value, so re-importing an older export cannot reduce it.
+Incoming totals and units may correct the descriptive fields. If the resulting
+progress is invalid, the stored progress remains intact and the activity records
+`progress_merge_refused:<reason>`; counts are never silently clamped.
+
+Status and start/completion timestamps still follow the legacy field-update
+policy. Unlike counts they have no monotonic ordering; protection from older
+exports requires a separate provenance decision recorded in the
+[Roadmap](07-roadmap.md).
 
 ## Module schema version
 
@@ -245,70 +267,10 @@ Media export must include:
 
 Search indexes/provider caches are excluded because they are rebuildable.
 
-## Deferred desktop presentation
+## Desktop and verification
 
-The Media desktop experience is intentionally deferred to the shared Application Shell / Desktop UI phase rather than being part of the Media V1 exit criteria.
-
-A future Media surface is expected to expose capabilities such as:
-
-```text
-Media
-├── Search
-├── Filters: type / status / rating / tag
-├── Sort: updated / title / rating / completed date
-├── List or card view
-└── Detail panel/page
-```
-
-A future detail view may include:
-
-```text
-Title
-Type · Year
-Status · Progress · Rating
-Platform
-Tags
-Started / Completed
-Notes
-Activity
-Edit / Complete / Archive
-```
-
-These are presentation expectations, not Media-domain requirements. The desktop adapter must call existing application use cases and must not implement import matching, canonical merge behavior, domain invariants, or SQL search joins itself.
-
-## Required tests before declaring Media V1 complete
-
-1. domain invariant tests for status/progress/rating;
-2. application use-case tests with fake ports;
-3. SQLite repository contract tests;
-4. legacy JSON/CSV import dry-run fixtures;
-5. duplicate/external-ref matching fixtures;
-6. portable export/import round-trip;
-7. Media schema migration fixture;
-8. search projection rebuild test;
-9. activity + canonical write atomicity test.
-
-UI polish is not a prerequisite for Media V1 completion.
-
-## Explicitly deferred from Media V1
-
-- desktop/application-shell implementation;
-- metadata-provider integration;
-- poster/thumbnail system unless migration requires it;
-- durable background job queue;
-- sync/CRDT;
-- third-party plugin support;
-- semantic/vector search;
-- mandatory local daemon.
-
-## Definition of done
-
-Media V1 is done when real historical data can replace the old host-specific implementation without losing information or creating a new data lock-in, and when:
-
-- import preview is safe and repeatable;
-- exact external references prevent duplicate re-import where available;
-- uncertain matches are reviewable rather than auto-merged;
-- search can be rebuilt from canonical data;
-- portable export/import preserves stable identity and Media schema version;
-- CLI and future desktop/HTTP/agent adapters can use the same application services without domain duplication;
-- no desktop client is required to satisfy the Media V1 exit criteria.
+The implemented desktop calls these application use cases; its interaction
+contract is maintained in [Desktop Contract](12-desktop-contract.md). Test
+ownership is maintained in [DEVELOPMENT.md](../DEVELOPMENT.md#test-ownership).
+Migration fixtures and import/export compatibility remain required when changing
+stored data. Optional extensions belong in the [Roadmap](07-roadmap.md).

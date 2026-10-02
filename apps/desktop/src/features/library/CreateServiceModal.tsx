@@ -250,7 +250,6 @@ export const CreateServiceModal: React.FC<CreateServiceModalProps> = ({
                 <option value="api">{t('API')}</option>
                 <option value="vps">{t('VPS')}</option>
                 <option value="domain">{t('Domain')}</option>
-                <option value="local">{t('Local')}</option>
               </select>
             </div>
 

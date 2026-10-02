@@ -59,6 +59,38 @@ pub(crate) const MIGRATIONS: &[(i64, &str, &str)] = &[
             "/../../migrations/0005_info_items_v1.sql"
         )),
     ),
+    (
+        6,
+        "0006_local_service_launch_v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../migrations/0006_local_service_launch_v1.sql"
+        )),
+    ),
+    (
+        7,
+        "0007_local_service_stop_v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../migrations/0007_local_service_stop_v1.sql"
+        )),
+    ),
+    (
+        8,
+        "0008_activity_paging_v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../migrations/0008_activity_paging_v1.sql"
+        )),
+    ),
+    (
+        9,
+        "0009_backup_change_clock_v1",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../migrations/0009_backup_change_clock_v1.sql"
+        )),
+    ),
 ];
 
 /// Latest database migration version.

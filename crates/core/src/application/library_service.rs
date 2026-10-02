@@ -126,10 +126,14 @@ pub struct LibrarySearchQuery {
     pub kinds: Vec<AssetKind>,
     /// Require every one of these tags (case-insensitive).
     pub tags: Vec<String>,
+    /// Same media-only status filter as the library list, applied before paging.
+    pub media_status: Option<crate::domain::media::MediaStatus>,
+    /// None preserves index relevance order for existing headless callers.
+    pub sort: Option<LibrarySort>,
     pub page: PageRequest,
 }
 
-/// Feature flags declaring available subsystem capabilities (docs/12 Section 6.3 & 6.5).
+/// Feature flags declaring available subsystem capabilities (docs/12-desktop-contract.md).
 /// Prevents UI from rendering empty shell placeholders for unreached phases.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AppFeatures {
@@ -137,6 +141,12 @@ pub struct AppFeatures {
     pub projects: bool,
     pub agent_capabilities: bool,
     pub knowledge_collections: bool,
+    /// Whether this platform can start and stop local-service processes.
+    /// Default false: the desktop adapter overrides it where the runtime's
+    /// process-group support exists, so no platform sees a start/stop
+    /// button that would do nothing.
+    #[serde(default)]
+    pub local_service_runtime: bool,
 }
 
 /// Application capabilities exposed to adapters (CLI, Desktop UI, HTTP).
@@ -176,6 +186,7 @@ impl AppCapabilities {
                 projects: false,
                 agent_capabilities: false,
                 knowledge_collections: false,
+                local_service_runtime: false,
             },
         }
     }
@@ -268,8 +279,8 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
     /// Searches the whole library through the existing projection and returns
     /// the same [`AssetSummary`] vocabulary the list uses.
     ///
-    /// Ranking is owned by the projection and is not modified here: results
-    /// keep the order the index returned.
+    /// Ranking is owned by the projection. Without an explicit sort, results
+    /// keep that order; an explicit library sort is applied before pagination.
     ///
     /// Because the filters are applied after hydration, the library widens the
     /// window it asks the index for until the index runs out (bounded by
@@ -319,6 +330,9 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
                         || !matches_summary_lifecycle(query.lifecycle, row)
                         || (!query.kinds.is_empty() && !query.kinds.contains(&row.kind))
                         || !matches_summary_tags(&query.tags, row)
+                        || query.media_status.is_some_and(|status| {
+                            !matches!(&row.details, Some(AssetDetails::Media(media)) if media.status == status)
+                        })
                     {
                         continue;
                     }
@@ -331,6 +345,19 @@ impl<F: UnitOfWorkFactory> LibraryService<F> {
                 window = window.saturating_mul(2).min(MAX_SEARCH_WINDOW);
             };
 
+            if let Some(sort) = query.sort {
+                matched.sort_by(|a, b| {
+                    let primary = match sort {
+                        LibrarySort::UpdatedDesc => b.updated_at.cmp(&a.updated_at),
+                        LibrarySort::UpdatedAsc => a.updated_at.cmp(&b.updated_at),
+                        LibrarySort::NameAsc => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                        LibrarySort::NameDesc => b.name.to_lowercase().cmp(&a.name.to_lowercase()),
+                        LibrarySort::KindAsc => a.kind.as_str().cmp(b.kind.as_str())
+                            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+                    };
+                    primary.then_with(|| a.id.cmp(&b.id))
+                });
+            }
             let total = matched.len();
             let items = matched
                 .into_iter()
@@ -398,11 +425,10 @@ fn dedupe<T: PartialEq + Copy>(values: &[T]) -> Vec<T> {
 /// carry their tags — the repository resolves a whole page's tags in one query
 /// rather than one per row, so no per-asset tag, detail, or asset lookup is
 /// issued. Pinned by `module_lists_load_tags_for_the_whole_page_in_one_query`
-/// in the SQLite contract tests. See `DEVELOPMENT.md` for the documented
-/// trade-off against a SQL-side paged query.
+/// in the SQLite contract tests. Used for graph and duplicate hydration;
+/// paged library queries use `LibraryReadPort` (docs/11).
 ///
-/// Shared with the Phase 4B graph queries, so graph nodes hydrate through the
-/// same readers the library list uses.
+/// Graph queries hydrate their node index through these module readers.
 pub fn load_library_rows(
     q: &mut dyn QueryUnitOfWork,
     modules: &[LibraryModule],
@@ -707,18 +733,6 @@ fn load_tombstone(
         tags,
         external_refs,
     })
-}
-
-/// Loads the typed module details the asset's kind owns, or `None`-free error
-/// when the asset has none.
-///
-/// Shared with the Phase 4B graph queries so module dispatch has exactly one
-/// implementation.
-pub(crate) fn load_details_for(
-    q: &mut dyn QueryUnitOfWork,
-    asset: &Asset,
-) -> AppResult<AssetDetails> {
-    load_details(q, asset)
 }
 
 /// Loads the typed module details the asset's kind owns. Dispatch is by

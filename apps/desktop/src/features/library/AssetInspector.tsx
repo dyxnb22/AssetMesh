@@ -1,553 +1,134 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Badge } from '../../ui/Badge';
+import { Icon } from '../../ui/Icon';
 import { formatRelativeTime, t } from '../../i18n';
-import { getTransport, normalizeDesktopError } from './transport';
-import type { AssetSummary, MediaRecordDto, RelationViewDto } from './types';
-
-/** Canonical media statuses, in selector order. */
-const MEDIA_STATUS_KEYS = ['planned', 'in_progress', 'completed', 'paused', 'dropped'] as const;
-
-/**
- * Client mirror of the core state machine (`MediaStatus::can_transition_to`):
- * targets outside the current status's list render disabled, so an illegal
- * transition never even reaches the application layer.
- */
-const ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
-  planned: ['in_progress', 'completed', 'dropped'],
-  in_progress: ['planned', 'paused', 'completed', 'dropped'],
-  completed: ['in_progress', 'paused', 'dropped'],
-  paused: ['planned', 'in_progress', 'completed', 'dropped'],
-  dropped: ['planned', 'in_progress', 'paused', 'completed'],
-};
-
-const statusTint: Record<string, { bg: string; ink: string }> = {
-  planned: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
-  in_progress: { bg: 'var(--color-mesh-bg)', ink: 'var(--color-mesh)' },
-  completed: { bg: 'var(--color-canvas)', ink: 'var(--color-muted)' },
-  paused: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
-  dropped: { bg: 'var(--color-danger-bg)', ink: 'var(--color-danger)' },
-};
+import { getTransport } from './transport';
+import { completionLabel, defaultProgressUnit, MEDIA_STATUSES } from './media-presentation';
+import { AssetArtwork } from './AssetArtwork';
+import type { AssetSummary, RelationViewDto } from './types';
 
 interface AssetInspectorProps {
   asset: AssetSummary | null;
+  mobileOpen?: boolean;
+  mutationPending?: boolean;
   onClose?: () => void;
   onSelectTag?: (tag: string) => void;
   onOpenDetail?: (assetId: string) => void;
   onOpenRelations?: () => void;
-  /** Applies a media watch-status transition through the application layer. */
   onMediaStatusChange?: (asset: AssetSummary, status: string) => Promise<void> | void;
+  onUpdateProgress?: (asset: AssetSummary, progress: { current?: number; total?: number; unit?: string }) => Promise<void>;
 }
 
-export const AssetInspector: React.FC<AssetInspectorProps> = ({
-  asset,
-  onClose,
-  onSelectTag,
-  onOpenDetail,
-  onOpenRelations,
-  onMediaStatusChange,
-}) => {
+export const AssetInspector: React.FC<AssetInspectorProps> = ({ asset, mobileOpen = true, mutationPending = false, onClose, onSelectTag, onOpenDetail, onOpenRelations, onMediaStatusChange, onUpdateProgress }) => {
   const [relations, setRelations] = useState<RelationViewDto[] | null>(null);
+  const [relationsFailed, setRelationsFailed] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  const media: MediaRecordDto | null =
-    asset?.details && asset.details.module === 'media' ? asset.details : null;
+  const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
+  const [editingProgress, setEditingProgress] = useState(false);
+  const media = asset?.details?.module === 'media' ? asset.details : null;
+  const [current, setCurrent] = useState<string>(() => String(media?.progress?.current ?? 0));
+  const [total, setTotal] = useState<string>(() => media?.progress?.total == null ? '' : String(media.progress.total));
+  const [unit, setUnit] = useState<string>(() => media?.progress?.unit ?? defaultProgressUnit(media?.media_type ?? 'anime'));
+  const progress = media?.progress;
+  const percentage = progress?.current != null && progress.total != null && progress.total > 0
+    ? Math.max(0, Math.min(100, progress.current / progress.total * 100)) : null;
+  const editable = asset?.lifecycle === 'active';
+  const disabled = busy || mutationPending || !editable;
+  const [width, setWidth] = useState(310);
+  const drag = useRef<{ x: number; width: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setRelations(null);
-    if (!asset) return undefined;
-    getTransport()
-      .relationList(asset.id)
-      .then((rows) => {
-        if (alive) setRelations(rows);
-      })
-      .catch(() => {
-        if (alive) setRelations([]);
-      });
-    return () => {
-      alive = false;
-    };
+    setRelations(null); setRelationsFailed(false);
+    if (asset) getTransport().relationList(asset.id).then((rows) => { if (alive) setRelations(rows); }).catch(() => { if (alive) setRelationsFailed(true); });
+    return () => { alive = false; };
   }, [asset]);
 
-  const copyId = async () => {
-    if (!asset) return;
-    try {
-      await navigator.clipboard.writeText(asset.id);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard unavailable (permissions); the raw id stays visible.
-    }
-  };
+  useEffect(() => { setEditingProgress(false); setCopied(false); }, [asset?.id]);
 
   const changeStatus = async (status: string) => {
-    if (!asset || !onMediaStatusChange || pendingStatus || asset.lifecycle !== 'active') return;
-    if (!media || !ALLOWED_TRANSITIONS[media.status]?.includes(status)) return;
-    setPendingStatus(status);
-    setActionError(null);
-    try {
-      await onMediaStatusChange(asset, status);
-    } catch (err: unknown) {
-      setActionError(normalizeDesktopError(err).message);
-    } finally {
-      setPendingStatus(null);
-    }
+    if (!asset || !onMediaStatusChange || disabled || saving.current || media?.status === status) return;
+    saving.current = true; setBusy(true);
+    try { await onMediaStatusChange(asset, status); }
+    catch { /* Shared feedback displays the failure. */ }
+    finally { saving.current = false; setBusy(false); }
   };
-
-  const shortId = asset ? `${asset.id.slice(0, 8)}…${asset.id.slice(-4)}` : '';
-  const progress =
-    media?.progress && (media.progress.current != null || media.progress.total != null)
-      ? media.progress
-      : null;
-  const progressPct =
-    progress && progress.current != null && progress.total
-      ? Math.min(100, Math.round((progress.current / progress.total) * 100))
-      : null;
+  const openProgress = () => {
+    setCurrent(String(media?.progress?.current ?? 0));
+    setTotal(media?.progress?.total == null ? '' : String(media.progress.total));
+    setUnit(media?.progress?.unit ?? defaultProgressUnit(media?.media_type ?? 'anime'));
+    setEditingProgress(true);
+  };
+  const saveProgress = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!asset || !onUpdateProgress || disabled || saving.current) return;
+    saving.current = true; setBusy(true);
+    try {
+      await onUpdateProgress(asset, { current: current === '' ? undefined : Number(current), total: total === '' ? undefined : Number(total), unit: unit.trim() || undefined });
+      setEditingProgress(false);
+    } catch { /* Preserve the draft for explicit retry. */ }
+    finally { saving.current = false; setBusy(false); }
+  };
+  const copyId = async () => {
+    if (!asset) return;
+    try { await navigator.clipboard.writeText(asset.id); setCopied(true); }
+    catch { /* The identifier remains selectable in technical details. */ }
+  };
+  const clampWidth = (value: number) => Math.min(440, Math.max(260, value));
 
   return (
-    <aside
-      aria-label={t('Asset Inspector')}
-      className="inspector-panel"
-      style={{
-        width: '360px',
-        borderRadius: 16,
-        backgroundColor: 'var(--glass)',
-        backdropFilter: 'blur(28px) saturate(1.5)',
-        border: '1px solid var(--glass-border)',
-        margin: '10px 10px 10px 0',
-        display: 'flex',
-        flexDirection: 'column',
-        overflowY: 'auto',
-        padding: '16px',
-        flexShrink: 0,
-        boxShadow:
-          '0 1px 0 var(--glass-highlight) inset, 0 10px 30px rgba(23, 33, 38, 0.07)',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '12px',
-        }}
-      >
-        <span
-          style={{
-            fontSize: '11px',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            color: 'var(--color-muted)',
-            fontWeight: 600,
-          }}
-        >{t('Inspector')}</span>
-        {onClose && (
-          <button
-            onClick={onClose}
-            aria-label={t('Close Inspector')}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-muted)',
-              fontSize: '16px',
-              padding: '2px 6px',
-              borderRadius: 'var(--radius-sm)',
-            }}
-          >
-            ✕
-          </button>
-        )}
+    <aside aria-label={t('Asset Inspector')} className={`inspector-panel${mobileOpen ? ' inspector-open' : ''}`} style={{ '--inspector-width': `${width}px` } as React.CSSProperties}>
+      <div className="inspector-resizer" role="separator" aria-label={t('Resize inspector')} aria-orientation="vertical" aria-valuemin={260} aria-valuemax={440} aria-valuenow={width} tabIndex={0}
+        onPointerDown={(event) => { drag.current = { x: event.clientX, width }; event.currentTarget.setPointerCapture(event.pointerId); }}
+        onPointerMove={(event) => { if (drag.current) setWidth(clampWidth(drag.current.width + drag.current.x - event.clientX)); }}
+        onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}
+        onKeyDown={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setWidth((value) => clampWidth(value + (event.key === 'ArrowLeft' ? 10 : -10))); } }} />
+      <div className="inspector-scroll">
+        <header className="inspector-header"><h2>{t('Inspector')}</h2>{onClose && <button className="icon-button" onClick={onClose} aria-label={t('Close Inspector')}><Icon name="close" size={16} /></button>}</header>
+        {asset ? <>
+          <div className="inspector-identity">
+            <AssetArtwork asset={asset} large />
+            <div className="inspector-identity-text"><h3>{asset.name}</h3>
+              <p>{t(asset.kind)}{media?.year ? ` · ${media.year}` : ''}</p>
+              {asset.subtitle && asset.subtitle !== media?.media_type && <p>{asset.subtitle}</p>}
+              {media?.platform && <p>{media.platform}</p>}
+              {media && <span className={`inspector-status inspector-status-${media.status}`}><span aria-hidden="true" />{t(media.status)}</span>}
+              {asset.lifecycle !== 'active' && <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>{t(asset.lifecycle)}</Badge>}
+            </div>
+          </div>
+          {media && <section className="inspector-section inspector-media">
+            <h4>{media.media_type === 'game' ? t('Game progress') : t('Watch progress')}</h4>
+            <div className="inspector-progress-value">{progress && (progress.current != null || progress.total != null)
+              ? <>{progress.current ?? '—'}{progress.total != null ? ` / ${progress.total}` : ''} <span>{progress.unit ? t(progress.unit) : ''}</span></>
+              : <span className="muted">{t('No progress recorded')}</span>}</div>
+            {percentage !== null ? <div className="inspector-progress-track" role="progressbar" aria-label={t('Viewing progress')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percentage)}><span style={{ width: `${percentage}%` }} /></div> : <div className="inspector-progress-track" aria-hidden="true" />}
+            {editingProgress ? <form className="inspector-progress-form" onSubmit={saveProgress}>
+              <div className="inspector-progress-fields">
+                <label>{t('Current')}<input autoFocus type="number" min="0" step="any" required max={total === '' ? undefined : Number(total)} aria-label={t('Current progress')} value={current} onChange={(event) => setCurrent(event.target.value)} disabled={disabled} /></label>
+                <label>{t('Total')}<input type="number" min="0.000001" step="any" aria-label={t('Total progress')} value={total} onChange={(event) => setTotal(event.target.value)} disabled={disabled} /></label>
+                <label>{t('Unit')}<input aria-label={t('Progress unit')} value={unit} onChange={(event) => setUnit(event.target.value)} disabled={disabled} /></label>
+              </div>
+              <div className="inspector-actions"><button className="native-button native-button-primary" type="submit" disabled={disabled}>{busy ? t('Saving...') : t('Save Progress')}</button><button className="native-button" type="button" disabled={busy} onClick={() => setEditingProgress(false)}>{t('Cancel')}</button></div>
+            </form> : <div className="inspector-actions">
+              {onUpdateProgress && editable && <button className="native-button native-button-primary" onClick={openProgress} disabled={disabled}>{t('Update progress')}</button>}
+              {onMediaStatusChange && editable && media.status !== 'completed' && <button className="native-button" onClick={() => void changeStatus('completed')} disabled={disabled}>{completionLabel(media.media_type)}</button>}
+            </div>}
+            <label className="inspector-field"><span>{t('Status')}</span><select aria-label={t('Media Status')} value={media.status} disabled={disabled || !onMediaStatusChange} onChange={(event) => void changeStatus(event.target.value)}>{MEDIA_STATUSES.map((status) => <option key={status} value={status}>{t(status)}</option>)}</select></label>
+            <div className="inspector-field"><span>{t('My Rating')}</span><div className="inspector-rating" aria-label={media.rating == null ? t('Unrated') : `${media.rating} / 10`}>
+              <span className="rating-stars" aria-hidden="true">{Array.from({ length: 5 }, (_, index) => <span key={index} className={media.rating != null && media.rating >= (index + 1) * 2 ? 'rating-star-filled' : ''}><Icon name="star" size={19} /></span>)}</span>
+              <span className="muted">{media.rating == null ? t('Unrated') : `${media.rating.toFixed(1)} / 10`}</span>
+            </div></div>
+          </section>}
+          {media && <section className="inspector-section"><h4>{t('Notes')}</h4>{media.notes ? <p className="inspector-notes">{media.notes}</p> : onOpenDetail && editable ? <button className="inspector-add-note" onClick={() => onOpenDetail(asset.id)}>{media.media_type === 'game' ? t('Add notes…') : t('Add viewing notes…')}</button> : <p className="muted">{t('No notes')}</p>}</section>}
+          <details className="quiet-details inspector-disclosure"><summary>{t('Related assets')}{relations && relations.length > 0 ? ` (${relations.length})` : ''}</summary>
+            {relationsFailed ? <p className="muted">{t('Could not load relations')}</p> : relations === null ? <p className="muted">{t('Loading...')}</p> : relations.length === 0 ? <p className="muted">{t('No relations')}</p> : <div className="inspector-relations">{relations.slice(0, 3).map((relation) => <div key={relation.relation_id}><span>{relation.other_asset_name}</span><span className="muted">{t(relation.relation_type)}</span></div>)}{onOpenRelations && <button className="text-button" onClick={onOpenRelations}>{t('Open in relations')}</button>}</div>}
+          </details>
+          {asset.tags.length > 0 && <section className="inspector-tags"><h4>{t('Tags')}</h4><div>{asset.tags.map((tag) => <button key={tag} className="text-button" onClick={() => onSelectTag?.(tag)} disabled={!onSelectTag} title={t('Filter by #{tag}', { tag })}><Badge variant="muted">#{tag}</Badge></button>)}</div></section>}
+          <details className="quiet-details inspector-disclosure"><summary>{t('Technical details')}</summary><div className="inspector-technical"><span title={asset.id}>{`${asset.id.slice(0, 8)}…${asset.id.slice(-4)}`}</span><button className="text-button" onClick={copyId} aria-label={t('Copy ID')}>{copied ? t('Copied') : t('Copy ID')}</button></div></details>
+          <footer className="inspector-footer"><span>{t('Last Updated')} {formatRelativeTime(asset.updated_at)}</span>{onOpenDetail && <button className="text-button" aria-label={t('View Full Details')} onClick={() => onOpenDetail(asset.id)}>{t('View Full Details')} <Icon name="right" size={12} /></button>}</footer>
+        </> : <div className="inspector-empty"><Icon name="inspector" size={30} /><p>{t('Select an asset to view details.')}</p></div>}
       </div>
-
-      {asset ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              <Badge variant="mesh">{t(asset.kind)}</Badge>
-              {media && statusTint[media.status] && (
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: statusTint[media.status].ink,
-                    backgroundColor: statusTint[media.status].bg,
-                    padding: '1px 8px',
-                    borderRadius: 999,
-                  }}
-                >
-                  {t(media.status)}
-                </span>
-              )}
-              {asset.lifecycle !== 'active' && (
-                <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>
-                  {t(asset.lifecycle)}
-                </Badge>
-              )}
-            </div>
-            <h3
-              style={{
-                fontSize: '17px',
-                fontWeight: 600,
-                color: 'var(--color-ink)',
-                marginTop: '8px',
-                lineHeight: 1.3,
-                wordBreak: 'break-word',
-              }}
-            >
-              {asset.name}
-            </h3>
-            {asset.subtitle && (
-              <p style={{ color: 'var(--color-muted)', fontSize: '13px', marginTop: '4px' }}>
-                {asset.subtitle}
-              </p>
-            )}
-            {media?.platform && (
-              <p style={{ color: 'var(--color-muted)', fontSize: '12px', marginTop: '2px' }}>
-                {media.platform}
-              </p>
-            )}
-          </div>
-
-          {/* Media watch panel: status transition, progress, rating */}
-          {media && (
-            <div
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: '12px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-              }}
-            >
-              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-ink)' }}>
-                {t('Media Status')}
-              </div>
-              <div
-                role="group"
-                aria-label={t('Media Status')}
-                style={{
-                  display: 'flex',
-                  backgroundColor: 'var(--color-canvas)',
-                  borderRadius: 999,
-                  padding: 3,
-                  gap: 2,
-                }}
-              >
-                {MEDIA_STATUS_KEYS.map((key) => {
-                  const active = media.status === key;
-                  const allowed = ALLOWED_TRANSITIONS[media.status]?.includes(key) ?? false;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => changeStatus(key)}
-                      disabled={active || !allowed || pendingStatus !== null || asset.lifecycle !== 'active'}
-                      aria-pressed={active}
-                      title={active ? t(key) : allowed ? t(key) : ''}
-                      style={{
-                        flex: 1,
-                        height: 26,
-                        border: 'none',
-                        borderRadius: 999,
-                        cursor:
-                          active || !allowed || pendingStatus !== null
-                            ? 'default'
-                            : 'pointer',
-                        fontSize: 11.5,
-                        whiteSpace: 'nowrap',
-                        padding: 0,
-                        opacity: active || allowed ? 1 : 0.4,
-                        backgroundColor: active ? 'var(--color-mesh)' : 'transparent',
-                        color: active ? '#ffffff' : 'var(--color-muted)',
-                        fontWeight: active ? 600 : 400,
-                      }}
-                    >
-                      {t(key)}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {actionError && (
-                <p role="alert" style={{ fontSize: 11.5, color: 'var(--color-danger)' }}>
-                  {t(actionError)}
-                </p>
-              )}
-
-              {progress && (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '11.5px', color: 'var(--color-muted)' }}>{t('Progress')}</span>
-                    <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--color-ink)' }}>
-                      {progress.unit ? `${progress.unit} ` : ''}
-                      {progress.current ?? '·'}/{progress.total ?? '·'}
-                    </span>
-                  </div>
-                  {progressPct !== null && (
-                    <div
-                      style={{
-                        marginTop: 5,
-                        height: 4,
-                        borderRadius: 999,
-                        backgroundColor: 'var(--color-border-subtle)',
-                        overflow: 'hidden',
-                      }}
-                      role="progressbar"
-                      aria-valuenow={progressPct}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                    >
-                      <div
-                        style={{
-                          width: `${progressPct}%`,
-                          height: '100%',
-                          backgroundColor: 'var(--color-mesh)',
-                          borderRadius: 999,
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {media.rating != null && (
-                <div>
-                  <div style={{ fontSize: '11.5px', color: 'var(--color-muted)', marginBottom: 2 }}>
-                    {t('My Rating')}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span
-                      aria-label={t('Rating')}
-                      style={{
-                        position: 'relative',
-                        fontSize: 15,
-                        letterSpacing: 2,
-                        color: 'var(--color-border)',
-                        lineHeight: 1,
-                      }}
-                    >
-                      ★★★★★
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          width: `${Math.max(0, Math.min(100, media.rating * 10))}%`,
-                          overflow: 'hidden',
-                          color: '#E8A33D',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        ★★★★★
-                      </span>
-                    </span>
-                    <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--color-ink)' }}>
-                      {media.rating.toFixed(1)}
-                    </span>
-                    <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>/ 10</span>
-                  </div>
-                </div>
-              )}
-
-              {media.status !== 'completed' &&
-                asset.lifecycle === 'active' &&
-                (ALLOWED_TRANSITIONS[media.status]?.includes('completed') ?? false) && (
-                <button
-                  type="button"
-                  onClick={() => changeStatus('completed')}
-                  disabled={pendingStatus !== null}
-                  style={{
-                    height: 30,
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'var(--color-surface)',
-                    color: 'var(--color-ink)',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    cursor: pendingStatus !== null ? 'wait' : 'pointer',
-                  }}
-                >
-                  {t('Mark Completed')}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Relations preview */}
-          {relations !== null && (
-            <div>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-ink)', marginBottom: '6px' }}>
-                {t('Relations')} · {relations.length}
-              </div>
-              {relations.length === 0 ? (
-                <div style={{ fontSize: '12px', color: 'var(--color-muted)' }}>{t('No relations')}</div>
-              ) : (
-                <div
-                  style={{
-                    backgroundColor: 'var(--color-surface)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '4px 12px',
-                  }}
-                >
-                  {relations.slice(0, 3).map((rel) => (
-                    <div
-                      key={rel.relation_id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '5px 0',
-                        borderBottom: '1px solid var(--color-border-subtle)',
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: 10,
-                          color: 'var(--color-muted)',
-                          backgroundColor: 'var(--color-canvas)',
-                          borderRadius: 4,
-                          padding: '0 5px',
-                          lineHeight: '16px',
-                        }}
-                      >
-                        {rel.relation_type}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 500,
-                          color: 'var(--color-ink)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {rel.other_asset_name}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {relations.length > 3 && onOpenRelations && (
-                <button
-                  type="button"
-                  onClick={onOpenRelations}
-                  style={{
-                    marginTop: 6,
-                    border: 'none',
-                    background: 'none',
-                    padding: 0,
-                    cursor: 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 600,
-                    color: 'var(--color-mesh)',
-                  }}
-                >
-                  {t('Open in relations')}
-                </button>
-              )}
-            </div>
-          )}
-
-          {asset.tags.length > 0 && (
-            <div>
-              <div
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: 'var(--color-ink)',
-                  marginBottom: '6px',
-                }}
-              >{t('Tags')}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                {asset.tags.map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => onSelectTag?.(tag)}
-                    title={t('Filter by #{tag}', { tag })}
-                    style={{
-                      all: 'unset',
-                      cursor: onSelectTag ? 'pointer' : 'default',
-                    }}
-                  >
-                    <Badge variant="muted">#{tag}</Badge>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 11,
-              color: 'var(--color-muted)',
-              flexWrap: 'wrap',
-            }}
-          >
-            <span
-              title={asset.id}
-              style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, wordBreak: 'break-all' }}
-            >
-              {shortId}
-            </span>
-            <button
-              type="button"
-              onClick={copyId}
-              aria-label={t('Copy ID')}
-              style={{
-                border: 'none',
-                background: 'none',
-                padding: 0,
-                cursor: 'pointer',
-                fontSize: 10.5,
-                fontWeight: 600,
-                color: copied ? 'var(--color-mesh)' : 'var(--color-muted)',
-              }}
-            >
-              {copied ? t('Copied') : t('Copy ID')}
-            </button>
-            <span>·</span>
-            <span>
-              {t('Last Updated')} {formatRelativeTime(asset.updated_at)}
-            </span>
-          </div>
-
-          {onOpenDetail && (
-            <button
-              onClick={() => onOpenDetail(asset.id)}
-              aria-label={t('View Full Details')}
-              style={{
-                marginTop: '4px',
-                padding: '8px 12px',
-                backgroundColor: 'var(--color-surface)',
-                color: 'var(--color-ink)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                cursor: 'pointer',
-                fontWeight: 500,
-                fontSize: '12px',
-                textAlign: 'center',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-              }}
-            >{t('View Full Details →')}</button>
-          )}
-        </div>
-      ) : (
-        <div style={{ color: 'var(--color-muted)', textAlign: 'center', marginTop: '48px' }}>{t('Select an asset to view details.')}</div>
-      )}
     </aside>
   );
 };

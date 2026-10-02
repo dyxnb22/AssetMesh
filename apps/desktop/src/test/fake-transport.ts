@@ -1,3 +1,4 @@
+import { importPreviewFixture, mergePreviewFixture } from './query-fixtures';
 import type { DesktopTransport } from '../features/library/transport';
 import type {
   AppCapabilities,
@@ -16,17 +17,19 @@ import type {
   Page,
   RelationAttachPayload,
   RelationNeighborsQuery,
-  RelationPathHopDto,
   RelationRemovePayload,
   RelationTraverseQuery,
   RelationViewDto,
   ServiceCommand,
   InfoCommand,
+  ServiceRuntimeState,
+  ServiceRuntimeLogLineDto,
+  ServiceRuntimeLogsDto,
+  ServiceRuntimeStatusDto,
   InfoRecordDto,
   ServiceRecordDto,
   SoftwareCommand,
   SoftwareRecordDto,
-  TraversalNodeDto,
   TraversalViewDto,
   ActivityQuery,
   ActivityViewDto,
@@ -34,7 +37,10 @@ import type {
   DuplicateQuery,
   MergeApplyCommand,
   MergePreviewDto,
-  AppSettings,
+  DiscoveryReport,
+  BackupEntry,
+  BackupStatus,
+  RestoreReceipt,
   ExportReceipt,
   ImportPreview,
   ImportReceipt,
@@ -80,12 +86,15 @@ function normalizeRelationFact(
   return { source, type, target };
 }
 
+/** Stateful UI double for common CRUD; complex query decisions use canned DTOs.
+ * It does not validate domain correctness. Use the real Rust contracts for that.
+ */
 export class FakeDesktopTransport implements DesktopTransport {
   status: AppStatus = { status: 'ready', db_path: ':memory:' };
   capabilities: AppCapabilities = {
     version: '0.3.0',
     modules: ['media', 'software', 'services', 'info'],
-    asset_kinds: ['media.anime', 'software.app', 'service.saas', 'info.item'],
+    asset_kinds: ['media.anime', 'software.app', 'service.saas', 'service.local', 'info.item'],
     relation_types: [
       'depends_on',
       'dependency_of',
@@ -112,10 +121,19 @@ export class FakeDesktopTransport implements DesktopTransport {
       projects: false,
       agent_capabilities: false,
       knowledge_collections: false,
+      local_service_runtime: true,
     },
   };
   assets: AssetSummary[] = [];
   activityEvents: ActivityViewDto[] = [];
+
+  // Runtime double for the local-service page: a plain state machine the UI
+  // reacts to. The real spawn/stop/cleanup behavior is proven by Rust
+  // contracts against actual processes, not reproduced here.
+  runtimeStates = new Map<string, ServiceRuntimeState>();
+  runtimeLogsByAsset = new Map<string, ServiceRuntimeLogLineDto[]>();
+  runtimeStartFailures = new Map<string, { category?: string; message: string }>();
+  private runtimeLogSeq = 0;
 
   constructor(assets: AssetSummary[] = []) {
     this.assets = assets.map((asset) => ({ ...asset, revision: asset.revision ?? 1 }));
@@ -228,7 +246,7 @@ export class FakeDesktopTransport implements DesktopTransport {
     const items = filtered.slice(offset, offset + limit);
 
     return {
-      items,
+      items: structuredClone(items),
       offset,
       limit,
       total,
@@ -289,11 +307,32 @@ export class FakeDesktopTransport implements DesktopTransport {
       filtered = filtered.filter((a) => query.tags!.every((t) => a.tags.includes(t)));
     }
 
+    if (query.media_status) {
+      filtered = filtered.filter((asset) => asset.details?.module === 'media' && asset.details.status === query.media_status);
+    }
+    // Sort
+    const sort = query.sort ?? 'updated_desc';
+    filtered.sort((a, b) => {
+      switch (sort) {
+        case 'name_asc':
+          return a.name.localeCompare(b.name);
+        case 'name_desc':
+          return b.name.localeCompare(a.name);
+        case 'kind_asc':
+          return a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name);
+        case 'updated_asc':
+          return a.updated_at.localeCompare(b.updated_at);
+        case 'updated_desc':
+        default:
+          return b.updated_at.localeCompare(a.updated_at);
+      }
+    });
+
     const total = filtered.length;
     const items = filtered.slice(offset, offset + limit);
 
     return {
-      items,
+      items: structuredClone(items),
       offset,
       limit,
       total,
@@ -359,17 +398,21 @@ export class FakeDesktopTransport implements DesktopTransport {
         architecture: 'arm64',
       };
     } else if (summary.kind.startsWith('service')) {
-      details = {
-        module: 'services',
-        asset_id: summary.id,
-        service_type: 'saas',
-        provider: 'Cloud Provider',
-        plan: 'Standard',
-        cost_minor: 1200,
-        currency: 'USD',
-        dashboard_url: 'https://example.com/dashboard',
-        auto_renew: true,
-      };
+      // Honor seeded typed details (e.g. a local service) before falling back
+      // to canned subscription data; the kind suffix is the service type.
+      details = summary.details && summary.details.module === 'services'
+        ? summary.details
+        : {
+            module: 'services',
+            asset_id: summary.id,
+            service_type: summary.kind.split('.')[1] || 'saas',
+            provider: 'Cloud Provider',
+            plan: 'Standard',
+            cost_minor: 1200,
+            currency: 'USD',
+            dashboard_url: 'https://example.com/dashboard',
+            auto_renew: true,
+          };
     } else {
       details = {
         module: 'unknown',
@@ -382,12 +425,12 @@ export class FakeDesktopTransport implements DesktopTransport {
       name: summary.name,
       summary: summary.subtitle,
       lifecycle: summary.lifecycle,
-      revision: 1,
+      revision: summary.revision ?? 1,
       created_at: summary.updated_at,
       updated_at: summary.updated_at,
       archived_at: summary.lifecycle === 'archived' ? summary.updated_at : null,
       merged_into: null,
-      details,
+      details: summary.details ?? details,
       tags: summary.tags,
       external_refs: [
         {
@@ -432,8 +475,8 @@ export class FakeDesktopTransport implements DesktopTransport {
     },
   ];
 
-  async softwareDiscover(): Promise<ClassifiedCandidateDto[]> {
-    return [...this.candidates];
+  async softwareDiscover(): Promise<DiscoveryReport> {
+    return { candidates: [...this.candidates], completed_sources: ['macos_applications', 'homebrew', 'npm_global', 'pipx'], failed_sources: [] };
   }
 
   async softwareCommand(command: SoftwareCommand): Promise<MutationReceiptDto> {
@@ -899,6 +942,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       if (summary) {
         summary.revision = updatedRev;
         summary.updated_at = updatedDetail.updated_at;
+        summary.details = mediaRecord;
       }
 
       return {
@@ -949,7 +993,11 @@ export class FakeDesktopTransport implements DesktopTransport {
       this.details.set(command.asset_id, updatedDetail);
 
       const progressSummary = this.assets.find((asset) => asset.id === command.asset_id);
-      if (progressSummary) progressSummary.revision = updatedRev;
+      if (progressSummary) {
+        progressSummary.revision = updatedRev;
+        progressSummary.details = mediaRecord;
+        progressSummary.updated_at = updatedDetail.updated_at;
+      }
 
       return {
         operation: 'media.update_progress',
@@ -993,7 +1041,11 @@ export class FakeDesktopTransport implements DesktopTransport {
       this.details.set(command.asset_id, updatedDetail);
 
       const ratingSummary = this.assets.find((asset) => asset.id === command.asset_id);
-      if (ratingSummary) ratingSummary.revision = updatedRev;
+      if (ratingSummary) {
+        ratingSummary.revision = updatedRev;
+        ratingSummary.details = mediaRecord;
+        ratingSummary.updated_at = updatedDetail.updated_at;
+      }
 
       return {
         operation: 'media.rate',
@@ -1149,6 +1201,9 @@ export class FakeDesktopTransport implements DesktopTransport {
         expires_at: command.expires_at ?? null,
         auto_renew: command.auto_renew ?? null,
         notes: command.notes ?? null,
+        project_dir: command.project_dir ?? null,
+        start_command: command.start_command ?? null,
+        stop_command: command.stop_command ?? null,
       };
 
       const newDetail: AssetDetailDto = {
@@ -1211,7 +1266,9 @@ export class FakeDesktopTransport implements DesktopTransport {
         command.renews_at === undefined &&
         command.expires_at === undefined &&
         command.auto_renew === undefined &&
-        command.notes === undefined
+        command.notes === undefined &&
+        command.project_dir === undefined &&
+        command.start_command === undefined && command.stop_command === undefined
       ) {
         return {
           operation: 'service.update',
@@ -1239,7 +1296,7 @@ export class FakeDesktopTransport implements DesktopTransport {
 
       if (command.provider !== undefined) rec.provider = command.provider;
       if (command.account_label !== undefined) rec.account_label = command.account_label;
-      if (command.endpoint_url !== undefined) rec.endpoint_url = command.endpoint_url;
+      if (command.endpoint_url !== undefined) rec.endpoint_url = command.endpoint_url || null;
       if (command.dashboard_url !== undefined) rec.dashboard_url = command.dashboard_url;
       if (command.domain_name !== undefined) rec.domain_name = command.domain_name;
       if (command.plan !== undefined) rec.plan = command.plan;
@@ -1248,6 +1305,9 @@ export class FakeDesktopTransport implements DesktopTransport {
       if (command.expires_at !== undefined) rec.expires_at = command.expires_at;
       if (command.auto_renew !== undefined) rec.auto_renew = command.auto_renew;
       if (command.notes !== undefined) rec.notes = command.notes;
+      if (command.project_dir !== undefined) rec.project_dir = command.project_dir;
+      if (command.start_command !== undefined) rec.start_command = command.start_command;
+      if (command.stop_command !== undefined) rec.stop_command = command.stop_command;
 
       if (command.cost !== undefined || command.currency !== undefined) {
         if (command.cost && command.currency) {
@@ -1275,6 +1335,7 @@ export class FakeDesktopTransport implements DesktopTransport {
       };
 
       this.details.set(command.asset_id, updatedDetail);
+      summary.details = updatedDetail.details;
       summary.name = updatedDetail.name;
       summary.subtitle = updatedDetail.summary;
       summary.revision = updatedRev;
@@ -1372,6 +1433,67 @@ export class FakeDesktopTransport implements DesktopTransport {
 
     throw new Error('Unsupported service command action');
   }
+
+  private runtimeStatusDto(assetId: string): ServiceRuntimeStatusDto {
+    return {
+      asset_id: assetId,
+      state: this.runtimeStates.get(assetId) ?? 'stopped',
+      pid: this.runtimeStates.get(assetId) === 'running' ? 4242 : null,
+      started_at: this.runtimeStates.has(assetId) ? new Date().toISOString() : null,
+      exit_code: null,
+      exit_signal: null,
+      error: null,
+    };
+  }
+
+  /** Seeds the output a service shows after Start (or before it). */
+  pushRuntimeLog(assetId: string, text: string, stream: 'stdout' | 'stderr' = 'stdout'): void {
+    const lines = this.runtimeLogsByAsset.get(assetId) ?? [];
+    lines.push({ seq: ++this.runtimeLogSeq, timestamp: new Date().toISOString(), stream, text });
+    this.runtimeLogsByAsset.set(assetId, lines);
+  }
+
+  async serviceRuntimeStart(assetId: string): Promise<ServiceRuntimeStatusDto> {
+    const failure = this.runtimeStartFailures.get(assetId);
+    if (failure) {
+      this.runtimeStates.set(assetId, 'failed');
+      const error = new Error(failure.message) as Error & { category?: string };
+      error.category = failure.category ?? 'invalid_input';
+      throw error;
+    }
+    this.runtimeStates.set(assetId, 'running');
+    return this.runtimeStatusDto(assetId);
+  }
+
+  async serviceRuntimeStop(assetId: string): Promise<ServiceRuntimeStatusDto | null> {
+    if (!this.runtimeStates.has(assetId)) return null;
+    this.runtimeStates.set(assetId, 'stopped');
+    return this.runtimeStatusDto(assetId);
+  }
+
+  async serviceRuntimeRestart(assetId: string): Promise<ServiceRuntimeStatusDto> {
+    await this.serviceRuntimeStop(assetId);
+    return this.serviceRuntimeStart(assetId);
+  }
+
+  async serviceRuntimeStatus(assetId: string): Promise<ServiceRuntimeStatusDto> {
+    return this.runtimeStatusDto(assetId);
+  }
+
+  async serviceRuntimeStatuses(): Promise<ServiceRuntimeStatusDto[]> {
+    const ids = new Set([...this.runtimeStates.keys(), ...this.assets.filter((asset) => asset.kind === 'service.local' && asset.lifecycle === 'active').map((asset) => asset.id)]);
+    return [...ids].map((id) => this.runtimeStatusDto(id));
+  }
+
+  async serviceRuntimeLogs(assetId: string, since = 0, runId?: string): Promise<ServiceRuntimeLogsDto> {
+    return {
+      run_id: `fixture-${assetId}`,
+      lines: (this.runtimeLogsByAsset.get(assetId) ?? []).filter(line => runId !== `fixture-${assetId}` || line.seq > since),
+      dropped: false,
+    };
+  }
+
+  async serviceOpenPage(_assetId: string): Promise<void> {}
 
   storedRelations: Array<{
     id: string;
@@ -1471,123 +1593,13 @@ export class FakeDesktopTransport implements DesktopTransport {
     return neighbors;
   }
 
+  traversalResult: TraversalViewDto | null = null;
+
   async relationTraverse(query: RelationTraverseQuery): Promise<TraversalViewDto> {
-    const root = this.assets.find((a) => a.id === query.asset_id);
-    if (!root) {
-      const err = new Error(`Asset not found: ${query.asset_id}`) as Error & { category?: string };
-      err.category = 'not_found';
-      throw err;
-    }
-
-    if (root.lifecycle === 'merged') {
-      const err = new Error(
-        `asset ${root.id} was merged into another; request the surviving asset instead`
-      ) as Error & { category?: string };
-      err.category = 'conflict';
-      throw err;
-    }
-
-    const maxDepth = Math.min(query.max_depth ?? 8, 32);
-    const mode = query.mode || 'traverse';
-    let direction: 'outgoing' | 'incoming' | 'both' = query.direction || 'outgoing';
-    let allowedTypes: Set<string> | null = null;
-
-    if (mode === 'dependencies') {
-      direction = 'outgoing';
-      allowedTypes = new Set(['depends_on', 'installed_via', 'hosted_on']);
-    } else if (mode === 'dependents' || mode === 'impact') {
-      direction = 'incoming';
-      allowedTypes = new Set([
-        'depends_on',
-        'installed_via',
-        'hosted_on',
-        'dependency_of',
-        'installs',
-        'hosts',
-      ]);
-    } else if (query.relation_types && query.relation_types.length > 0) {
-      allowedTypes = new Set(query.relation_types);
-    }
-
-    const visited = new Set<string>([root.id]);
-    const paths = new Map<string, RelationPathHopDto[]>();
-    paths.set(root.id, []);
-
-    let frontier: string[] = [root.id];
-    const nodes: TraversalNodeDto[] = [];
-    let stoppedAtBound = false;
-
-    for (let depth = 1; depth <= maxDepth; depth++) {
-      if (frontier.length === 0) break;
-      const nextFrontier: string[] = [];
-
-      for (const currentId of frontier) {
-        const edges = await this.relationList(currentId);
-        for (const edge of edges) {
-          if (direction === 'outgoing' && !edge.outgoing) continue;
-          if (direction === 'incoming' && edge.outgoing) continue;
-          if (allowedTypes && !allowedTypes.has(edge.relation_type)) continue;
-
-          const otherId = edge.other_asset_id;
-          if (visited.has(otherId)) continue;
-
-          const otherAsset = this.assets.find((a) => a.id === otherId);
-          if (!otherAsset) continue;
-          if (!query.include_archived && otherAsset.lifecycle === 'archived') continue;
-          if (otherAsset.lifecycle === 'merged') continue;
-
-          visited.add(otherId);
-          const currentPath = paths.get(currentId) || [];
-          const newPath: RelationPathHopDto[] = [
-            ...currentPath,
-            {
-              from_asset_id: currentId,
-              to_asset_id: otherId,
-              relation_type: edge.relation_type,
-            },
-          ];
-          paths.set(otherId, newPath);
-          nextFrontier.push(otherId);
-
-          nodes.push({
-            asset: otherAsset,
-            depth,
-            path: newPath,
-          });
-        }
-      }
-
-      if (depth === maxDepth) {
-        stoppedAtBound = true;
-      }
-      frontier = nextFrontier;
-    }
-
-    let truncated = false;
-    if (stoppedAtBound && frontier.length > 0) {
-      for (const lastId of frontier) {
-        const edges = await this.relationList(lastId);
-        for (const edge of edges) {
-          if (direction === 'outgoing' && !edge.outgoing) continue;
-          if (direction === 'incoming' && edge.outgoing) continue;
-          if (allowedTypes && !allowedTypes.has(edge.relation_type)) continue;
-          if (!visited.has(edge.other_asset_id)) {
-            const nextAsset = this.assets.find((a) => a.id === edge.other_asset_id);
-            if (nextAsset && (query.include_archived || nextAsset.lifecycle !== 'archived')) {
-              truncated = true;
-              break;
-            }
-          }
-        }
-        if (truncated) break;
-      }
-    }
-
-    return {
-      root,
-      nodes,
-      truncated,
-    };
+    if (this.traversalResult) return this.traversalResult;
+    const root = this.assets.find((asset) => asset.id === query.asset_id);
+    if (!root) throw new Error(`Missing traversal fixture for ${query.asset_id}`);
+    return { root, nodes: [], truncated: false };
   }
 
   async relationAttach(payload: RelationAttachPayload): Promise<MutationReceiptDto> {
@@ -1759,302 +1771,37 @@ export class FakeDesktopTransport implements DesktopTransport {
     };
   }
 
+  duplicateMatches: DuplicateCandidateDto[] = [];
+  mergePreviewOverrides: Partial<MergePreviewDto> = {};
+
   async duplicateCandidates(query?: DuplicateQuery): Promise<Page<DuplicateCandidateDto>> {
-    let eligible = [...this.assets];
-    if (query?.include_archived === false) {
-      eligible = eligible.filter((a) => a.lifecycle === 'active');
-    } else {
-      eligible = eligible.filter((a) => a.lifecycle === 'active' || a.lifecycle === 'archived');
-    }
-
-    if (query?.kinds && query.kinds.length > 0) {
-      eligible = eligible.filter((a) => query.kinds!.includes(a.kind));
-    }
-
-    const candidates: DuplicateCandidateDto[] = [];
-    for (let i = 0; i < eligible.length; i++) {
-      for (let j = i + 1; j < eligible.length; j++) {
-        const a = eligible[i];
-        const b = eligible[j];
-        if (a.kind !== b.kind) continue;
-
-        const left = a.id < b.id ? a : b;
-        const right = a.id < b.id ? b : a;
-
-        const evidence: Array<Record<string, unknown>> = [];
-        const evidence_labels: string[] = [];
-
-        const normA = a.name.toLowerCase().trim();
-        const normB = b.name.toLowerCase().trim();
-        if (normA === normB) {
-          evidence.push({
-            evidence: 'same_normalized_name',
-            normalized_name: normA,
-            kind: a.kind,
-          });
-          evidence_labels.push(`same normalized name (${normA})`);
-        }
-
-        const detA = this.details.get(a.id);
-        const detB = this.details.get(b.id);
-        if (detA && detB) {
-          if (a.kind.startsWith('software')) {
-            const swA = detA.details as SoftwareRecordDto;
-            const swB = detB.details as SoftwareRecordDto;
-            if (swA?.install_location && swB?.install_location && swA.install_location === swB.install_location) {
-              evidence.push({
-                evidence: 'same_install_location',
-                location: swA.install_location,
-              });
-              evidence_labels.push(`same install location (${swA.install_location})`);
-            }
-          } else if (a.kind.startsWith('service')) {
-            const sA = detA.details as ServiceRecordDto;
-            const sB = detB.details as ServiceRecordDto;
-            if (sA?.provider && sB?.provider && sA.provider === sB.provider) {
-              evidence.push({
-                evidence: 'same_provider',
-                provider: sA.provider,
-              });
-              evidence_labels.push(`same provider (${sA.provider})`);
-            }
-            if (sA?.domain_name && sB?.domain_name && sA.domain_name === sB.domain_name) {
-              evidence.push({
-                evidence: 'same_domain',
-                domain: sA.domain_name,
-              });
-              evidence_labels.push(`same domain (${sA.domain_name})`);
-            }
-          }
-        }
-
-        if (evidence.length > 0) {
-          candidates.push({
-            left,
-            right,
-            evidence,
-            evidence_labels,
-          });
-        }
-      }
-    }
-
-    const total = candidates.length;
     const offset = query?.offset ?? 0;
     const limit = query?.limit ?? 20;
-    const items = candidates.slice(offset, offset + limit);
-
-    return {
-      items,
-      offset,
-      limit,
-      total,
-    };
+    return { items: this.duplicateMatches.slice(offset, offset + limit), total: this.duplicateMatches.length, offset, limit };
   }
 
   async mergePreview(winner_id: string, loser_id: string): Promise<MergePreviewDto> {
-    if (winner_id === loser_id) {
-      const err = new Error('cannot merge an asset into itself') as Error & { category?: string };
-      err.category = 'conflict';
-      throw err;
-    }
-
-    const winner = this.assets.find((a) => a.id === winner_id);
-    if (!winner) {
-      const err = new Error(`winner asset not found: ${winner_id}`) as Error & { category?: string };
-      err.category = 'not_found';
-      throw err;
-    }
-
-    const loser = this.assets.find((a) => a.id === loser_id);
-    if (!loser) {
-      const err = new Error(`loser asset not found: ${loser_id}`) as Error & { category?: string };
-      err.category = 'not_found';
-      throw err;
-    }
-
-    const conflicts: string[] = [];
-    const notes: string[] = [];
-
-    if (loser.lifecycle === 'merged') {
-      conflicts.push('Loser is already merged into another asset');
-    }
-    if (winner.lifecycle !== 'active') {
-      conflicts.push('Winner must be active to receive a merge');
-    }
-    if (loser.kind !== winner.kind) {
-      conflicts.push(`Cannot merge assets of different kinds: '${loser.kind}' vs '${winner.kind}'`);
-    }
-
-    const transferred_tags = (loser.tags || []).filter((t) => !(winner.tags || []).includes(t));
-
-    const loser_relations = this.storedRelations.filter(
-      (r) => r.source === loser_id || r.target === loser_id
-    );
-    const winner_relations = this.storedRelations.filter(
-      (r) => r.source === winner_id || r.target === winner_id
-    );
-
-    let transferred_relations_count = 0;
-    let redundant_relations_count = 0;
-
-    for (const rel of loser_relations) {
-      const other = rel.source === loser_id ? rel.target : rel.source;
-      if (other === winner_id) {
-        redundant_relations_count++;
-        continue;
-      }
-      const norm = normalizeRelationFact(
-        rel.source === loser_id ? winner_id : rel.source,
-        rel.type,
-        rel.target === loser_id ? winner_id : rel.target
-      );
-      const isDup = winner_relations.some((wr) => {
-        const wNorm = normalizeRelationFact(wr.source, wr.type, wr.target);
-        return wNorm.source === norm.source && wNorm.target === norm.target && wNorm.type === norm.type;
-      });
-      if (isDup) {
-        redundant_relations_count++;
-      } else {
-        transferred_relations_count++;
-      }
-    }
-
-    const detWinner = this.details.get(winner_id);
-    const detLoser = this.details.get(loser_id);
-    if (detWinner && detLoser && winner.kind.startsWith('service')) {
-      const sW = detWinner.details as ServiceRecordDto;
-      const sL = detLoser.details as ServiceRecordDto;
-      const fieldConflicts: string[] = [];
-      const checkF = (name: string, a?: string | null, b?: string | null) => {
-        if (a && b && a !== b) {
-          fieldConflicts.push(`${name}: '${a}' vs '${b}'`);
-        }
-      };
-      checkF('plan', sW.plan, sL.plan);
-      checkF('provider', sW.provider, sL.provider);
-      checkF('domain_name', sW.domain_name, sL.domain_name);
-      checkF('notes', sW.notes, sL.notes);
-      if (sW.cost_minor != null && sL.cost_minor != null && sW.cost_minor !== sL.cost_minor) {
-        fieldConflicts.push(`cost: ${sW.cost_minor} vs ${sL.cost_minor}`);
-      }
-      if (fieldConflicts.length > 0) {
-        conflicts.push(`Service details conflict on: ${fieldConflicts.join(', ')}`);
-      }
-    }
-
-    if (winner.kind.startsWith('media') && loser.kind.startsWith('media')) {
-      notes.push("Winner's media metadata is kept. Loser's media record is preserved in the audit log.");
-    }
-    if (winner.kind.startsWith('software') && loser.kind.startsWith('software')) {
-      notes.push("Winner's software metadata is kept. Loser's software record is preserved in the audit log.");
-    }
-
-    return {
-      winner,
-      loser,
-      winner_revision: winner.revision ?? 1,
-      loser_revision: loser.revision ?? 1,
-      can_merge: conflicts.length === 0,
-      conflicts,
-      transferred_tags,
-      transferred_external_refs: [],
-      redundant_external_refs: [],
-      transferred_relations_count,
-      redundant_relations_count,
-      notes,
-    };
+    const winner = this.assets.find((asset) => asset.id === winner_id);
+    const loser = this.assets.find((asset) => asset.id === loser_id);
+    if (!winner || !loser) throw new Error('Missing merge fixture assets');
+    return mergePreviewFixture(winner, loser, this.mergePreviewOverrides);
   }
 
   async mergeApply(command: MergeApplyCommand): Promise<MutationReceiptDto> {
-    const preview = await this.mergePreview(command.winner_id, command.loser_id);
-    if (!preview.can_merge) {
-      const err = new Error(
-        `cannot merge assets: ${preview.conflicts.join('; ')}`
-      ) as Error & { category?: string };
-      err.category = 'conflict';
-      throw err;
-    }
-
-    const winner = this.assets.find((a) => a.id === command.winner_id)!;
-    const loser = this.assets.find((a) => a.id === command.loser_id)!;
-
-    if (
-      command.expected_winner_revision !== undefined &&
-      command.expected_winner_revision !== null
-    ) {
-      if ((winner.revision ?? 1) !== command.expected_winner_revision) {
-        const err = new Error(
-          `asset revision mismatch for winner ${winner.id}: expected ${command.expected_winner_revision}, found ${winner.revision ?? 1}`
-        ) as Error & { category?: string };
-        err.category = 'stale_revision';
-        throw err;
-      }
-    }
-    if (
-      command.expected_loser_revision !== undefined &&
-      command.expected_loser_revision !== null
-    ) {
-      if ((loser.revision ?? 1) !== command.expected_loser_revision) {
-        const err = new Error(
-          `asset revision mismatch for loser ${loser.id}: expected ${command.expected_loser_revision}, found ${loser.revision ?? 1}`
-        ) as Error & { category?: string };
-        err.category = 'stale_revision';
-        throw err;
-      }
-    }
-
-    // Tombstone the loser
+    const loser = this.assets.find((asset) => asset.id === command.loser_id)!;
     loser.lifecycle = 'merged';
-    loser.revision = (loser.revision ?? 1) + 1;
-    const loserDetail = this.details.get(command.loser_id);
+    const loserDetail = this.details.get(loser.id);
     if (loserDetail) {
       loserDetail.lifecycle = 'merged';
       loserDetail.merged_into = command.winner_id;
-      loserDetail.details = {
-        module: 'merged_redirect',
-        surviving_asset_id: command.winner_id,
-      };
+      loserDetail.details = { module: 'merged_redirect', surviving_asset_id: command.winner_id };
     }
-
-    // Merge tags into winner
-    const mergedTags = Array.from(new Set([...(winner.tags || []), ...(loser.tags || [])]));
-    winner.tags = mergedTags;
-    const winnerDetail = this.details.get(command.winner_id);
-    if (winnerDetail) {
-      winnerDetail.tags = mergedTags;
-      winnerDetail.revision++;
-      winnerDetail.updated_at = new Date().toISOString();
-    }
-    winner.updated_at = new Date().toISOString();
-
-    // Re-point loser relations
-    for (const rel of this.storedRelations) {
-      if (rel.source === command.loser_id) {
-        if (rel.target === command.winner_id) continue;
-        rel.source = command.winner_id;
-      }
-      if (rel.target === command.loser_id) {
-        if (rel.source === command.winner_id) continue;
-        rel.target = command.winner_id;
-      }
-    }
-
-    this.recordActivity(
-      'asset.merged',
-      command.winner_id,
-      winner.name,
-      { loser_id: command.loser_id, loser_name: loser.name },
-      'asset'
-    );
-
-    return {
-      operation: 'asset.merge',
-      asset_ids: [command.winner_id, command.loser_id],
-      revision: winnerDetail ? winnerDetail.revision : null,
-      changed: true,
-      warnings: [],
-    };
+    const winner = this.assets.find((asset) => asset.id === command.winner_id)!;
+    winner.revision = (winner.revision ?? 1) + 1;
+    const winnerDetail = this.details.get(winner.id);
+    if (winnerDetail) winnerDetail.revision = winner.revision;
+    this.recordActivity('asset.merged', winner.id, winner.name, { loser_id: loser.id }, 'asset');
+    return { operation: 'asset.merge', asset_ids: [winner.id, loser.id], revision: winner.revision, changed: true, warnings: [] };
   }
 
   // =========================================================================
@@ -2131,232 +1878,49 @@ export class FakeDesktopTransport implements DesktopTransport {
   }
 
   async portableImportPreview(sourceDir: string): Promise<ImportPreview> {
-    if (!sourceDir || !sourceDir.trim()) {
-      const err = new Error('Source directory cannot be empty') as Error & { category?: string };
-      err.category = 'invalid_input';
-      throw err;
-    }
     this.importPreviewCalls.push(sourceDir);
-
-    if (this.nextImportPreview) {
-      return this.nextImportPreview;
-    }
-
-    if (sourceDir.includes('malformed')) {
-      return {
-        valid: false,
-        source_dir: sourceDir,
-        format: 'assetmesh-portable-export',
-        version: 1,
-        app_version: '0.3.0',
-        created_at: new Date().toISOString(),
-        record_counts: {},
-        modules: [],
-        dispositions: {
-          assets_created: 0,
-          assets_updated: 0,
-          media_created: 0,
-          media_updated: 0,
-          software_created: 0,
-          software_updated: 0,
-          services_created: 0,
-          services_updated: 0,
-          info_created: 0,
-          info_updated: 0,
-          relations_created: 0,
-          relations_updated: 0,
-          external_refs_created: 0,
-          external_refs_deduplicated: 0,
-          activity_created: 0,
-          tags_created: 0,
-        },
-        errors: ['Failed to read bundle: invalid json syntax in assets.jsonl'],
-        fingerprint: 'sha256-malformed-' + sourceDir,
-      };
-    }
-
-    if (sourceDir.includes('unsupported')) {
-      return {
-        valid: false,
-        source_dir: sourceDir,
-        format: 'assetmesh-portable-export',
-        version: 999,
-        app_version: '99.0.0',
-        created_at: new Date().toISOString(),
-        record_counts: {},
-        modules: [],
-        dispositions: {
-          assets_created: 0,
-          assets_updated: 0,
-          media_created: 0,
-          media_updated: 0,
-          software_created: 0,
-          software_updated: 0,
-          services_created: 0,
-          services_updated: 0,
-          info_created: 0,
-          info_updated: 0,
-          relations_created: 0,
-          relations_updated: 0,
-          external_refs_created: 0,
-          external_refs_deduplicated: 0,
-          activity_created: 0,
-          tags_created: 0,
-        },
-        errors: ['Unsupported export version 999, supported version is 1'],
-        fingerprint: 'sha256-unsupported-' + sourceDir,
-      };
-    }
-
-    if (sourceDir.includes('collision')) {
-      return {
-        valid: false,
-        source_dir: sourceDir,
-        format: 'assetmesh-portable-export',
-        version: 1,
-        app_version: '0.3.0',
-        created_at: new Date().toISOString(),
-        record_counts: { assets: 1, external_refs: 1 },
-        modules: ['media'],
-        dispositions: {
-          assets_created: 0,
-          assets_updated: 0,
-          media_created: 0,
-          media_updated: 0,
-          software_created: 0,
-          software_updated: 0,
-          services_created: 0,
-          services_updated: 0,
-          info_created: 0,
-          info_updated: 0,
-          relations_created: 0,
-          relations_updated: 0,
-          external_refs_created: 0,
-          external_refs_deduplicated: 0,
-          activity_created: 0,
-          tags_created: 0,
-        },
-        errors: ['Collision: external ref imdb:tt0000001 is already attached to another asset'],
-        fingerprint: 'sha256-collision-' + sourceDir,
-      };
-    }
-
-    return {
-      valid: true,
-      source_dir: sourceDir,
-      format: 'assetmesh-portable-export',
-      version: 1,
-      app_version: '0.3.0',
-      created_at: '2026-01-01T00:00:00Z',
-      record_counts: {
-        assets: 3,
-        media: 1,
-        software: 1,
-        services: 1,
-        relations: 1,
-      },
-      modules: ['media', 'software', 'services'],
-      dispositions: {
-        assets_created: 3,
-        assets_updated: 0,
-        media_created: 1,
-        media_updated: 0,
-        software_created: 1,
-        software_updated: 0,
-        services_created: 1,
-        services_updated: 0,
-        info_created: 0,
-        info_updated: 0,
-        relations_created: 1,
-        relations_updated: 0,
-        external_refs_created: 2,
-        external_refs_deduplicated: 0,
-        activity_created: 3,
-        tags_created: 2,
-      },
-      fingerprint: 'sha256-valid-' + sourceDir,
-      errors: [],
-    };
+    return this.nextImportPreview ?? importPreviewFixture(sourceDir);
   }
 
-  async portableImportApply(sourceDir: string, expectedFingerprint?: string): Promise<ImportReceipt> {
-    if (!sourceDir || !sourceDir.trim()) {
-      const err = new Error('Source directory cannot be empty') as Error & { category?: string };
-      err.category = 'invalid_input';
-      throw err;
-    }
-    if (expectedFingerprint !== undefined && !expectedFingerprint.trim()) {
-      const err = new Error('Expected bundle fingerprint cannot be empty') as Error & { category?: string };
-      err.category = 'invalid_input';
-      throw err;
-    }
+  async portableImportApply(sourceDir: string, _expectedFingerprint?: string): Promise<ImportReceipt> {
     this.importApplyCalls.push(sourceDir);
-
-    if (this.nextImportReceipt) {
-      return this.nextImportReceipt;
-    }
-
-    if (expectedFingerprint && (expectedFingerprint.includes('mismatch') || expectedFingerprint === 'mismatch')) {
-      const err = new Error('Bundle content changed since preview') as Error & { category?: string };
-      err.category = 'conflict';
-      throw err;
-    }
-
-    if (sourceDir.includes('malformed') || sourceDir.includes('unsupported')) {
-      const err = new Error('Bundle validation failed') as Error & { category?: string };
-      err.category = 'invalid_input';
-      throw err;
-    }
-
-    if (sourceDir.includes('collision')) {
-      const err = new Error('Import collision: external ref conflict') as Error & { category?: string };
-      err.category = 'conflict';
-      throw err;
-    }
-
-    const preview = await this.portableImportPreview(sourceDir);
-    if (!preview.valid) {
-      const err = new Error(preview.errors[0] || 'Import preflight rejected') as Error & {
-        category?: string;
-      };
-      err.category = 'invalid_input';
-      throw err;
-    }
-
-    return {
+    return this.nextImportReceipt ?? {
       success: true,
       source_dir: sourceDir,
-      applied_at: new Date().toISOString(),
-      report: preview.dispositions,
+      applied_at: '2026-01-01T00:00:00Z',
+      report: (this.nextImportPreview ?? importPreviewFixture(sourceDir)).dispositions,
     };
   }
 
-  async getAppSettings(): Promise<AppSettings> {
-    return {
-      db_path: '/Users/diaoyuxuan/Library/Application Support/com.assetmesh.desktop/assetmesh.db',
-      db_status: 'Ready',
-      app_version: '0.3.0',
-      providers: [
-        {
-          name: 'macos_applications',
-          display_name: 'macOS Applications',
-          available: true,
-          details: '/Applications, ~/Applications',
-        },
-        {
-          name: 'homebrew',
-          display_name: 'Homebrew',
-          available: true,
-          details: 'Homebrew 4.4.0 in PATH',
-        },
-        {
-          name: 'cli_tools',
-          display_name: 'CLI Tools (npm, pipx)',
-          available: true,
-          details: 'npm and pipx detected in PATH',
-        },
-      ],
-      capabilities: this.capabilities,
-    };
+  private backupEntries: BackupEntry[] = [];
+  private preferences: Record<string, string> = {};
+  private restorePending = false;
+
+  async backupStatus(): Promise<BackupStatus> {
+    return { directory: '/test/assetmesh.backups', entries: this.backupEntries, issues: [], storage_bytes: this.backupEntries.length * 1_048_576, budget_bytes: 268_435_456, last_error: null, restore_pending: this.restorePending };
   }
+  async backupCreate(): Promise<BackupEntry> {
+    const id = `backup-${this.backupEntries.length + 1}`;
+    const entry: BackupEntry = { id, source_dir: `/test/assetmesh.backups/${id}`, created_at: new Date().toISOString(), kind: 'snapshot', reason: 'manual', asset_count: this.assets.length, contains_api_keys: false, fingerprint: id };
+    this.backupEntries = [entry, ...this.backupEntries];
+    return entry;
+  }
+  async backupPreview(sourceDir: string): Promise<BackupEntry> {
+    const entry = this.backupEntries.find((item) => item.source_dir === sourceDir);
+    if (!entry) throw { category: 'corrupt_data', message: 'Backup not found' };
+    return entry;
+  }
+  async backupRestore(sourceDir: string, expectedFingerprint: string): Promise<RestoreReceipt> {
+    const entry = await this.backupPreview(sourceDir);
+    if (entry.fingerprint !== expectedFingerprint) throw { category: 'conflict', message: 'Backup changed since preview' };
+    this.restorePending = true;
+    return { db_path: '/test/restored.db', preferences: this.preferences, restart_required: true };
+  }
+  async backupPreferences(): Promise<Record<string, string>> { return this.preferences; }
+  async startupTiming(): Promise<void> { /* Native startup observations are outside the UI fake. */ }
+  async backupSavePreferences(preferences: Record<string, string>): Promise<void> { this.preferences = preferences; }
+  async backupTick(): Promise<void> {}
+  async backupExportCopy(targetDir: string): Promise<string> { return `${targetDir}/assetmesh-backup-copy`; }
+
+
 }

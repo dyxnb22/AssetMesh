@@ -5,6 +5,7 @@
 
 pub mod activity_service;
 pub mod asset_service;
+pub mod backup_service;
 pub mod duplicate_review_service;
 pub mod import_media;
 pub mod import_parse;
@@ -12,6 +13,7 @@ pub mod info_service;
 pub mod library_service;
 pub mod media_service;
 pub mod merge_preview_service;
+pub mod patch;
 pub mod portable;
 pub mod projection;
 pub mod relation_query_service;

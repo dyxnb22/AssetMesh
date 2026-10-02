@@ -137,6 +137,7 @@ fn seed_50k_database() -> (SharedSqlite, Vec<AssetId>) {
 }
 
 #[test]
+#[ignore = "release-scale gate; run npm run test:scale"]
 fn scale_50k_paging_and_memory_gate() {
     let (factory, _asset_ids) = seed_50k_database();
     let mut library = LibraryService::new(factory);
@@ -297,6 +298,7 @@ fn scale_50k_paging_and_memory_gate() {
 }
 
 #[test]
+#[ignore = "release-scale gate; run npm run test:scale"]
 fn scale_50k_search_hydrates_only_indexed_candidates() {
     let (factory, ids) = seed_50k_database();
     let mut library = LibraryService::new(factory.clone());
@@ -334,6 +336,7 @@ fn scale_50k_search_hydrates_only_indexed_candidates() {
 }
 
 #[test]
+#[ignore = "release-scale gate; run npm run test:scale"]
 fn scale_batch_safe_chunking_limits() {
     let (mut factory, asset_ids) = seed_50k_database();
     assert!(asset_ids.len() >= 1_200);

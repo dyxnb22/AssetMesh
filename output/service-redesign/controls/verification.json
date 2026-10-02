@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "checks": [
+    "dry run keeps listener alive",
+    "wrong command is refused",
+    "wrong project is refused",
+    "graceful stop stops listener and child; second stop succeeds (0.23s)",
+    "dry run keeps listener alive",
+    "wrong command is refused",
+    "wrong project is refused",
+    "TERM escalation stops listener and child; second stop succeeds (5.35s)"
+  ],
+  "real_services_interrupted": false,
+  "configured_services": [
+    {
+      "service": "SillyTavern",
+      "revision": 2,
+      "start_command": "PATH=/Users/diaoyuxuan/.local/share/mise/installs/node/lts/bin:$PATH node server.js",
+      "stop_command": "/Users/diaoyuxuan/.local/bin/assetmesh-stop-service 8000 node server.js",
+      "check": "Verified project /Users/diaoyuxuan/SillyTavern-upstream-clean; listener(s) [78951]; target(s) [78951]"
+    },
+    {
+      "service": "gcli2api",
+      "revision": 3,
+      "start_command": "bash start-local.sh",
+      "stop_command": "/Users/diaoyuxuan/.local/bin/assetmesh-stop-service 7861 python web.py",
+      "check": "Verified project /Users/diaoyuxuan/gcli2api; listener(s) [92849]; target(s) [92849]"
+    },
+    {
+      "service": "TypeWords",
+      "revision": 2,
+      "start_command": "PATH=/Users/diaoyuxuan/.local/share/mise/installs/node/lts/bin:$PATH npm run dev",
+      "stop_command": "/Users/diaoyuxuan/.local/bin/assetmesh-stop-service 5567 node nuxt.mjs",
+      "check": "Verified project /Users/diaoyuxuan/TypeWords; listener(s) [15964]; target(s) [15964, 24349, 24350]"
+    }
+  ],
+  "other_service_fields_unchanged": true
+}

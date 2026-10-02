@@ -39,6 +39,67 @@ fn env() -> TestSqlite {
 }
 
 #[test]
+fn sqlite_search_applies_media_status_and_library_sort_before_pagination() {
+    use assetmesh_core::domain::media::MediaStatus;
+    let test = env();
+    for i in 0..75 {
+        let mut cmd = media_cmd(&format!("Shared item {i:03}"), MediaType::Anime, &["watch"]);
+        cmd.status = Some(if i < 60 {
+            MediaStatus::Planned
+        } else {
+            MediaStatus::InProgress
+        });
+        test.media_service().create_media(cmd).unwrap();
+    }
+    for sort in [
+        LibrarySort::NameAsc,
+        LibrarySort::NameDesc,
+        LibrarySort::KindAsc,
+        LibrarySort::UpdatedAsc,
+        LibrarySort::UpdatedDesc,
+    ] {
+        let listed = test
+            .library_service()
+            .list_assets(&LibraryQuery {
+                media_status: Some(MediaStatus::InProgress),
+                sort,
+                page: PageRequest::new(4, 4),
+                ..Default::default()
+            })
+            .unwrap();
+        let searched = test
+            .library_service()
+            .search_assets(&LibrarySearchQuery {
+                text: "Shared".into(),
+                tags: vec!["watch".into()],
+                media_status: Some(MediaStatus::InProgress),
+                sort: Some(sort),
+                page: PageRequest::new(4, 4),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(searched.total, Some(15));
+        assert_eq!(searched.items, listed.items);
+    }
+    let mut software = software_cmd("Shared software", SoftwareCategory::Tool, &["watch"]);
+    software.purpose = Some("Shared item".into());
+    test.software_service().create_software(software).unwrap();
+    let result = test
+        .library_service()
+        .search_assets(&LibrarySearchQuery {
+            text: "Shared".into(),
+            media_status: Some(MediaStatus::InProgress),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(result.total, Some(15));
+    assert!(result
+        .items
+        .iter()
+        .all(|item| item.kind == AssetKind::MediaAnime));
+}
+
+#[test]
 fn sqlite_name_order_uses_the_same_unicode_lowercase_as_core() {
     let test = env();
     for name in ["Älpha", "älpha", "Zulu"] {
@@ -81,7 +142,7 @@ impl TestSqlite {
         ServiceService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
     }
     fn asset_service(&self) -> AssetService<SharedSqlite> {
-        AssetService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
+        AssetService::new(self.factory.clone(), self.clock.clone())
     }
     fn library_service(&self) -> LibraryService<SharedSqlite> {
         LibraryService::new(self.factory.clone())
@@ -142,6 +203,9 @@ fn service_cmd(name: &str, service_type: ServiceType, tags: &[&str]) -> CreateSe
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: tags.iter().map(|t| (*t).to_string()).collect(),
         external_refs: Vec::new(),
     }
@@ -669,7 +733,7 @@ fn sqlite_search_reaches_every_module_and_keeps_substring_fallback() {
 
     // An empty query is not an error, and a rebuild keeps the results stable.
     assert!(search(&mut library, "  ").items.is_empty());
-    SearchService::new(seeded.db.factory.clone(), seeded.db.clock.clone())
+    SearchService::new(seeded.db.factory.clone())
         .rebuild()
         .unwrap();
     assert_eq!(

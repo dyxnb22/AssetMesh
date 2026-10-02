@@ -1,0 +1,28 @@
+{
+  "rust_workspace": {
+    "passed": 560,
+    "failed": 0,
+    "ignored": 4
+  },
+  "frontend": {
+    "passed": 146
+  },
+  "typecheck": "passed",
+  "eslint": "passed",
+  "clippy": "passed",
+  "macos_build_and_signature": "passed",
+  "visual_checks": [
+    "light",
+    "dark",
+    "narrow window",
+    "installed application"
+  ],
+  "live_restore_preview": {
+    "assets": 790,
+    "confirmation_required": true
+  },
+  "live_backup_status": {
+    "copies": 10,
+    "size_mib_displayed": 13.5
+  }
+}

@@ -43,6 +43,9 @@ fn service_workflow_create_and_read_back() {
         expires_at: None,
         auto_renew: Some(true),
         notes: Some("Auto-renewing corporate subscription".into()),
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: vec!["dev".into(), "ai".into()],
     };
 
@@ -59,14 +62,38 @@ fn service_workflow_create_and_read_back() {
     assert_eq!(detail.name, "GitHub Copilot");
     assert_eq!(detail.kind, "service.saas");
     assert_eq!(detail.revision, 1);
-    assert_eq!(detail.details["module"], "services");
-    assert_eq!(detail.details["service_type"], "saas");
-    assert_eq!(detail.details["provider"], "GitHub");
-    assert_eq!(detail.details["plan"], "Business");
-    assert_eq!(detail.details["cost_minor"], 1900); // 19.00 -> 1900 minor units!
-    assert_eq!(detail.details["currency"], "USD");
-    assert_eq!(detail.details["billing_cadence"], "monthly");
-    assert_eq!(detail.details["auto_renew"], true);
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["module"],
+        "services"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["service_type"],
+        "saas"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["provider"],
+        "GitHub"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["plan"],
+        "Business"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["cost_minor"],
+        1900
+    ); // 19.00 -> 1900 minor units!
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["currency"],
+        "USD"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["billing_cadence"],
+        "monthly"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["auto_renew"],
+        true
+    );
 }
 
 #[test]
@@ -90,6 +117,9 @@ fn service_workflow_update_metadata_and_conflict() {
         expires_at: None,
         auto_renew: Some(true),
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: vec![],
     };
     let receipt = service_command_impl(create_cmd, &state).expect("create");
@@ -100,20 +130,23 @@ fn service_workflow_update_metadata_and_conflict() {
         asset_id: asset_id.clone(),
         expected_revision: Some(1),
         name: Some("Proton Unlimited".into()),
-        summary: Some("Encrypted email and VPN".into()),
-        provider: None,
-        account_label: None,
-        endpoint_url: None,
-        dashboard_url: None,
-        domain_name: None,
-        plan: Some("Unlimited".into()),
-        cost: Some("9.99".into()),
-        currency: Some("EUR".into()),
-        billing_cadence: Some("monthly".into()),
-        renews_at: None,
-        expires_at: None,
-        auto_renew: Some(true),
-        notes: Some("Upgraded plan".into()),
+        summary: (Some("Encrypted email and VPN".into())).into(),
+        provider: None.into(),
+        account_label: None.into(),
+        endpoint_url: None.into(),
+        dashboard_url: None.into(),
+        domain_name: None.into(),
+        plan: (Some("Unlimited".into())).into(),
+        cost: (Some("9.99".into())).into(),
+        currency: (Some("EUR".into())).into(),
+        billing_cadence: (Some("monthly".into())).into(),
+        renews_at: None.into(),
+        expires_at: None.into(),
+        auto_renew: (Some(true)).into(),
+        notes: (Some("Upgraded plan".into())).into(),
+        project_dir: None.into(),
+        start_command: None.into(),
+        stop_command: None.into(),
     };
     let update_receipt = service_command_impl(update_cmd, &state).expect("update");
     assert_eq!(update_receipt.operation, "service.update");
@@ -123,29 +156,41 @@ fn service_workflow_update_metadata_and_conflict() {
     // Read back
     let detail = library_get_impl(&asset_id, &state).expect("get");
     assert_eq!(detail.name, "Proton Unlimited");
-    assert_eq!(detail.details["plan"], "Unlimited");
-    assert_eq!(detail.details["cost_minor"], 999);
-    assert_eq!(detail.details["notes"], "Upgraded plan");
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["plan"],
+        "Unlimited"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["cost_minor"],
+        999
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["notes"],
+        "Upgraded plan"
+    );
 
     // 2. Stale revision conflict
     let stale_cmd = ServiceCommandDto::Update {
         asset_id: asset_id.clone(),
         expected_revision: Some(1), // Actual is 2
         name: Some("Conflict Name".into()),
-        summary: None,
-        provider: None,
-        account_label: None,
-        endpoint_url: None,
-        dashboard_url: None,
-        domain_name: None,
-        plan: None,
-        cost: None,
-        currency: None,
-        billing_cadence: None,
-        renews_at: None,
-        expires_at: None,
-        auto_renew: None,
-        notes: None,
+        summary: None.into(),
+        provider: None.into(),
+        account_label: None.into(),
+        endpoint_url: None.into(),
+        dashboard_url: None.into(),
+        domain_name: None.into(),
+        plan: None.into(),
+        cost: None.into(),
+        currency: None.into(),
+        billing_cadence: None.into(),
+        renews_at: None.into(),
+        expires_at: None.into(),
+        auto_renew: None.into(),
+        notes: None.into(),
+        project_dir: None.into(),
+        start_command: None.into(),
+        stop_command: None.into(),
     };
     let err = service_command_impl(stale_cmd, &state).unwrap_err();
     assert_eq!(err.category, "stale_revision");
@@ -155,20 +200,23 @@ fn service_workflow_update_metadata_and_conflict() {
         asset_id: asset_id.clone(),
         expected_revision: Some(2),
         name: None,
-        summary: None,
-        provider: None,
-        account_label: None,
-        endpoint_url: None,
-        dashboard_url: None,
-        domain_name: None,
-        plan: None,
-        cost: None,
-        currency: None,
-        billing_cadence: None,
-        renews_at: None,
-        expires_at: None,
-        auto_renew: None,
-        notes: None,
+        summary: None.into(),
+        provider: None.into(),
+        account_label: None.into(),
+        endpoint_url: None.into(),
+        dashboard_url: None.into(),
+        domain_name: None.into(),
+        plan: None.into(),
+        cost: None.into(),
+        currency: None.into(),
+        billing_cadence: None.into(),
+        renews_at: None.into(),
+        expires_at: None.into(),
+        auto_renew: None.into(),
+        notes: None.into(),
+        project_dir: None.into(),
+        start_command: None.into(),
+        stop_command: None.into(),
     };
     let mut stale_noop = noop_cmd.clone();
     if let ServiceCommandDto::Update {
@@ -221,6 +269,9 @@ fn service_workflow_money_parsing_and_pairing_validation() {
             expires_at: None,
             auto_renew: None,
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec![],
         },
         &state,
@@ -247,6 +298,9 @@ fn service_workflow_money_parsing_and_pairing_validation() {
             expires_at: None,
             auto_renew: None,
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec![],
         },
         &state,
@@ -273,6 +327,9 @@ fn service_workflow_money_parsing_and_pairing_validation() {
             expires_at: None,
             auto_renew: None,
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec![],
         },
         &state,
@@ -302,6 +359,9 @@ fn service_workflow_record_renewal() {
         expires_at: Some("2024-05-01".into()),
         auto_renew: Some(true),
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: vec![],
     };
     let receipt = service_command_impl(create_cmd, &state).expect("create");
@@ -325,7 +385,7 @@ fn service_workflow_record_renewal() {
     // Read back and check renews_at was updated to 2025-05-01
     let detail = library_get_impl(&asset_id, &state).expect("get");
     assert!(
-        detail.details["renews_at"]
+        serde_json::to_value(&detail.details).unwrap()["renews_at"]
             .as_str()
             .unwrap()
             .starts_with("2025-05-01"),
@@ -354,6 +414,9 @@ fn service_workflow_archive() {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: vec![],
     };
     let receipt = service_command_impl(create_cmd, &state).expect("create");
@@ -394,6 +457,9 @@ fn service_stale_revision_is_rejected_with_stale_revision_category() {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: vec![],
     };
     let receipt = service_command_impl(create_cmd, &state).expect("create");

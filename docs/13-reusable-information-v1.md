@@ -23,7 +23,8 @@ update existing items.
 
 Library filters can be saved with a name and restored later. Saved filters are
 stored in this desktop client's local preferences; they are not part of the
-portable asset bundle.
+standalone portable asset bundle. Personal recovery packages additionally preserve
+saved filters, theme and language; see `docs/14-personal-backup-and-recovery.md`.
 
 The value is free text so a URL can include any syntax the user wants to remember,
 and a key can contain line breaks. Names and tags are useful search terms. Email,

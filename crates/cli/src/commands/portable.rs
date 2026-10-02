@@ -2,8 +2,7 @@
 
 use crate::commands::SharedFactory;
 use assetmesh_core::application::portable::{
-    read_bundle_from_directory, write_bundle_to_directory, PortableExportService,
-    PortableImportService,
+    read_bundle_from_directory, PortableExportService, PortableImportService,
 };
 use assetmesh_core::{AppError, SharedClock};
 use std::path::PathBuf;
@@ -12,12 +11,16 @@ pub(crate) fn run_export(
     factory: SharedFactory,
     clock: SharedClock,
     dir: PathBuf,
+    include_api_keys: bool,
 ) -> Result<(), AppError> {
     let mut service = PortableExportService::new(factory, clock);
-    let bundle = service.export(env!("CARGO_PKG_VERSION"))?;
-    write_bundle_to_directory(&bundle, &dir)?;
+    let manifest =
+        service.export_to_directory(env!("CARGO_PKG_VERSION"), &dir, include_api_keys)?;
+    if include_api_keys {
+        eprintln!("This export includes API key values and is not encrypted. Keep it on encrypted storage.");
+    }
     println!("exported portable bundle to {}", dir.display());
-    for (name, count) in &bundle.manifest.record_counts {
+    for (name, count) in &manifest.record_counts {
         println!("  {name}: {count}");
     }
     Ok(())

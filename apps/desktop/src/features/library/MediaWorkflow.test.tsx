@@ -24,6 +24,43 @@ describe('Media Workflow UI (P5-06)', () => {
     setTransport(fakeTransport);
   });
 
+  it('clears optional metadata and reads back canonical empty fields', async () => {
+    const initial = await fakeTransport.getAsset(initialMediaAsset.id);
+    if (initial.details.module !== 'media') throw new Error('Expected media fixture');
+    fakeTransport.details.set(initial.id, { ...initial, summary: 'Old summary', details: {
+      ...initial.details, year: 2001, platform: 'Blu-ray', notes: 'Old notes',
+    } });
+    const command = vi.spyOn(fakeTransport, 'mediaCommand');
+    render(<AssetDetailView assetId={initial.id} />);
+    fireEvent.click(await screen.findByTestId('edit-media-metadata-button'));
+    for (const field of ['summary', 'year', 'platform', 'notes']) {
+      fireEvent.change(screen.getByTestId(`media-${field}-input`), { target: { value: '' } });
+    }
+    fireEvent.click(screen.getByTestId('save-media-button'));
+    await waitFor(() => expect(screen.queryByTestId('media-edit-form')).not.toBeInTheDocument());
+    expect(command).toHaveBeenCalledWith(expect.objectContaining({
+      summary: null, year: null, platform: null, notes: null,
+    }));
+    const fresh = await fakeTransport.getAsset(initial.id);
+    expect(fresh.summary).toBeNull();
+    expect(fresh.details).toEqual(expect.objectContaining({ year: null, platform: null, notes: null }));
+    expect(fresh.name).toBe(initial.name);
+  });
+
+  it('submits an emptied title for validation and keeps the rejected draft', async () => {
+    const command = vi.spyOn(fakeTransport, 'mediaCommand').mockRejectedValueOnce({
+      category: 'invalid_input', message: 'media title must not be empty',
+    });
+    render(<AssetDetailView assetId={initialMediaAsset.id} />);
+    fireEvent.click(await screen.findByTestId('edit-media-metadata-button'));
+    fireEvent.change(screen.getByTestId('media-title-input'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByTestId('save-media-button'));
+    await screen.findByText('media title must not be empty');
+    expect(command).toHaveBeenCalledWith(expect.objectContaining({ title: '' }));
+    expect(screen.getByTestId('media-title-input')).toHaveValue('   ');
+    expect((await fakeTransport.getAsset(initialMediaAsset.id)).name).toBe(initialMediaAsset.name);
+  });
+
   it('Flow 1 (Add Media): opens creation modal, submits valid media input, updates ledger and inspector', async () => {
     const mediaCmdSpy = vi.spyOn(fakeTransport, 'mediaCommand');
 
@@ -122,11 +159,11 @@ describe('Media Workflow UI (P5-06)', () => {
     const form = screen.getByTestId('media-edit-form');
     expect(form).toBeInTheDocument();
 
-    const titleInput = screen.getByTestId('media-title-input') as HTMLInputElement;
-    const summaryInput = screen.getByTestId('media-summary-input') as HTMLInputElement;
-    const yearInput = screen.getByTestId('media-year-input') as HTMLInputElement;
+    const titleInput = screen.getByTestId('media-title-input');
+    const summaryInput = screen.getByTestId('media-summary-input');
+    const yearInput = screen.getByTestId('media-year-input');
 
-    expect(titleInput.value).toBe('Steins;Gate');
+    expect(titleInput).toHaveValue('Steins;Gate');
 
     fireEvent.change(titleInput, { target: { value: 'Steins;Gate (Elite)' } });
     fireEvent.change(summaryInput, { target: { value: 'Remastered visual VN & anime' } });
@@ -155,7 +192,6 @@ describe('Media Workflow UI (P5-06)', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Steins;Gate (Elite)' })).toBeInTheDocument();
     expect(screen.getByText('Remastered visual VN & anime')).toBeInTheDocument();
     expect(screen.getByText('2018')).toBeInTheDocument();
-    expect(screen.getByText('rev 2')).toBeInTheDocument();
 
     expect(onUpdated).toHaveBeenCalled();
   });
@@ -280,6 +316,10 @@ describe('Media Workflow UI (P5-06)', () => {
 
     await screen.findByTestId('asset-detail-view');
 
+    expect(screen.getByTestId('media-status-select')).toBeEnabled();
+    expect(screen.getByTestId('edit-progress-button')).toBeEnabled();
+    expect(screen.getByTestId('edit-rating-button')).toBeEnabled();
+
     // Click Archive button
     const archiveBtn = screen.getByTestId('archive-asset-button');
     fireEvent.click(archiveBtn);
@@ -305,6 +345,9 @@ describe('Media Workflow UI (P5-06)', () => {
       expect(screen.getByText(/Archived Asset:/)).toBeInTheDocument();
       expect(screen.queryByTestId('archive-asset-button')).not.toBeInTheDocument();
       expect(screen.queryByTestId('edit-media-metadata-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('media-status-select')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('edit-progress-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('edit-rating-button')).not.toBeInTheDocument();
     });
 
     expect(onUpdated).toHaveBeenCalled();

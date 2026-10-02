@@ -101,6 +101,7 @@ pub fn info_command_impl(
                         })
                     })
                     .collect::<Result<Vec<_>, DesktopError>>()?;
+                state.recovery_point("before_import")?;
                 let assets = modules.info().create_many(inputs)?;
                 ("info.batch_create", assets)
             }

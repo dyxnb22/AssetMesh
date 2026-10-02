@@ -43,10 +43,94 @@ fn env() -> TestSqlite {
     }
 }
 
+#[test]
+fn activity_only_decodes_the_requested_page_at_large_history_sizes() {
+    let db = env();
+    db.factory.0.with_raw_connection_mut(|conn| {
+        let tx = conn.transaction().unwrap();
+        {
+            let mut insert = tx.prepare("INSERT INTO activity_events (id, occurred_at, event_type, actor, payload) VALUES (?1, '2026-01-01T00:00:00+00:00', 'media.completed', 'user', '{}')").unwrap();
+            for index in 1..=20_000 {
+                insert.execute([uuid::Uuid::from_u128(index).to_string()]).unwrap();
+            }
+        }
+        tx.execute("INSERT INTO activity_events (id, occurred_at, event_type, actor, payload) VALUES (?1, '2025-01-01T00:00:00+00:00', 'media.completed', 'user', '{broken')", [uuid::Uuid::from_u128(20_001).to_string()]).unwrap();
+        tx.commit().unwrap();
+    }).unwrap();
+    let page = db
+        .activity()
+        .query(&ActivityQuery {
+            page: PageRequest::new(3, 7777),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(page.total, Some(20_001));
+    assert_eq!(page.items.len(), 3);
+    assert_eq!(
+        page.items[0].id.as_uuid(),
+        uuid::Uuid::from_u128(20_000 - 7777)
+    );
+    assert!(page.items.iter().all(|event| event.asset_name.is_none()));
+    // An unrelated old payload cannot break a current page. Reading that row
+    // explicitly still surfaces corruption instead of silently dropping it.
+    assert!(db
+        .activity()
+        .query(&ActivityQuery {
+            page: PageRequest::new(3, 20_000),
+            ..Default::default()
+        })
+        .is_err());
+}
+
 struct TestSqlite {
     factory: SharedSqlite,
     clock: SharedClock,
     ids: SharedIdGenerator,
+}
+
+#[test]
+fn sqlite_duplicate_scan_ignores_provider_only_matches_and_bounds_identity_pairs() {
+    let db = env();
+    for index in 0..150 {
+        let mut command = service_cmd(&format!("Project {index}"), ServiceType::Saas);
+        command.provider = Some("Shared Provider".into());
+        db.service_service().create_service(command).unwrap();
+    }
+    assert_eq!(
+        db.duplicates()
+            .candidates(&DuplicateQuery::default())
+            .unwrap()
+            .total,
+        Some(0)
+    );
+    for _ in 0..150 {
+        db.software_service()
+            .create_software(software_cmd("Shared Name", SoftwareCategory::Cli))
+            .unwrap();
+    }
+    let query = DuplicateQuery {
+        page: PageRequest::new(3, 7),
+        ..Default::default()
+    };
+    let page = db.duplicates().candidates(&query).unwrap();
+    assert_eq!(page.total, None);
+    assert_eq!(page.items.len(), 3);
+    assert_eq!(
+        db.duplicates().candidates(&query).unwrap().items,
+        page.items
+    );
+    let beyond = db
+        .duplicates()
+        .candidates(&DuplicateQuery {
+            page: PageRequest::new(
+                3,
+                assetmesh_core::application::duplicate_review_service::MAX_DUPLICATE_PAIR_CHECKS,
+            ),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(beyond.items.is_empty());
+    assert_eq!(beyond.total, None);
 }
 
 impl TestSqlite {
@@ -60,7 +144,7 @@ impl TestSqlite {
         ServiceService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
     }
     fn asset_service(&self) -> AssetService<SharedSqlite> {
-        AssetService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
+        AssetService::new(self.factory.clone(), self.clock.clone())
     }
     fn activity(&self) -> ActivityService<SharedSqlite> {
         ActivityService::new(self.factory.clone())
@@ -124,6 +208,9 @@ fn service_cmd(name: &str, service_type: ServiceType) -> CreateService {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -331,9 +418,7 @@ fn sqlite_activity_history_survives_archive_and_merge() {
         .any(|e| e.event_type == event_types::ASSET_MERGED));
 
     // A rebuild of derived state must not change what history reports.
-    SearchService::new(db.factory.clone(), db.clock.clone())
-        .rebuild()
-        .unwrap();
+    SearchService::new(db.factory.clone()).rebuild().unwrap();
     let after_rebuild = activity
         .query(&ActivityQuery::for_asset(media.entry.asset.id))
         .unwrap();

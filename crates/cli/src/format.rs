@@ -181,6 +181,15 @@ fn print_service_record_fields(record: &ServiceRecord) {
             None => "unknown",
         }
     );
+    if let Some(dir) = &record.project_dir {
+        println!("Project dir:   {dir}");
+    }
+    if let Some(command) = &record.start_command {
+        println!("Start command: {command}");
+    }
+    if let Some(command) = &record.stop_command {
+        println!("Stop command:  {command}");
+    }
     if let Some(notes) = &record.notes {
         println!("Notes:         {notes}");
     }
@@ -724,6 +733,9 @@ pub fn print_duplicate_candidates(page: &Page<DuplicateCandidate>, json: bool) {
     }
     if page.items.is_empty() {
         println!("(no duplicate candidates)");
+        if page.total.is_none() {
+            println!("Scan limit reached; results are partial. Narrow the review with --kind.");
+        }
         return;
     }
     for candidate in &page.items {
@@ -751,6 +763,6 @@ pub fn print_duplicate_candidates(page: &Page<DuplicateCandidate>, json: bool) {
             "{} candidate pair(s) on this page, {total} total",
             page.items.len()
         ),
-        None => println!("{} candidate pair(s) on this page", page.items.len()),
+        None => println!("{} candidate pair(s) on this page; scan limit reached, results are partial. Narrow the review with --kind.", page.items.len()),
     }
 }

@@ -163,13 +163,9 @@ fn preview_requires_the_winner_to_be_active() {
     // An archived winner cannot receive a merge: the survivor must stay active,
     // or the library would silently archive a live record.
     let f = fixture();
-    AssetService::new(
-        f.env.factory.clone(),
-        f.env.clock.clone(),
-        f.env.ids.clone(),
-    )
-    .archive_asset(f.winner)
-    .unwrap();
+    AssetService::new(f.env.factory.clone(), f.env.clock.clone())
+        .archive_asset(f.winner)
+        .unwrap();
 
     let view = preview(&f.env, f.winner, f.loser).unwrap();
     assert!(!view.can_merge);
@@ -301,6 +297,9 @@ fn service(name: &str) -> CreateService {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -311,13 +310,9 @@ fn preview_of_an_already_merged_loser_flags_it_as_a_conflict() {
     // The write path refuses to merge an already-merged loser, so the preview
     // must say so instead of offering a merge that would fail on apply.
     let f = fixture();
-    AssetService::new(
-        f.env.factory.clone(),
-        f.env.clock.clone(),
-        f.env.ids.clone(),
-    )
-    .merge_assets(f.loser, f.winner)
-    .unwrap();
+    AssetService::new(f.env.factory.clone(), f.env.clock.clone())
+        .merge_assets(f.loser, f.winner)
+        .unwrap();
     let mut lifecycle = None;
     f.env.factory.store_borrow_mut(|store| {
         lifecycle = store
@@ -351,5 +346,79 @@ fn preview_reports_that_both_media_records_cannot_survive() {
             .any(|n| n.contains("Winner's media metadata is kept")),
         "the survivor-wins rule must be surfaced: {:?}",
         view.notes
+    );
+}
+
+#[test]
+fn local_launch_configuration_transfers_and_conflicts_in_preview_and_apply() {
+    let env = support::test_env();
+    let local = |name: &str, directory: Option<&str>, command: Option<&str>| CreateService {
+        service_type: ServiceType::Local,
+        project_dir: directory.map(String::from),
+        start_command: command.map(String::from),
+        stop_command: command.map(|value| format!("stop {value}")),
+        ..service(name)
+    };
+    let winner = env
+        .service_service()
+        .create_service(local("empty", None, None))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let loser = env
+        .service_service()
+        .create_service(local(
+            "configured",
+            Some("/tmp/project"),
+            Some("bash start.sh"),
+        ))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    assert!(preview(&env, winner, loser).unwrap().can_merge);
+    env.asset_service().merge_assets(loser, winner).unwrap();
+    let merged = env
+        .service_service()
+        .get_service(winner)
+        .unwrap()
+        .entry
+        .record;
+    assert_eq!(merged.project_dir.as_deref(), Some("/tmp/project"));
+    assert_eq!(merged.start_command.as_deref(), Some("bash start.sh"));
+    assert_eq!(merged.stop_command.as_deref(), Some("stop bash start.sh"));
+
+    let other = env
+        .service_service()
+        .create_service(local(
+            "different",
+            Some("/tmp/other"),
+            Some("python web.py"),
+        ))
+        .unwrap()
+        .entry
+        .asset
+        .id;
+    let view = preview(&env, winner, other).unwrap();
+    assert!(!view.can_merge);
+    let conflict = conflicting(&view, "Service details conflict").unwrap();
+    assert!(
+        conflict.contains("project_dir")
+            && conflict.contains("start_command")
+            && conflict.contains("stop_command")
+    );
+    assert!(matches!(
+        env.asset_service().merge_assets(other, winner),
+        Err(AppError::Conflict { .. })
+    ));
+    assert_eq!(
+        env.service_service()
+            .get_service(other)
+            .unwrap()
+            .entry
+            .asset
+            .lifecycle_state,
+        LifecycleState::Active
     );
 }

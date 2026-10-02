@@ -58,11 +58,10 @@ impl TestSqlite {
         assetmesh_core::application::asset_service::AssetService::new(
             self.factory.clone(),
             self.clock.clone(),
-            self.ids.clone(),
         )
     }
     fn search_service(&self) -> SearchService<SharedSqlite> {
-        SearchService::new(self.factory.clone(), self.clock.clone())
+        SearchService::new(self.factory.clone())
     }
     fn export_service(&self) -> PortableExportService<SharedSqlite> {
         PortableExportService::new(self.factory.clone(), self.clock.clone())
@@ -283,7 +282,7 @@ fn media_crud_round_trips_all_fields() {
     let updated = media
         .update_metadata(UpdateMediaMetadata {
             asset_id: id,
-            notes: Some("revisited".into()),
+            notes: (Some("revisited".into())).into(),
             ..Default::default()
         })
         .unwrap();
@@ -518,7 +517,7 @@ fn sqlite_portable_round_trip() {
         );
     }
 
-    let mut search_b = SearchService::new(env_b.clone(), env_a.clock.clone());
+    let mut search_b = SearchService::new(env_b.clone());
     assert!(search_b.search("kept", 10).unwrap().len() == 1);
 
     std::fs::remove_dir_all(&dir).ok();
@@ -756,7 +755,7 @@ fn rebuild_and_concurrent_writes_keep_the_projection_current() {
         }
     });
 
-    let mut search = SearchService::new(factory.clone(), clock);
+    let mut search = SearchService::new(factory.clone());
     let _report = search.rebuild().unwrap();
     writer.join().unwrap();
 
@@ -876,6 +875,9 @@ fn service_cmd(name: &str, service_type: ServiceType) -> CreateService {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -910,8 +912,8 @@ fn software_crud_round_trips_all_fields() {
     let updated = software
         .update_metadata(UpdateSoftwareMetadata {
             asset_id: id,
-            version: Some("2.0".into()),
-            purpose: Some("new purpose".into()),
+            version: (Some("2.0".into())).into(),
+            purpose: (Some("new purpose".into())).into(),
             ..Default::default()
         })
         .unwrap();
@@ -1411,7 +1413,7 @@ fn migration_0003_upgrades_a_real_phase2_database_preserving_everything() {
 
     // The historical search projection still resolves after the upgrade, and
     // the new service is searchable alongside the upgraded software.
-    let mut search = SearchService::new(factory, clock_shared());
+    let mut search = SearchService::new(factory);
     search.rebuild().unwrap();
     let hits = search.search("ollama", 10).unwrap();
     assert_eq!(hits.len(), 1, "Phase 2 software must still be searchable");
@@ -2279,7 +2281,7 @@ fn sqlite_service_round_trips_through_the_portable_bundle() {
     let id = created.entry.asset.id;
 
     let bundle = t.export_service().export("test").unwrap();
-    assert_eq!(bundle.manifest.modules["services"].schema_version, 1);
+    assert_eq!(bundle.manifest.modules["services"].schema_version, 3);
     assert_eq!(bundle.manifest.record_counts["services"], 1);
 
     // Restore into a fresh database through the real SQLite adapter.

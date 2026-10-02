@@ -1,4 +1,4 @@
-//! Shared tags: lightweight labels on assets (ADR 0003, 06-module-system).
+//! Shared tags: lightweight labels on assets (ADR 0003, docs/03 domain model).
 //! Tags are shared asset infrastructure, not media-only columns.
 
 use crate::domain::ids::TagId;

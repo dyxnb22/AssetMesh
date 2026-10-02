@@ -42,7 +42,7 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
     let mut media_svc = MediaService::new(factory.clone(), clock.clone(), ids.clone());
     let mut software_svc = SoftwareService::new(factory.clone(), clock.clone(), ids.clone());
     let mut service_svc = ServiceService::new(factory.clone(), clock.clone(), ids.clone());
-    let mut asset_svc = AssetService::new(factory.clone(), clock.clone(), ids.clone());
+    let mut asset_svc = AssetService::new(factory.clone(), clock.clone());
 
     // 1. Create Media asset with rich fields
     let media = media_svc
@@ -101,6 +101,9 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
             expires_at: None,
             auto_renew: Some(true),
             notes: Some("Zero trust setup enabled".into()),
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec!["cdn".into(), "dns".into()],
             external_refs: Vec::new(),
         })
@@ -147,6 +150,9 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
             expires_at: None,
             auto_renew: None,
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec![],
             external_refs: Vec::new(),
         })
@@ -166,11 +172,17 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
     assert_eq!(media_detail.lifecycle, "active");
     assert_eq!(media_detail.tags, vec!["fantasy", "magic"]);
     assert_eq!(
-        media_detail.details.get("module").and_then(|v| v.as_str()),
+        serde_json::to_value(&media_detail.details)
+            .unwrap()
+            .get("module")
+            .and_then(|v| v.as_str()),
         Some("media")
     );
     assert_eq!(
-        media_detail.details.get("rating").and_then(|v| v.as_f64()),
+        serde_json::to_value(&media_detail.details)
+            .unwrap()
+            .get("rating")
+            .and_then(|v| v.as_f64()),
         Some(9.8)
     );
 
@@ -182,16 +194,22 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
     assert_eq!(sw_detail.kind, "software.tool");
     assert_eq!(sw_detail.lifecycle, "active");
     assert_eq!(
-        sw_detail.details.get("module").and_then(|v| v.as_str()),
+        serde_json::to_value(&sw_detail.details)
+            .unwrap()
+            .get("module")
+            .and_then(|v| v.as_str()),
         Some("software")
     );
     assert_eq!(
-        sw_detail.details.get("version").and_then(|v| v.as_str()),
+        serde_json::to_value(&sw_detail.details)
+            .unwrap()
+            .get("version")
+            .and_then(|v| v.as_str()),
         Some("14.1.0")
     );
     assert_eq!(
-        sw_detail
-            .details
+        serde_json::to_value(&sw_detail.details)
+            .unwrap()
             .get("architecture")
             .and_then(|v| v.as_str()),
         Some("arm64")
@@ -204,12 +222,15 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
     assert_eq!(svc_detail.name, "Cloudflare");
     assert_eq!(svc_detail.kind, "service.saas");
     assert_eq!(
-        svc_detail.details.get("module").and_then(|v| v.as_str()),
+        serde_json::to_value(&svc_detail.details)
+            .unwrap()
+            .get("module")
+            .and_then(|v| v.as_str()),
         Some("services")
     );
     assert_eq!(
-        svc_detail
-            .details
+        serde_json::to_value(&svc_detail.details)
+            .unwrap()
             .get("cost_minor")
             .and_then(|v| v.as_i64()),
         Some(2000)
@@ -221,7 +242,10 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
     assert_eq!(arch_detail.lifecycle, "archived");
     assert!(arch_detail.archived_at.is_some());
     assert_eq!(
-        arch_detail.details.get("module").and_then(|v| v.as_str()),
+        serde_json::to_value(&arch_detail.details)
+            .unwrap()
+            .get("module")
+            .and_then(|v| v.as_str()),
         Some("media")
     );
 
@@ -234,12 +258,15 @@ fn library_get_contracts_cover_all_domains_archived_merged_and_failures() {
         Some(service.entry.asset.id.to_string())
     );
     assert_eq!(
-        merged_detail.details.get("module").and_then(|v| v.as_str()),
+        serde_json::to_value(&merged_detail.details)
+            .unwrap()
+            .get("module")
+            .and_then(|v| v.as_str()),
         Some("merged_redirect")
     );
     assert_eq!(
-        merged_detail
-            .details
+        serde_json::to_value(&merged_detail.details)
+            .unwrap()
             .get("surviving_asset_id")
             .and_then(|v| v.as_str()),
         Some(service.entry.asset.id.to_string().as_str())

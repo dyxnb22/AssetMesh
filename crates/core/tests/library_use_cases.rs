@@ -134,6 +134,9 @@ fn service_cmd(name: &str, service_type: ServiceType, tags: &[&str]) -> CreateSe
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: tags.iter().map(|t| (*t).to_string()).collect(),
         external_refs: Vec::new(),
     }
@@ -385,11 +388,7 @@ fn name_and_kind_sorting_are_deterministic() {
 fn lifecycle_filter_controls_archived_and_merged_visibility() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
 
     assets.archive_asset(seeded.media).unwrap();
 
@@ -419,11 +418,7 @@ fn lifecycle_filter_controls_archived_and_merged_visibility() {
 fn merged_tombstones_never_appear_in_the_library() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
 
     // A second media asset merged into the first: the loser becomes a
     // tombstone and its module details move to the winner.
@@ -745,11 +740,7 @@ fn a_filtered_search_whose_matches_are_all_filtered_out_is_empty_not_wrong() {
 fn merged_tombstones_are_excluded_under_every_lifecycle_filter() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
 
     let loser = seeded
         .env
@@ -836,11 +827,7 @@ fn an_absurd_search_offset_is_empty_not_unbounded() {
 fn detail_view_carries_typed_details_tags_and_refs_for_every_module() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
     assets
         .attach_external_ref(seeded.media, "tmdb", "209867", None)
         .unwrap();
@@ -900,11 +887,7 @@ fn detail_view_reports_unknown_and_detail_less_assets() {
 fn detail_view_of_an_archived_asset_is_readable() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
     assets.archive_asset(seeded.media).unwrap();
 
     let view = library.get_asset(seeded.media).unwrap();
@@ -919,11 +902,7 @@ fn detail_view_of_an_archived_asset_is_readable() {
 fn detail_view_of_a_merged_tombstone_names_the_survivor() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
 
     let loser = seeded
         .env
@@ -949,11 +928,7 @@ fn merged_tombstone_view_names_the_survivor_without_reaching_into_repositories()
     // use case returns and the two ways it refuses.
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
 
     let loser = seeded
         .env
@@ -999,11 +974,7 @@ fn merged_tombstone_view_names_the_survivor_without_reaching_into_repositories()
 fn merge_redirects_resolve_to_the_surviving_asset() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
 
     // A live asset resolves to itself.
     assert_eq!(
@@ -1169,11 +1140,7 @@ fn search_results_use_the_same_summary_vocabulary_as_the_list() {
 fn search_honors_lifecycle_module_and_tag_filters() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
     assets.archive_asset(seeded.media).unwrap();
 
     let text = LibrarySearchQuery {
@@ -1218,11 +1185,7 @@ fn search_honors_lifecycle_module_and_tag_filters() {
 fn search_excludes_merged_tombstones() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut assets = AssetService::new(
-        seeded.env.factory.clone(),
-        seeded.env.clock.clone(),
-        seeded.env.ids.clone(),
-    );
+    let mut assets = AssetService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
 
     let loser = seeded
         .env
@@ -1367,7 +1330,7 @@ fn unified_reads_use_one_snapshot_and_no_per_asset_round_trips() {
 fn the_projection_rebuild_path_still_agrees_with_the_library() {
     let seeded = seed();
     let mut library = seeded.env.library_service();
-    let mut search = SearchService::new(seeded.env.factory.clone(), seeded.env.clock.clone());
+    let mut search = SearchService::new(seeded.env.factory.clone());
 
     // Dropping the derived index and rebuilding it must not change what the
     // unified search finds (ADR 0006: the projection is disposable).
@@ -1450,7 +1413,7 @@ fn optimistic_concurrency_stale_revision_rejected() {
     let updated = software_svc
         .update_metadata(UpdateSoftwareMetadata {
             asset_id: seeded.software,
-            purpose: Some("testing revision bump".into()),
+            purpose: (Some("testing revision bump".into())).into(),
             expected_revision: Some(1),
             ..Default::default()
         })
@@ -1461,7 +1424,7 @@ fn optimistic_concurrency_stale_revision_rejected() {
     let stale_err = software_svc
         .update_metadata(UpdateSoftwareMetadata {
             asset_id: seeded.software,
-            purpose: Some("will fail".into()),
+            purpose: (Some("will fail".into())).into(),
             expected_revision: Some(1),
             ..Default::default()
         })

@@ -1,0 +1,218 @@
+[
+  {
+    "id": "00000000-0000-7000-8000-000000000001",
+    "kind": "media.movie",
+    "name": "Wire media 0",
+    "summary": "Wire summary",
+    "lifecycle": "active",
+    "revision": 1,
+    "created_at": "2026-10-03T00:00:00+00:00",
+    "updated_at": "2026-10-03T00:00:00+00:00",
+    "archived_at": null,
+    "merged_into": null,
+    "details": {
+      "module": "media",
+      "asset_id": "00000000-0000-7000-8000-000000000001",
+      "media_type": "movie",
+      "status": "planned",
+      "rating": 8.5,
+      "year": 2026,
+      "platform": "Blu-ray",
+      "progress": {
+        "unit": "minutes",
+        "current": 12.0,
+        "total": 90.0
+      },
+      "notes": "Media notes",
+      "started_at": null,
+      "completed_at": null
+    },
+    "tags": [
+      "wire"
+    ],
+    "external_refs": [
+      {
+        "namespace": "wire",
+        "external_id": "0",
+        "source_url": "https://example.com/asset"
+      }
+    ]
+  },
+  {
+    "id": "00000000-0000-7000-8000-000000000002",
+    "kind": "software.tool",
+    "name": "Wire software 1",
+    "summary": "Wire summary",
+    "lifecycle": "active",
+    "revision": 1,
+    "created_at": "2026-10-03T00:00:00+00:00",
+    "updated_at": "2026-10-03T00:00:00+00:00",
+    "archived_at": null,
+    "merged_into": null,
+    "details": {
+      "module": "software",
+      "asset_id": "00000000-0000-7000-8000-000000000002",
+      "category": "tool",
+      "install_source": "manual",
+      "version": "1.0",
+      "install_location": "/opt/tool",
+      "executable_path": "/opt/tool/bin/tool",
+      "purpose": "Work",
+      "notes": "Software notes",
+      "discovered_at": "2026-10-03T00:00:00Z",
+      "installed_at": "2026-10-03T00:00:00Z",
+      "architecture": "arm64"
+    },
+    "tags": [
+      "wire"
+    ],
+    "external_refs": [
+      {
+        "namespace": "wire",
+        "external_id": "1",
+        "source_url": "https://example.com/asset"
+      }
+    ]
+  },
+  {
+    "id": "00000000-0000-7000-8000-000000000003",
+    "kind": "service.saas",
+    "name": "Wire services 2",
+    "summary": "Wire summary",
+    "lifecycle": "active",
+    "revision": 1,
+    "created_at": "2026-10-03T00:00:00+00:00",
+    "updated_at": "2026-10-03T00:00:00+00:00",
+    "archived_at": null,
+    "merged_into": null,
+    "details": {
+      "module": "services",
+      "asset_id": "00000000-0000-7000-8000-000000000003",
+      "service_type": "saas",
+      "provider": "Example",
+      "account_label": "Personal",
+      "endpoint_url": "https://example.com",
+      "dashboard_url": "https://example.com/dashboard",
+      "domain_name": null,
+      "plan": "Pro",
+      "cost_minor": 1200,
+      "currency": "USD",
+      "billing_cadence": "monthly",
+      "renews_at": "2026-10-03T00:00:00Z",
+      "expires_at": "2026-11-03T00:00:00Z",
+      "auto_renew": false,
+      "notes": "Subscription notes",
+      "project_dir": null,
+      "start_command": null,
+      "stop_command": null
+    },
+    "tags": [
+      "wire"
+    ],
+    "external_refs": [
+      {
+        "namespace": "wire",
+        "external_id": "2",
+        "source_url": "https://example.com/asset"
+      }
+    ]
+  },
+  {
+    "id": "00000000-0000-7000-8000-000000000004",
+    "kind": "service.local",
+    "name": "Wire services 3",
+    "summary": "Wire summary",
+    "lifecycle": "active",
+    "revision": 1,
+    "created_at": "2026-10-03T00:00:00+00:00",
+    "updated_at": "2026-10-03T00:00:00+00:00",
+    "archived_at": null,
+    "merged_into": null,
+    "details": {
+      "module": "services",
+      "asset_id": "00000000-0000-7000-8000-000000000004",
+      "service_type": "local",
+      "provider": null,
+      "account_label": null,
+      "endpoint_url": "http://127.0.0.1:8080",
+      "dashboard_url": null,
+      "domain_name": null,
+      "plan": null,
+      "cost_minor": null,
+      "currency": null,
+      "billing_cadence": null,
+      "renews_at": null,
+      "expires_at": null,
+      "auto_renew": null,
+      "notes": "Local notes",
+      "project_dir": "/opt/example",
+      "start_command": "npm run dev",
+      "stop_command": "npm run stop"
+    },
+    "tags": [
+      "wire"
+    ],
+    "external_refs": [
+      {
+        "namespace": "wire",
+        "external_id": "3",
+        "source_url": "https://example.com/asset"
+      }
+    ]
+  },
+  {
+    "id": "00000000-0000-7000-8000-000000000005",
+    "kind": "info.item",
+    "name": "Wire info 4",
+    "summary": "Wire summary",
+    "lifecycle": "active",
+    "revision": 1,
+    "created_at": "2026-10-03T00:00:00+00:00",
+    "updated_at": "2026-10-03T00:00:00+00:00",
+    "archived_at": null,
+    "merged_into": null,
+    "details": {
+      "module": "info",
+      "asset_id": "00000000-0000-7000-8000-000000000005",
+      "info_type": "text",
+      "value": "Shared information",
+      "notes": "Info notes"
+    },
+    "tags": [
+      "wire"
+    ],
+    "external_refs": [
+      {
+        "namespace": "wire",
+        "external_id": "4",
+        "source_url": "https://example.com/asset"
+      }
+    ]
+  },
+  {
+    "id": "00000000-0000-7000-8000-000000000006",
+    "kind": "media.movie",
+    "name": "Wire merged_redirect 5",
+    "summary": "Wire summary",
+    "lifecycle": "merged",
+    "revision": 1,
+    "created_at": "2026-10-03T00:00:00+00:00",
+    "updated_at": "2026-10-03T00:00:00+00:00",
+    "archived_at": null,
+    "merged_into": "00000000-0000-7000-8000-000000000001",
+    "details": {
+      "module": "merged_redirect",
+      "surviving_asset_id": "00000000-0000-7000-8000-000000000001"
+    },
+    "tags": [
+      "wire"
+    ],
+    "external_refs": [
+      {
+        "namespace": "wire",
+        "external_id": "5",
+        "source_url": "https://example.com/asset"
+      }
+    ]
+  }
+]

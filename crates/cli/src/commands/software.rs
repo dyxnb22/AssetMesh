@@ -218,8 +218,10 @@ pub(crate) fn build_provider(
         }
         "homebrew" => Ok(Box::new(HomebrewProvider::system_default())),
         "cli" | "cli_tools" => Ok(Box::new(CliToolsProvider::system_default())),
+        "npm" => Ok(Box::new(CliToolsProvider::npm_default())),
+        "pipx" => Ok(Box::new(CliToolsProvider::pipx_default())),
         other => Err(AppError::validation(format!(
-            "unknown discovery provider {other:?}; expected one of: macos, homebrew, cli"
+            "unknown discovery provider {other:?}; expected one of: macos, homebrew, cli, npm, pipx"
         ))),
     }
 }
@@ -305,19 +307,19 @@ pub(crate) fn run_software(
             let view = software.update_metadata(UpdateSoftwareMetadata {
                 asset_id,
                 name,
-                summary,
-                version,
-                install_location,
-                executable_path,
-                purpose,
-                notes,
-                architecture,
+                summary: summary.into(),
+                version: version.into(),
+                install_location: install_location.into(),
+                executable_path: executable_path.into(),
+                purpose: purpose.into(),
+                notes: notes.into(),
+                architecture: architecture.into(),
                 ..Default::default()
             })?;
             println!("updated {}", view.entry.asset.id);
         }
         SoftwareCommand::Search { query, limit } => {
-            let mut search = SearchService::new(factory, clock);
+            let mut search = SearchService::new(factory);
             let hits = search.search(&query, limit)?;
             print_search_hits(&hits);
         }
@@ -378,24 +380,30 @@ pub(crate) fn run_discovery(
     provider: &str,
     roots: &[PathBuf],
 ) {
-    let providers: Vec<Box<dyn SoftwareDiscoveryProvider>> = if provider == "all" {
-        let mut all = Vec::new();
-        for name in ["macos", "homebrew", "cli"] {
-            match build_provider(name, roots) {
-                Ok(p) => all.push(p),
-                Err(e) => eprintln!("warning: {name} discovery unavailable: {e}"),
+    let providers: Vec<Box<dyn SoftwareDiscoveryProvider>> =
+        if matches!(provider, "all" | "cli" | "cli_tools") {
+            let mut all = Vec::new();
+            let names: &[&str] = if provider == "all" {
+                &["macos", "homebrew", "npm", "pipx"]
+            } else {
+                &["npm", "pipx"]
+            };
+            for name in names {
+                match build_provider(name, roots) {
+                    Ok(p) => all.push(p),
+                    Err(e) => eprintln!("warning: {name} discovery unavailable: {e}"),
+                }
             }
-        }
-        all
-    } else {
-        match build_provider(provider, roots) {
-            Ok(p) => vec![p],
-            Err(e) => {
-                eprintln!("error: {e}");
-                std::process::exit(1);
+            all
+        } else {
+            match build_provider(provider, roots) {
+                Ok(p) => vec![p],
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
             }
-        }
-    };
+        };
 
     let mut any_report = false;
     for p in &providers {
@@ -425,6 +433,14 @@ pub(crate) fn find_candidate(
     roots: &[PathBuf],
     selector: &str,
 ) -> Result<ClassifiedCandidate, AppError> {
+    // A namespaced CLI choice need not depend on an unrelated tool source.
+    let provider = if matches!(provider, "cli" | "cli_tools") && selector.starts_with("npm:") {
+        "npm"
+    } else if matches!(provider, "cli" | "cli_tools") && selector.starts_with("pipx:") {
+        "pipx"
+    } else {
+        provider
+    };
     let provider = build_provider(provider, roots)?;
     let report = software.discover(provider.as_ref())?;
 

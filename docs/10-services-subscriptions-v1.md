@@ -55,6 +55,9 @@ Phase 3 does **not** implement:
 
 These boundaries are intentional. Phase 3 owns durable service inventory and
 subscription lifecycle metadata, not runtime operations or credential management.
+(The desktop adapter later added one narrow exception for `local` services: a
+start/stop process runtime, described under "Local launch metadata" below. The
+module itself still does no monitoring, health checks, or orchestration.)
 
 ## Canonical model
 
@@ -77,10 +80,32 @@ ServiceRecord
 - expires_at?          # service/right ceases after this time unless extended
 - auto_renew?          # user-known setting; null means unknown
 - notes?               # user-owned notes, never secrets
+- project_dir?         # launch metadata of a local service: project directory
+- start_command?       # launch metadata of a local service: command the user starts
+- stop_command?        # optional explicit shutdown command run in project_dir
 ```
 
-Module schema version is `services schema_version = 1`, independent of SQLite
-migration version and portable export format version (ADR 0008).
+Module schema version is `services schema_version = 3`, independent of SQLite
+migration version and portable export format version (ADR 0008). Version 2
+added the optional local-launch fields; every version 1 record is a valid
+version 3 record with launch fields absent. Version 3 adds optional `stop_command`;
+portable import accepts declared service schema versions 1, 2 and 3.
+
+The launch fields are canonical metadata of a `local` service only — like
+`domain_name`, setting them on another service type is rejected on every
+write path. They name what the user starts by hand: the directory the
+command runs in and the command itself (e.g. `bash start-local.sh`). The
+access address stays in `endpoint_url`.
+
+Whether a local service is running, its PID, and its captured output are
+**temporary runtime information**, not canonical data: the desktop runtime
+keeps them in memory, and they are never exported, restored, or resumed. The
+one read-time observation layered on top is the `external` state: when the
+desktop holds no process for an active `local` service but its access address
+answers on loopback, status reads report an apparent external instance. It is
+an observation recomputed on every read, never stored. The interface displays it
+as running. It can be stopped through its explicitly configured `stop_command`;
+AssetMesh never infers a kill target from the address or a process name.
 
 ### Asset kinds and type compatibility
 
@@ -238,6 +263,11 @@ network I/O.
 
 `domain_name` is normalized for comparison/storage (trimmed, lowercased ASCII form
 where safely available) but Phase 3 must not invent DNS ownership or resolution facts.
+
+Local launch configuration participates in the same merge rules as other
+optional canonical fields: `project_dir`, `start_command` and `stop_command` fill absent winner
+values, and disagreements block both preview and apply. Runtime ownership is
+coordinated separately by the desktop adapter (see [desktop contract](12-desktop-contract.md#local-service-runtime)).
 
 ## Secret boundary
 
@@ -469,7 +499,11 @@ Phase 3 core and is applied by every existing database, and the checksum guard m
 already-applied migration immutable, so the CHECK change had to arrive as a new migration
 rather than as an edit to 0003.
 
-`module_metadata` gains `('services', 1)`.
+`module_metadata` gains `('services', 1)` in migration 0003; migration 0006
+(`0006_local_service_launch_v1.sql`) adds the nullable `project_dir` and
+`start_command` columns and moves the module to schema version 2. Older rows
+keep their data and simply read back with both launch fields absent. Migration
+0007 adds nullable `stop_command` and updates the module schema to version 3.
 
 Required migration tests:
 
@@ -492,6 +526,9 @@ modules/services.jsonl
 ```
 
 using dedicated `ServiceV1` wire DTOs rather than serializing domain structs directly.
+The wire DTO carries the launch fields with a `serde(default)`, so a legacy bundle
+whose manifest declares service schema versions 1 or 2 is accepted beside current
+version 3; fields absent from an older bundle default to None.
 Existing `relations.jsonl` naturally carries the new relation types after validation.
 
 Declaration compatibility follows Phase 2:
@@ -563,119 +600,10 @@ The CLI is an adapter only. Parsing currency decimals, optional-field clear/set 
 and timestamps must map into application command DTOs without reimplementing domain
 policy.
 
-## Testing requirements
+## Verification
 
-Phase 3 is not complete with happy-path CRUD alone.
-
-At minimum cover:
-
-### Domain/repository invariants
-
-- every ServiceType <-> Asset kind pair;
-- direct repository writes cannot attach incompatible details;
-- text normalization/control-character rejection at service and repository seams;
-- valid/invalid money pairs and negative costs;
-- valid/invalid currency forms;
-- lifecycle timestamp combinations without auto-archival;
-- secret-like fields do not exist in canonical Service DTO/wire/search contracts.
-
-### Application behavior
-
-- create/get/list/update/clear optional fields;
-- renewal event and explicit next-date semantics;
-- no guessed renewal arithmetic;
-- no metadata edit activity spam;
-- search projection update/rebuild;
-- relation attach/remove with both new inverse pairs;
-- merge fill-missing vs conflict behavior.
-
-### SQLite contracts
-
-- migration from the actual Phase 2 fixture;
-- repository parity with in-memory/test doubles;
-- relation SQL CHECK stays aligned with registry;
-- transaction rollback leaves no partial Asset/Service/activity/search state;
-- concurrent readers/writers retain ADR 0007 guarantees.
-
-### Portability
-
-- Phase 1 and Phase 2 bundles still import;
-- Services declaration authoritative behavior;
-- undeclared Services absence preserves destination state;
-- undeclared Services file is rejected;
-- malformed money/type/URL/ref/relation state fails preflight and commit identically;
-- deterministic export and idempotent re-import;
-- merge/tombstone reconciliation;
-- explicit assertions that exported/searchable data contains no credentials.
-
-### CLI end-to-end
-
-Exercise at least SaaS, VPS, domain, and API examples, renewal, relation creation, export,
-import, and search through the compiled binary rather than only unit-level command
-parsing.
-
-## Delivery batches
-
-### Phase 3A — Contract
-
-- this document;
-- ADR 0010 for billing representation and credential boundary;
-- Roadmap/ADR index alignment.
-
-Exit: implementation can proceed without inventing service identity, subscription,
-money, time, secret, merge, or import semantics.
-
-### Phase 3B — Canonical core
-
-- `domain/service.rs` and schema version;
-- Service repository ports and application service;
-- migration 0003 and SQLite repository;
-- CRUD and patch semantics;
-- ServiceType/kind, text, URL, money, and lifecycle invariants;
-- search projection integration.
-
-Exit: canonical Services are durable/searchable with repository-boundary enforcement.
-
-### Phase 3C — Service-specific behavior
-
-- `record_renewal` (implemented: `RecordRenewal` in `application/service_service.rs`);
-- `hosted_on`/`hosts` and `points_to`/`pointed_to_by` registry + SQL support;
-- activity policy;
-- merge behavior;
-- CLI coverage for CRUD/renewal/relations.
-
-Exit: Services demonstrate real domain behavior beyond generic CRUD.
-
-### Phase 3D — Portability and hardening
-
-- `ServiceV1` portable wire DTO and `modules/services.jsonl`;
-- import/export/dry-run/preflight;
-- Phase 2 -> Phase 3 real migration fixture;
-- compatibility with older bundles;
-- E2E tests;
-- focused review for secret leakage, money precision, relation canonicalization,
-  migration safety, cross-module merge, and authoritative restore.
-
-Exit: Phase 3 satisfies the full vertical-slice contract. All four batches (3A-3D) are
-implemented and covered by unit, repository, and CLI end-to-end tests.
-
-## Exit criteria
-
-Phase 3 is complete when:
-
-1. SaaS, API, VPS, domain, and local-service assets can be created, edited, archived,
-   searched, related, exported, imported, and rebuilt headlessly;
-2. subscription cost/renewal metadata is deterministic and uses integer minor units;
-3. renewals can be explicitly recorded without guessed provider/calendar behavior;
-4. no credential material is represented in canonical Service data, Search Projection,
-   activity payloads, or portable export;
-5. new service relation types preserve the one-row canonical relation invariant at
-   domain, repository, import, merge, and SQL boundaries;
-6. service merge/import conflicts are reviewable and never silently choose competing
-   canonical values;
-7. a real Phase 2 database migrates safely and historical Phase 1/2 portable bundles
-   remain readable;
-8. Media, Software, and Services coexist on shared identity/search/activity/relation/
-   migration/portability contracts without module-to-module private-table coupling;
-9. the entire slice works without Desktop, daemon, cloud discovery, or runtime
-   monitoring.
+Changes to money, credential boundaries, renewal facts or merge decisions require
+behavioral coverage. Stored-data changes require real migration and portable
+round-trip coverage. Test ownership is maintained in
+[DEVELOPMENT.md](../DEVELOPMENT.md#test-ownership); completed delivery batches and
+phase exit checklists are not maintained here.

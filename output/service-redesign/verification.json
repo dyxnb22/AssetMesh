@@ -1,0 +1,28 @@
+{
+  "frontend_tests": {
+    "passed": 141,
+    "files": 21,
+    "latest_targeted_checks": 22
+  },
+  "rust_tests": {
+    "workspace_passed": 544,
+    "additional_timeout_test_passed": 1,
+    "ignored": 4
+  },
+  "checks": [
+    "typecheck",
+    "eslint",
+    "workspace clippy -D warnings",
+    "rustfmt --check",
+    "git diff --check",
+    "signed macOS app build"
+  ],
+  "installed_app": "/Applications/AssetMesh.app",
+  "backup_directory": "/Users/diaoyuxuan/.codex/backups/assetmesh-services-20261002-143154",
+  "data_verification": "All pre-existing assets and service record fields match the pre-upgrade database snapshot.",
+  "existing_service_control": "Set a service-specific stop command for services launched outside AssetMesh. Managed services default to stopping their owned process group.",
+  "screenshots": [
+    "desktop-preview.jpg",
+    "installed-app.png"
+  ]
+}

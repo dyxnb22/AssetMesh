@@ -262,6 +262,9 @@ fn conflicting_service_fields(winner: &ServiceRecord, loser: &ServiceRecord) -> 
     check_text("domain_name", &winner.domain_name, &loser.domain_name);
     check_text("plan", &winner.plan, &loser.plan);
     check_text("notes", &winner.notes, &loser.notes);
+    check_text("project_dir", &winner.project_dir, &loser.project_dir);
+    check_text("start_command", &winner.start_command, &loser.start_command);
+    check_text("stop_command", &winner.stop_command, &loser.stop_command);
     if let (Some(a), Some(b)) = (winner.billing_cadence, loser.billing_cadence) {
         if a != b {
             conflicts.push(format!("billing_cadence: '{a:?}' vs '{b:?}'"));

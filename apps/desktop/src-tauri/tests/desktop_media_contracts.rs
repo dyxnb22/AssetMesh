@@ -29,10 +29,10 @@ fn empty_metadata_update_still_checks_existence_and_revision() {
         asset_id,
         expected_revision,
         title: None,
-        summary: None,
-        year: None,
-        platform: None,
-        notes: None,
+        summary: None.into(),
+        year: None.into(),
+        platform: None.into(),
+        notes: None.into(),
     };
     let missing =
         media_command_impl(empty(uuid::Uuid::now_v7().to_string(), Some(1)), &state).unwrap_err();
@@ -98,11 +98,23 @@ fn media_workflow_create_and_read_back() {
     assert_eq!(detail.name, "Frieren: Beyond Journey's End");
     assert_eq!(detail.kind, "media.anime");
     assert_eq!(detail.revision, 1);
-    assert_eq!(detail.details["module"], "media");
-    assert_eq!(detail.details["status"], "planned");
-    assert_eq!(detail.details["year"], 2023);
-    assert_eq!(detail.details["progress"]["unit"], "episodes");
-    assert_eq!(detail.details["progress"]["total"], 28.0);
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["module"],
+        "media"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["status"],
+        "planned"
+    );
+    assert_eq!(serde_json::to_value(&detail.details).unwrap()["year"], 2023);
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["progress"]["unit"],
+        "episodes"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["progress"]["total"],
+        28.0
+    );
 }
 
 #[test]
@@ -131,10 +143,10 @@ fn media_workflow_update_metadata_and_conflict() {
         asset_id: asset_id.clone(),
         expected_revision: Some(1),
         title: Some("Updated Movie Title".into()),
-        summary: Some("Updated summary".into()),
-        year: Some(2021),
-        platform: Some("Cinema".into()),
-        notes: Some("Watched in IMAX".into()),
+        summary: (Some("Updated summary".into())).into(),
+        year: (Some(2021)).into(),
+        platform: (Some("Cinema".into())).into(),
+        notes: (Some("Watched in IMAX".into())).into(),
     };
     let update_receipt = media_command_impl(update_cmd, &state).expect("update");
     assert_eq!(update_receipt.operation, "media.update_metadata");
@@ -146,10 +158,10 @@ fn media_workflow_update_metadata_and_conflict() {
         asset_id: asset_id.clone(),
         expected_revision: Some(1), // Expected 1, but actual is 2!
         title: Some("Conflicting Title".into()),
-        summary: None,
-        year: None,
-        platform: None,
-        notes: None,
+        summary: None.into(),
+        year: None.into(),
+        platform: None.into(),
+        notes: None.into(),
     };
     let err = media_command_impl(stale_cmd, &state).unwrap_err();
     assert_eq!(err.category, "stale_revision");
@@ -159,10 +171,10 @@ fn media_workflow_update_metadata_and_conflict() {
         asset_id: asset_id.clone(),
         expected_revision: Some(2),
         title: None,
-        summary: None,
-        year: None,
-        platform: None,
-        notes: None,
+        summary: None.into(),
+        year: None.into(),
+        platform: None.into(),
+        notes: None.into(),
     };
     let noop_receipt = media_command_impl(noop_cmd, &state).expect("noop");
     assert!(!noop_receipt.changed);
@@ -201,7 +213,10 @@ fn media_workflow_status_transitions() {
 
     // Check read-back
     let d1 = library_get_impl(&asset_id, &state).expect("get");
-    assert_eq!(d1.details["status"], "in_progress");
+    assert_eq!(
+        serde_json::to_value(&d1.details).unwrap()["status"],
+        "in_progress"
+    );
 
     // Transition: in_progress -> paused
     let pause_cmd = MediaCommandDto::TransitionStatus {
@@ -222,7 +237,10 @@ fn media_workflow_status_transitions() {
     assert_eq!(r3.operation, "media.transition.completed");
 
     let d3 = library_get_impl(&asset_id, &state).expect("get");
-    assert_eq!(d3.details["status"], "completed");
+    assert_eq!(
+        serde_json::to_value(&d3.details).unwrap()["status"],
+        "completed"
+    );
 }
 
 #[test]
@@ -258,7 +276,10 @@ fn media_workflow_progress_and_rating() {
     assert_eq!(r_prog.operation, "media.update_progress");
 
     let d_prog = library_get_impl(&asset_id, &state).expect("get");
-    assert_eq!(d_prog.details["progress"]["current"], 5.0);
+    assert_eq!(
+        serde_json::to_value(&d_prog.details).unwrap()["progress"]["current"],
+        5.0
+    );
 
     // Negative progress validation failure
     let invalid_prog_cmd = MediaCommandDto::UpdateProgress {
@@ -281,7 +302,10 @@ fn media_workflow_progress_and_rating() {
     assert_eq!(r_rate.operation, "media.rate");
 
     let d_rate = library_get_impl(&asset_id, &state).expect("get");
-    assert_eq!(d_rate.details["rating"], 8.5);
+    assert_eq!(
+        serde_json::to_value(&d_rate.details).unwrap()["rating"],
+        8.5
+    );
 
     // Out-of-bounds rating (> 10.0) validation failure
     let invalid_rate_cmd = MediaCommandDto::Rate {
@@ -361,7 +385,10 @@ fn media_stale_revision_is_rejected_with_stale_revision_category() {
 
     // Verify state was not modified (rolled back)
     let d = library_get_impl(&asset_id, &state).expect("get");
-    assert_eq!(d.details["status"], "planned");
+    assert_eq!(
+        serde_json::to_value(&d.details).unwrap()["status"],
+        "planned"
+    );
 
     // Update progress with stale expected revision 999
     let bad_progress = MediaCommandDto::UpdateProgress {
@@ -394,5 +421,8 @@ fn media_stale_revision_is_rejected_with_stale_revision_category() {
     // State still planned and active
     let d_final = library_get_impl(&asset_id, &state).expect("get");
     assert_eq!(d_final.lifecycle, "active");
-    assert_eq!(d_final.details["status"], "planned");
+    assert_eq!(
+        serde_json::to_value(&d_final.details).unwrap()["status"],
+        "planned"
+    );
 }

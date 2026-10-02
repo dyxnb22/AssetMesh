@@ -1,24 +1,27 @@
-//! Portable export/import and app settings commands (P5-09).
+//! Portable export/import and native folder selection.
 
 use std::path::Path;
 
-use assetmesh_core::application::library_service::AppCapabilities;
 use assetmesh_core::application::portable::{
-    read_bundle_from_directory, write_bundle_to_directory, EXPORT_FORMAT, EXPORT_VERSION,
+    read_bundle_from_directory, EXPORT_FORMAT, EXPORT_VERSION, V1_FILE_PATHS,
 };
-use assetmesh_providers::{CommandRunner, MacosApplicationsProvider, SystemCommandRunner};
-use tauri::State;
+use assetmesh_providers::{CommandRunner, SystemCommandRunner};
+use tauri::Manager;
 
-use crate::dto::{
-    AppSettingsDto, ExportReceiptDto, ImportPreviewDto, ImportReceiptDto, ImportReportDto,
-    ProviderStatusDto,
-};
+use crate::dto::{ExportReceiptDto, ImportPreviewDto, ImportReceiptDto, ImportReportDto};
 use crate::error::DesktopError;
-use crate::state::{AppStatus, DesktopState};
+use crate::state::DesktopState;
 
 #[tauri::command]
-pub fn pick_directory(prompt: Option<String>) -> Result<Option<String>, DesktopError> {
-    pick_directory_impl(prompt, &SystemCommandRunner)
+pub async fn pick_directory(prompt: Option<String>) -> Result<Option<String>, DesktopError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pick_directory_impl(
+            prompt,
+            &SystemCommandRunner::with_timeout(std::time::Duration::from_secs(300)),
+        )
+    })
+    .await
+    .map_err(|error| DesktopError::internal(error.to_string()))?
 }
 
 /// Opens the native directory chooser. `runner` is the seam around the
@@ -34,38 +37,59 @@ pub fn pick_directory_impl(
         let prompt_text = prompt.unwrap_or_else(|| "Select directory".to_string());
         let script = format!(
             r#"POSIX path of (choose folder with prompt "{}")"#,
-            prompt_text.replace('"', "\\\"")
+            prompt_text.replace('\\', "\\\\").replace('"', "\\\"")
         );
-        if let Ok(output) = runner.run("osascript", &["-e", &script]) {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() {
-                    return Ok(Some(path));
-                }
+        let output = runner.run("osascript", &["-e", &script]).map_err(|_| {
+            DesktopError::unavailable("Folder selection failed or exceeded its time limit")
+        })?;
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Ok(Some(path));
             }
-            // User cancelled in AppleScript returns non-zero status
+        }
+        if String::from_utf8_lossy(&output.stderr).contains("(-128)") {
             return Ok(None);
         }
+        Err(DesktopError::unavailable(
+            "Could not open the folder chooser",
+        ))
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (prompt, runner);
+        Ok(None)
     }
-
-    Ok(None)
 }
 
 #[tauri::command]
-pub fn portable_export(
+pub async fn portable_export<R: tauri::Runtime>(
     target_dir: String,
-    state: State<'_, DesktopState>,
+    include_api_keys: Option<bool>,
+    app: tauri::AppHandle<R>,
 ) -> Result<ExportReceiptDto, DesktopError> {
-    portable_export_impl(&target_dir, &state)
+    tauri::async_runtime::spawn_blocking(move || {
+        portable_export_options_impl(
+            &target_dir,
+            include_api_keys.unwrap_or(false),
+            &app.state::<DesktopState>(),
+        )
+    })
+    .await
+    .map_err(|error| DesktopError::internal(error.to_string()))?
 }
 
 pub fn portable_export_impl(
     target_dir: &str,
+    state: &DesktopState,
+) -> Result<ExportReceiptDto, DesktopError> {
+    portable_export_options_impl(target_dir, false, state)
+}
+
+pub fn portable_export_options_impl(
+    target_dir: &str,
+    include_api_keys: bool,
     state: &DesktopState,
 ) -> Result<ExportReceiptDto, DesktopError> {
     if target_dir.trim().is_empty() {
@@ -76,31 +100,35 @@ pub fn portable_export_impl(
 
     state.with_modules(|modules| {
         let mut service = modules.portable_export();
-        let bundle = service.export(env!("CARGO_PKG_VERSION"))?;
-
-        let target_path = Path::new(target_dir);
-        write_bundle_to_directory(&bundle, target_path)?;
-
-        let files = bundle.files.into_iter().map(|f| f.path).collect();
+        let manifest = service.export_to_directory(
+            env!("CARGO_PKG_VERSION"),
+            Path::new(target_dir),
+            include_api_keys,
+        )?;
+        let files = V1_FILE_PATHS.into_iter().map(str::to_string).collect();
 
         Ok(ExportReceiptDto {
             target_dir: target_dir.to_string(),
-            format: bundle.manifest.format,
-            version: bundle.manifest.version,
-            app_version: bundle.manifest.app_version,
-            created_at: bundle.manifest.created_at,
-            record_counts: bundle.manifest.record_counts,
+            format: manifest.format,
+            version: manifest.version,
+            app_version: manifest.app_version,
+            created_at: manifest.created_at,
+            record_counts: manifest.record_counts,
             files,
         })
     })
 }
 
 #[tauri::command]
-pub fn portable_import_preview(
+pub async fn portable_import_preview<R: tauri::Runtime>(
     source_dir: String,
-    state: State<'_, DesktopState>,
+    app: tauri::AppHandle<R>,
 ) -> Result<ImportPreviewDto, DesktopError> {
-    portable_import_preview_impl(&source_dir, &state)
+    tauri::async_runtime::spawn_blocking(move || {
+        portable_import_preview_impl(&source_dir, &app.state::<DesktopState>())
+    })
+    .await
+    .map_err(|error| DesktopError::internal(error.to_string()))?
 }
 
 pub fn portable_import_preview_impl(
@@ -137,17 +165,17 @@ pub fn portable_import_preview_impl(
     let manifest = bundle.manifest.clone();
     let mut errors = Vec::new();
 
-    if manifest.format != EXPORT_FORMAT {
+    if bundle.manifest.format != EXPORT_FORMAT {
         errors.push(format!(
             "Unsupported format {:?}, expected {:?}",
-            manifest.format, EXPORT_FORMAT
+            bundle.manifest.format, EXPORT_FORMAT
         ));
     }
 
-    if manifest.version != EXPORT_VERSION {
+    if bundle.manifest.version != EXPORT_VERSION {
         errors.push(format!(
             "Unsupported export version {}, supported version is {}",
-            manifest.version, EXPORT_VERSION
+            bundle.manifest.version, EXPORT_VERSION
         ));
     }
 
@@ -204,12 +232,20 @@ pub fn portable_import_preview_impl(
 }
 
 #[tauri::command]
-pub fn portable_import_apply(
+pub async fn portable_import_apply<R: tauri::Runtime>(
     source_dir: String,
     expected_fingerprint: String,
-    state: State<'_, DesktopState>,
+    app: tauri::AppHandle<R>,
 ) -> Result<ImportReceiptDto, DesktopError> {
-    portable_import_apply_impl(&source_dir, &expected_fingerprint, &state)
+    tauri::async_runtime::spawn_blocking(move || {
+        portable_import_apply_impl(
+            &source_dir,
+            &expected_fingerprint,
+            &app.state::<DesktopState>(),
+        )
+    })
+    .await
+    .map_err(|error| DesktopError::internal(error.to_string()))?
 }
 
 pub fn portable_import_apply_impl(
@@ -254,112 +290,28 @@ pub fn portable_import_apply_impl(
         )));
     }
 
-    state.with_modules(|modules| {
-        let mut service = modules.portable_import();
-        let report = service.import_bundle(&bundle, false)?;
+    state.with_service_operation(|| {
+        if state
+            .service_runtime()
+            .statuses()
+            .iter()
+            .any(|status| state.service_runtime().is_active(&status.asset_id))
+        {
+            return Err(DesktopError::conflict(
+                "stop the local services before importing a library",
+            ));
+        }
+        state.with_modules(|modules| {
+            let mut service = modules.portable_import();
+            state.recovery_point("before_import")?;
+            let report = service.import_bundle(&bundle, false)?;
 
-        Ok(ImportReceiptDto {
-            success: true,
-            source_dir: source_dir.to_string(),
-            applied_at: chrono::Utc::now().to_rfc3339(),
-            report: ImportReportDto::from(report),
+            Ok(ImportReceiptDto {
+                success: true,
+                source_dir: source_dir.to_string(),
+                applied_at: chrono::Utc::now().to_rfc3339(),
+                report: ImportReportDto::from(report),
+            })
         })
-    })
-}
-
-#[tauri::command]
-pub fn app_settings(state: State<'_, DesktopState>) -> Result<AppSettingsDto, DesktopError> {
-    app_settings_impl(&state)
-}
-
-pub fn app_settings_impl(state: &DesktopState) -> Result<AppSettingsDto, DesktopError> {
-    let status = state.get_status();
-    let (db_path, db_status) = match status {
-        AppStatus::Ready { db_path } => (Some(db_path), "Ready".to_string()),
-        AppStatus::Loading => (None, "Loading".to_string()),
-        AppStatus::SetupFailure { message } => (None, format!("Setup Failure: {message}")),
-        AppStatus::CorruptFailure { message } => (None, format!("Corrupt Failure: {message}")),
-    };
-
-    let capabilities = AppCapabilities::current();
-    let runner = SystemCommandRunner;
-
-    // Check macos_applications
-    let macos_status = if cfg!(target_os = "macos") {
-        match MacosApplicationsProvider::system_default() {
-            Ok(_) => ProviderStatusDto {
-                name: "macos_applications".to_string(),
-                display_name: "macOS Applications".to_string(),
-                available: true,
-                details: Some("/Applications, ~/Applications".to_string()),
-            },
-            Err(e) => ProviderStatusDto {
-                name: "macos_applications".to_string(),
-                display_name: "macOS Applications".to_string(),
-                available: false,
-                details: Some(e.to_string()),
-            },
-        }
-    } else {
-        ProviderStatusDto {
-            name: "macos_applications".to_string(),
-            display_name: "macOS Applications".to_string(),
-            available: false,
-            details: Some("Not supported on this OS".to_string()),
-        }
-    };
-
-    // Check homebrew
-    let brew_status = match runner.run("brew", &["--version"]) {
-        Ok(out) if out.status.success() => ProviderStatusDto {
-            name: "homebrew".to_string(),
-            display_name: "Homebrew".to_string(),
-            available: true,
-            details: Some(
-                String::from_utf8_lossy(&out.stdout)
-                    .lines()
-                    .next()
-                    .unwrap_or("Installed")
-                    .to_string(),
-            ),
-        },
-        _ => ProviderStatusDto {
-            name: "homebrew".to_string(),
-            display_name: "Homebrew".to_string(),
-            available: false,
-            details: Some("brew command not found in PATH".to_string()),
-        },
-    };
-
-    // Check cli_tools (npm & pipx)
-    let npm_ok = runner
-        .run("npm", &["--version"])
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    let pipx_ok = runner
-        .run("pipx", &["--version"])
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-
-    let cli_details = match (npm_ok, pipx_ok) {
-        (true, true) => "npm and pipx detected in PATH".to_string(),
-        (true, false) => "npm detected; pipx not found".to_string(),
-        (false, true) => "pipx detected; npm not found".to_string(),
-        (false, false) => "Neither npm nor pipx found in PATH".to_string(),
-    };
-
-    let cli_status = ProviderStatusDto {
-        name: "cli_tools".to_string(),
-        display_name: "CLI Tools (npm, pipx)".to_string(),
-        available: npm_ok || pipx_ok,
-        details: Some(cli_details),
-    };
-
-    Ok(AppSettingsDto {
-        db_path,
-        db_status,
-        app_version: env!("CARGO_PKG_VERSION").to_string(),
-        providers: vec![macos_status, brew_status, cli_status],
-        capabilities,
     })
 }

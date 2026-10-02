@@ -199,6 +199,15 @@ pub enum LifecycleFilter {
 
 pub trait AssetReader {
     fn get(&mut self, id: AssetId) -> AppResult<Option<Asset>>;
+    fn get_many(&mut self, ids: &[AssetId]) -> AppResult<Vec<Asset>> {
+        let mut assets = Vec::new();
+        for id in ids {
+            if let Some(asset) = self.get(*id)? {
+                assets.push(asset);
+            }
+        }
+        Ok(assets)
+    }
     fn list(&mut self, filter: &AssetFilter) -> AppResult<Vec<Asset>>;
 }
 
@@ -209,6 +218,16 @@ pub trait AssetRepository: AssetReader {
 
 pub trait InfoReader {
     fn get(&mut self, asset_id: AssetId) -> AppResult<Option<InfoRecord>>;
+    /// Presence only, for import conflict checks without decoding values.
+    fn existing_ids(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetId>> {
+        let mut found = Vec::new();
+        for id in ids {
+            if self.get(*id)?.is_some() {
+                found.push(*id);
+            }
+        }
+        Ok(found)
+    }
     fn list(&mut self) -> AppResult<Vec<InfoEntry>>;
 }
 
@@ -250,6 +269,16 @@ pub struct MediaListRow {
 
 pub trait MediaReader {
     fn get(&mut self, asset_id: AssetId) -> AppResult<Option<MediaRecord>>;
+    /// Presence only, for import conflict checks without decoding values.
+    fn existing_ids(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetId>> {
+        let mut found = Vec::new();
+        for id in ids {
+            if self.get(*id)?.is_some() {
+                found.push(*id);
+            }
+        }
+        Ok(found)
+    }
     fn list(&mut self, filter: &MediaFilter) -> AppResult<Vec<MediaListRow>>;
     /// All media records, unsorted — used by projection rebuild and export.
     fn list_all(&mut self) -> AppResult<Vec<MediaRecord>>;
@@ -290,6 +319,16 @@ pub struct SoftwareListRow {
 
 pub trait SoftwareReader {
     fn get(&mut self, asset_id: AssetId) -> AppResult<Option<SoftwareRecord>>;
+    /// Presence only, for import conflict checks without decoding values.
+    fn existing_ids(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetId>> {
+        let mut found = Vec::new();
+        for id in ids {
+            if self.get(*id)?.is_some() {
+                found.push(*id);
+            }
+        }
+        Ok(found)
+    }
     fn list(&mut self, filter: &SoftwareFilter) -> AppResult<Vec<SoftwareListRow>>;
     /// All software records, unsorted — used by projection rebuild and export.
     fn list_all(&mut self) -> AppResult<Vec<SoftwareRecord>>;
@@ -333,6 +372,16 @@ pub struct ServiceListRow {
 
 pub trait ServiceReader {
     fn get(&mut self, asset_id: AssetId) -> AppResult<Option<ServiceRecord>>;
+    /// Presence only, for import conflict checks without decoding values.
+    fn existing_ids(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetId>> {
+        let mut found = Vec::new();
+        for id in ids {
+            if self.get(*id)?.is_some() {
+                found.push(*id);
+            }
+        }
+        Ok(found)
+    }
     fn list(&mut self, filter: &ServiceFilter) -> AppResult<Vec<ServiceListRow>>;
     /// All service records, unsorted — used by projection rebuild.
     fn list_all(&mut self) -> AppResult<Vec<ServiceRecord>>;
@@ -345,6 +394,18 @@ pub trait ServiceRepository: ServiceReader {
 
 pub trait RelationReader {
     fn get(&mut self, id: RelationId) -> AppResult<Option<Relation>>;
+    fn find(
+        &mut self,
+        source: AssetId,
+        target: AssetId,
+        relation_type: crate::domain::relation::RelationType,
+    ) -> AppResult<Option<Relation>> {
+        Ok(self.list_for_asset(source)?.into_iter().find(|row| {
+            row.source_asset_id == source
+                && row.target_asset_id == target
+                && row.relation_type == relation_type
+        }))
+    }
     /// Relations stored with this asset as either endpoint.
     fn list_for_asset(&mut self, asset_id: AssetId) -> AppResult<Vec<Relation>>;
     /// Every relation touching any of these assets, ordered by identity.
@@ -353,6 +414,15 @@ pub trait RelationReader {
     /// single query instead of one per visited node. An empty slice yields no
     /// rows rather than an error.
     fn list_for_assets(&mut self, asset_ids: &[AssetId]) -> AppResult<Vec<Relation>>;
+    fn list_for_assets_bounded(
+        &mut self,
+        asset_ids: &[AssetId],
+        limit: usize,
+    ) -> AppResult<Vec<Relation>> {
+        let mut rows = self.list_for_assets(asset_ids)?;
+        rows.truncate(limit);
+        Ok(rows)
+    }
     /// Every relation, ordered by identity — used by export and merge.
     fn list_all(&mut self) -> AppResult<Vec<Relation>>;
 }
@@ -389,6 +459,12 @@ pub trait ExternalRefRepository: ExternalRefReader {
 }
 
 pub trait ActivityReader {
+    /// Filter, count and page within the read scope. Only this page's payloads
+    /// and asset names should be materialized by persistent adapters.
+    fn query(
+        &mut self,
+        query: &crate::application::activity_service::ActivityQuery,
+    ) -> AppResult<Page<crate::application::activity_service::ActivityView>>;
     fn list_for_asset(&mut self, asset_id: AssetId, limit: usize) -> AppResult<Vec<ActivityEvent>>;
     /// Most recent events first.
     fn list_recent(&mut self, limit: usize) -> AppResult<Vec<ActivityEvent>>;

@@ -254,11 +254,10 @@ fn homebrew_provider_handles_partial_fields() {
 }
 
 #[test]
-fn homebrew_unavailable_and_failures_are_typed_errors() {
-    // Command not found.
+fn homebrew_skips_a_missing_tool_and_reports_execution_or_parse_failures() {
+    // An optional tool that is not installed completes with no candidates.
     let provider = HomebrewProvider::with_runner("brew", FakeRunner::new());
-    let err = provider.scan().unwrap_err();
-    assert!(matches!(err, AppError::ProviderUnavailable { .. }), "{err}");
+    assert!(provider.scan().unwrap().is_empty());
 
     // Command fails.
     let runner = FakeRunner::new().respond("brew", "", false);

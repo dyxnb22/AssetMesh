@@ -1,7 +1,7 @@
 //! Services module write commands, subscription updates, and renewals (P5-06).
 
 use assetmesh_core::application::service_service::{
-    parse_money_pair, parse_money_patch, CreateService, Patch, RecordRenewal, UpdateService,
+    parse_money_pair, parse_money_update, CreateService, Patch, RecordRenewal, UpdateService,
 };
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::service::{BillingCadence, ServiceType};
@@ -39,6 +39,13 @@ pub fn service_command_impl(
     command: ServiceCommandDto,
     state: &DesktopState,
 ) -> Result<MutationReceiptDto, DesktopError> {
+    state.with_service_operation(|| service_command_locked(command, state))
+}
+
+fn service_command_locked(
+    command: ServiceCommandDto,
+    state: &DesktopState,
+) -> Result<MutationReceiptDto, DesktopError> {
     match &command {
         ServiceCommandDto::Create { .. } => {}
         ServiceCommandDto::Update {
@@ -71,6 +78,9 @@ pub fn service_command_impl(
             expires_at,
             auto_renew,
             notes,
+            project_dir,
+            start_command,
+            stop_command,
             tags,
         } => {
             let st = ServiceType::parse(&service_type).ok_or_else(|| {
@@ -116,6 +126,9 @@ pub fn service_command_impl(
                 expires_at: e_at,
                 auto_renew,
                 notes,
+                project_dir,
+                start_command,
+                stop_command,
                 tags,
                 external_refs: Vec::new(),
             };
@@ -150,26 +163,32 @@ pub fn service_command_impl(
             expires_at,
             auto_renew,
             notes,
+            project_dir,
+            start_command,
+            stop_command,
         } => {
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
             if name.is_none()
-                && summary.is_none()
-                && provider.is_none()
-                && account_label.is_none()
-                && endpoint_url.is_none()
-                && dashboard_url.is_none()
-                && domain_name.is_none()
-                && plan.is_none()
-                && cost.is_none()
-                && currency.is_none()
-                && billing_cadence.is_none()
-                && renews_at.is_none()
-                && expires_at.is_none()
-                && auto_renew.is_none()
-                && notes.is_none()
+                && summary.is_leave()
+                && provider.is_leave()
+                && account_label.is_leave()
+                && endpoint_url.is_leave()
+                && dashboard_url.is_leave()
+                && domain_name.is_leave()
+                && plan.is_leave()
+                && cost.is_leave()
+                && currency.is_leave()
+                && billing_cadence.is_leave()
+                && renews_at.is_leave()
+                && expires_at.is_leave()
+                && auto_renew.is_leave()
+                && notes.is_leave()
+                && project_dir.is_leave()
+                && start_command.is_leave()
+                && stop_command.is_leave()
             {
                 return state.with_modules(|modules| {
                     let view = modules.service().get_service(id)?;
@@ -192,54 +211,68 @@ pub fn service_command_impl(
                 });
             }
 
-            let (cost_patch, currency_patch) =
-                parse_money_patch(cost.as_deref(), currency.as_deref())?;
+            let (cost_patch, currency_patch) = parse_money_update(cost, currency)?;
+            let cadence_patch = billing_cadence.normalize_text().try_map(|value| {
+                BillingCadence::parse(&value).ok_or_else(|| {
+                    DesktopError::invalid_input(format!("unknown billing cadence: {value}"))
+                })
+            })?;
+            let renews_patch = renews_at
+                .normalize_text()
+                .try_map(|value| parse_timestamp(&value))?;
+            let expires_patch = expires_at
+                .normalize_text()
+                .try_map(|value| parse_timestamp(&value))?;
 
-            let cadence_patch = match billing_cadence.as_deref() {
-                None => Patch::Leave,
-                Some(c) if c.trim().is_empty() => Patch::Clear,
-                Some(c) => {
-                    let parsed = BillingCadence::parse(c).ok_or_else(|| {
-                        DesktopError::invalid_input(format!("unknown billing cadence: {c}"))
-                    })?;
-                    Patch::Set(parsed)
-                }
-            };
-
-            let renews_patch = match renews_at.as_deref() {
-                None => Patch::Leave,
-                Some(r) if r.trim().is_empty() => Patch::Clear,
-                Some(r) => Patch::Set(parse_timestamp(r)?),
-            };
-
-            let expires_patch = match expires_at.as_deref() {
-                None => Patch::Leave,
-                Some(e) if e.trim().is_empty() => Patch::Clear,
-                Some(e) => Patch::Set(parse_timestamp(e)?),
-            };
-
-            let auto_renew_patch = match auto_renew {
-                None => Patch::Leave,
-                Some(val) => Patch::Set(val),
-            };
+            // Launch configuration is frozen while AssetMesh holds a live
+            // process for the service: editing what a running process was
+            // started with would leave the record describing something else.
+            if state.service_runtime().is_active(&asset_id) {
+                state.with_modules(|modules| {
+                    let view = modules.service().get_service(id)?;
+                    if let Some(expected) = expected_revision {
+                        if view.entry.asset.revision != expected {
+                            return Err(DesktopError::from(assetmesh_core::AppError::stale_revision(
+                                expected, view.entry.asset.revision)));
+                        }
+                    }
+                    let changed = |patch: &Patch<String>, current: &Option<String>| {
+                        match patch.clone().normalize_text() {
+                            Patch::Leave => false,
+                            Patch::Clear => current.is_some(),
+                            Patch::Set(value) => Some(value.trim()) != current.as_deref(),
+                        }
+                    };
+                    if changed(&project_dir, &view.entry.record.project_dir)
+                        || changed(&start_command, &view.entry.record.start_command)
+                        || changed(&stop_command, &view.entry.record.stop_command) {
+                        return Err(DesktopError::conflict(
+                            "the service is running; stop it before editing its launch configuration"));
+                    }
+                    Ok(())
+                })?;
+            }
 
             let cmd = UpdateService {
                 asset_id: id,
                 name,
-                summary: Patch::from_text(summary),
-                provider: Patch::from_text(provider),
-                account_label: Patch::from_text(account_label),
-                endpoint_url: Patch::from_text(endpoint_url),
-                dashboard_url: Patch::from_text(dashboard_url),
-                domain_name: Patch::from_text(domain_name),
-                plan: Patch::from_text(plan),
+                summary: summary.normalize_text(),
+                provider: provider.normalize_text(),
+                account_label: account_label.normalize_text(),
+                endpoint_url: endpoint_url.normalize_text(),
+                dashboard_url: dashboard_url.normalize_text(),
+                domain_name: domain_name.normalize_text(),
+                plan: plan.normalize_text(),
                 cost_minor: cost_patch,
                 currency: currency_patch,
                 billing_cadence: cadence_patch,
                 renews_at: renews_patch,
                 expires_at: expires_patch,
-                auto_renew: auto_renew_patch,
-                notes: Patch::from_text(notes),
+                auto_renew,
+                notes: notes.normalize_text(),
+                project_dir: project_dir.normalize_text(),
+                start_command: start_command.normalize_text(),
+                stop_command: stop_command.normalize_text(),
                 expected_revision,
             };
 
@@ -314,6 +347,28 @@ pub fn service_command_impl(
             let id = uuid::Uuid::parse_str(&asset_id)
                 .map(AssetId::from_uuid)
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
+
+            // Rejected archive requests must have no process side effects.
+            state.with_modules(|modules| {
+                let view = modules.asset().get_asset(id)?;
+                view.asset.ensure_mutable()?;
+                if let Some(expected) = expected_revision {
+                    if view.asset.revision != expected {
+                        return Err(DesktopError::from(
+                            assetmesh_core::AppError::stale_revision(expected, view.asset.revision),
+                        ));
+                    }
+                }
+                Ok(())
+            })?;
+
+            // Archiving a running local service must not orphan its process:
+            // stop what AssetMesh started before the record becomes
+            // read-only. Externally started processes are not touched —
+            // they are not ours to stop.
+            state
+                .service_runtime()
+                .stop_blocking(&asset_id, std::time::Duration::from_secs(8))?;
 
             state.with_modules(|modules| {
                 let mut svc = modules.asset();

@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>媒体资料库 · 列表视图</title>
+<style>
+:root {
+  --canvas: #F4F6F8;
+  --surface: #FFFFFF;
+  --ink: #172126;
+  --muted: #66747B;
+  --faint: #98A6AC;
+  --line: rgba(23,33,38,0.08);
+  --mesh: #147D78;
+  --mesh-ink: #0F6B66;
+  --mesh-bg: #E8F5F4;
+  --amber: #A86716;
+  --glass: rgba(255,255,255,0.78);
+  --glass-strong: rgba(255,255,255,0.92);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+  font-size: 13px; line-height: 1.5; color: var(--ink); -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column;
+  background:
+    radial-gradient(900px 420px at 18% -8%, rgba(20,125,120,0.10), transparent 62%),
+    radial-gradient(760px 400px at 78% -12%, rgba(94,106,210,0.08), transparent 60%),
+    var(--canvas);
+}
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+.titlebar { height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 14px; z-index: 30; }
+.lights { display: flex; gap: 7px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.l-red { background: #FF5F57; } .l-yel { background: #FEBC2E; } .l-grn { background: #28C840; }
+.tb-title { font-size: 12px; font-weight: 600; color: var(--muted); margin-left: 4px; }
+
+.shell { flex: 1; display: flex; min-height: 0; }
+
+.rail {
+  width: 200px; flex-shrink: 0; margin: 0 0 10px 10px; border-radius: 16px; padding: 12px 10px;
+  background: var(--glass); backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,0.65);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset, 0 10px 30px rgba(23,33,38,0.07);
+  display: flex; flex-direction: column; gap: 2px; z-index: 20;
+}
+.rail .brand { padding: 2px 8px 12px; }
+.rail .brand .name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.rail .brand .ver { font-size: 11px; color: var(--muted); }
+.nav-item { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 9px; border-radius: 9px; font-size: 13px; color: var(--ink); }
+.nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+.nav-item .n-count { margin-left: auto; font-size: 11px; color: var(--muted); }
+.nav-item.active { background: var(--mesh); color: #fff; font-weight: 600; box-shadow: 0 2px 8px rgba(20,125,120,0.35); }
+.nav-item.active .n-count { color: rgba(255,255,255,0.85); }
+.nav-label { font-size: 10.5px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; padding: 14px 9px 4px; }
+.rail .spacer { flex: 1; }
+.rail hr { border: none; border-top: 1px solid var(--line); margin: 10px 4px; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 10px 10px 14px; }
+
+.page-head { display: flex; align-items: flex-end; gap: 10px; padding: 8px 4px 10px; }
+.page-head h1 { font-size: 22px; font-weight: 750; letter-spacing: -0.02em; }
+.page-head .sub { font-size: 12.5px; color: var(--muted); padding-bottom: 3px; }
+.page-head .grow { flex: 1; }
+
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 0 0 12px; flex-shrink: 0; }
+.pod {
+  display: flex; align-items: center; border-radius: 999px; height: 36px; padding: 0 5px;
+  background: var(--glass); backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,0.65);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset, 0 6px 18px rgba(23,33,38,0.07);
+}
+.seg { display: flex; align-items: center; gap: 2px; }
+.seg .seg-item { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px; border-radius: 999px; font-size: 12.5px; color: var(--ink); }
+.seg .seg-item .c { font-size: 10.5px; color: var(--muted); font-weight: 600; }
+.seg .seg-item.on { background: var(--surface); font-weight: 600; box-shadow: 0 1px 4px rgba(23,33,38,0.14); }
+.seg .seg-item.on .c { color: var(--mesh-ink); }
+.pod .ctl { display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; color: var(--ink); }
+.pod .ctl .chev { color: var(--muted); font-size: 10px; }
+.pod .ctl svg { width: 14px; height: 14px; color: var(--muted); }
+.pod .divider { width: 1px; height: 18px; background: var(--line); margin: 0 3px; }
+.search {
+  display: flex; align-items: center; gap: 7px; width: 230px; height: 36px; padding: 0 12px;
+  border-radius: 999px; background: var(--glass); backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,0.65); color: var(--muted); font-size: 12.5px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset, 0 6px 18px rgba(23,33,38,0.07);
+}
+.search kbd { margin-left: auto; font-size: 10px; background: rgba(23,33,38,0.05); border-radius: 4px; padding: 0 5px; line-height: 16px; }
+.primary-btn {
+  display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 15px;
+  background: var(--mesh); color: #fff; border-radius: 999px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 14px rgba(20,125,120,0.35);
+}
+.primary-btn svg { width: 13px; height: 13px; }
+.grow { flex: 1; }
+
+/* list panel — a glass card containing rows */
+.list-card {
+  flex: 1; min-height: 0; overflow: hidden; margin: 0 4px;
+  background: var(--glass-strong); backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,0.65); border-radius: 14px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset, 0 10px 30px rgba(23,33,38,0.06);
+  display: flex; flex-direction: column;
+}
+.lhead { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 16px; flex-shrink: 0; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.03em; }
+.lhead .sorted { color: var(--mesh-ink); }
+.lbody { flex: 1; }
+.lrow { display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 16px; }
+.lrow + .lrow { border-top: 1px solid var(--line); }
+.lrow.selected { background: var(--mesh-bg); box-shadow: inset 3px 0 0 var(--mesh); }
+.thumb { width: 30px; height: 45px; border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(23,33,38,0.25); }
+.thumb .glyph { font-size: 13px; font-weight: 800; color: rgba(255,255,255,0.4); }
+.lname { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.lname .nm { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-pill { font-size: 10px; font-weight: 600; color: #fff; background: rgba(15,107,102,0.82); padding: 0.5px 7px; border-radius: 999px; flex-shrink: 0; }
+.s-pill.wish { background: rgba(168,103,22,0.85); }
+.s-pill.watched { background: rgba(23,33,38,0.50); }
+.lcell { flex-shrink: 0; font-size: 12px; color: var(--muted); }
+.lcell b { color: var(--ink); font-weight: 550; }
+.c-year { width: 48px; }
+.c-prog { width: 130px; }
+.c-rating { width: 60px; color: var(--amber); font-weight: 650; }
+.c-rating.na { color: var(--faint); font-weight: 400; }
+.c-time { width: 56px; text-align: right; font-size: 11px; }
+
+.pager { flex-shrink: 0; margin-top: 10px; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; color: var(--muted); }
+.pager .grow { flex: 1; }
+.pager-btn {
+  height: 27px; padding: 0 12px; border-radius: 999px; border: none;
+  background: var(--glass-strong); box-shadow: 0 1px 4px rgba(23,33,38,0.10), 0 0 0 1px var(--line);
+  font-size: 12px; color: var(--ink);
+}
+.pager-btn.disabled { color: var(--faint); box-shadow: 0 0 0 1px var(--line); }
+
+.inspector {
+  width: 320px; flex-shrink: 0; margin-bottom: 10px; margin-right: 0; border-radius: 16px; padding: 16px 16px 14px;
+  background: var(--glass-strong); backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset, 0 10px 30px rgba(23,33,38,0.08);
+  display: flex; flex-direction: column; gap: 13px; overflow: hidden; z-index: 20;
+}
+.insp-top { display: flex; align-items: flex-start; gap: 10px; }
+.insp-poster { width: 74px; height: 111px; border-radius: 10px; flex-shrink: 0; position: relative; overflow: hidden; box-shadow: 0 2px 8px rgba(23,33,38,0.22); display: flex; align-items: center; justify-content: center; }
+.insp-poster .glyph { font-size: 26px; font-weight: 800; color: rgba(255,255,255,0.35); }
+.insp-poster .sp { position: absolute; top: 5px; left: 5px; font-size: 9px; font-weight: 600; color: #fff; background: rgba(15,107,102,0.85); padding: 1px 6px; border-radius: 999px; }
+.insp-headline { flex: 1; min-width: 0; }
+.insp-close { color: var(--muted); font-size: 14px; }
+.insp-title { font-size: 16.5px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; }
+.insp-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.insp-tags-line { margin-top: 7px; display: flex; gap: 5px; flex-wrap: wrap; }
+.mini-tag { font-size: 10.5px; color: var(--muted); background: rgba(23,33,38,0.05); border-radius: 999px; padding: 0.5px 8px; }
+.status-sel { display: flex; background: rgba(23,33,38,0.05); border-radius: 999px; padding: 3px; }
+.status-sel span { flex: 1; text-align: center; line-height: 26px; border-radius: 999px; font-size: 12px; color: var(--muted); }
+.status-sel span.on { background: var(--surface); color: var(--mesh-ink); font-weight: 650; box-shadow: 0 1px 4px rgba(23,33,38,0.14); }
+.prog-row { display: flex; align-items: center; gap: 10px; }
+.prog-row .k { font-size: 11.5px; color: var(--muted); flex-shrink: 0; }
+.prog-row .v { font-size: 12.5px; font-weight: 600; }
+.prog { flex: 1; height: 5px; border-radius: 99px; background: rgba(23,33,38,0.08); overflow: hidden; }
+.prog i { display: block; height: 100%; width: 50%; background: var(--mesh); border-radius: 99px; }
+.stars { display: flex; align-items: center; gap: 8px; }
+.stars .row { position: relative; font-size: 16px; letter-spacing: 2px; color: rgba(23,33,38,0.16); }
+.stars .row .fill { position: absolute; inset: 0; width: 85%; overflow: hidden; color: #E8A33D; white-space: nowrap; }
+.stars .num { font-size: 12.5px; font-weight: 650; }
+.stars .of { font-size: 11px; color: var(--muted); }
+.card { background: rgba(255,255,255,0.75); border: 1px solid var(--line); border-radius: 12px; padding: 10px 13px; display: flex; flex-direction: column; gap: 8px; }
+.sec-title { font-size: 12px; font-weight: 650; margin-bottom: 1px; }
+.rel-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.rel-row + .rel-row { border-top: 1px solid var(--line); }
+.rel-type { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 9.5px; color: var(--muted); background: rgba(23,33,38,0.05); border-radius: 4px; padding: 0 5px; line-height: 16px; }
+.rel-target { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rel-kind { margin-left: auto; font-size: 10.5px; color: var(--muted); flex-shrink: 0; }
+.rel-link { font-size: 11.5px; color: var(--mesh-ink); font-weight: 600; }
+.insp-meta-line { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; padding: 0 2px; }
+.insp-meta-line .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.copy-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--mesh-ink); font-weight: 600; font-size: 10.5px; }
+.copy-btn svg { width: 10px; height: 10px; }
+.insp-actions { display: flex; gap: 8px; }
+.insp-actions .primary-btn { flex: 1; justify-content: center; height: 34px; }
+.secondary-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; height: 34px;
+  background: rgba(255,255,255,0.9); border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--ink);
+  box-shadow: 0 1px 4px rgba(23,33,38,0.10), 0 0 0 1px var(--line);
+}
+.detail-link { text-align: center; font-size: 12px; color: var(--mesh-ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="lights"><i class="l-red"></i><i class="l-yel"></i><i class="l-grn"></i></div>
+  <span class="tb-title">AssetMesh</span>
+</div>
+
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand"><div class="name">AssetMesh</div><div class="ver">v0.3.0</div></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>全部资产<span class="n-count">785</span></div>
+    <div class="nav-item active"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M1.5 5.5h13M5 2.5v3"/></svg>媒体<span class="n-count">741</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2" width="13" height="12" rx="2"/><path d="M1.5 5h13M5.5 8.5l-2 1.75 2 1.75M10.5 8.5l2 1.75-2 1.75"/></svg>软件<span class="n-count">29</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 10a2.5 2.5 0 0 0 0-5 4 4 0 0 0-7.8 1A2.75 2.75 0 0 0 4.5 10.5h7Z"/><path d="M6.5 12.5 5 15M9.5 12.5 8 15M12.5 12.5 11 15"/></svg>服务<span class="n-count">12</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="4.5" r="2.5"/><path d="m9.2 6.3-6.7 6.7v1.5h2l1-1v-1.3h1.3v-1.3h1.4l1-1V8.6"/><path d="m10.6 4.9.01 0"/></svg>常用信息<span class="n-count">3</span></div>
+    <hr>
+    <div class="nav-label">库</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="4" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><path d="M6 4h4M4 6v4M12 6v4M6 12h4"/></svg>关系</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8h3l2-4.5 3 9 2-4.5h3"/></svg>动态</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/><path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1"/></svg>重复项</div>
+    <div class="spacer"></div>
+    <div class="nav-label">数据</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5.5h12v8a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-8Z"/><path d="M1.5 3h13v2.5h-13zM6.5 8h3"/></svg>便携数据</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M13 8c0-.5-.05-1-.15-1.45l1.35-1.05-1.5-2.6-1.6.65A5.5 5.5 0 0 0 9.65 2.2L9.4.55H6.6L6.35 2.2a5.5 5.5 0 0 0-1.45.85l-1.6-.65-1.5 2.6 1.35 1.05a5.6 5.6 0 0 0 0 2.9l-1.35 1.05 1.5 2.6 1.6-.65c.43.36.92.65 1.45.85l.25 1.65h2.8l.25-1.65a5.5 5.5 0 0 0 1.45-.85l1.6.65 1.5-2.6-1.35-1.05c.1-.45.15-.95.15-1.45Z"/></svg>设置</div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <h1>媒体资料库</h1><span class="sub">741 部影视 · 32 部书籍</span>
+      <div class="grow"></div>
+    </div>
+
+    <div class="toolbar">
+      <div class="pod">
+        <div class="seg">
+          <span class="seg-item on">全部 <span class="c">741</span></span>
+          <span class="seg-item">在看 <span class="c">12</span></span>
+          <span class="seg-item">想看 <span class="c">89</span></span>
+          <span class="seg-item">看过 <span class="c">640</span></span>
+        </div>
+      </div>
+      <div class="pod">
+        <span class="ctl">类型:全部 <span class="chev">▾</span></span>
+        <span class="divider"></span>
+        <span class="ctl">最近更新 <span class="chev">▾</span></span>
+        <span class="divider"></span>
+        <span class="ctl"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>列表 <span class="chev">▾</span></span>
+      </div>
+      <div class="pod">
+        <span class="ctl"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h8a1 1 0 0 1 1 1v12l-5-3-5 3v-12a1 1 0 0 1 1-1Z"/></svg><span class="chev">▾</span></span>
+      </div>
+      <div class="search"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/></svg>搜索媒体<kbd>⌘K</kbd></div>
+      <div class="grow"></div>
+      <div class="primary-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2.5v11M2.5 8h11"/></svg>添加影音书</div>
+    </div>
+
+    <div class="list-card">
+      <div class="lhead">
+        <span class="sorted" style="flex:1">名称 ▲</span>
+        <span style="width:48px">年份</span>
+        <span style="width:130px">进度</span>
+        <span style="width:60px">评分</span>
+        <span style="width:56px;text-align:right">更新于</span>
+      </div>
+      <div class="lbody">
+        <div class="lrow selected"><span class="thumb" style="background:linear-gradient(160deg,#8C1D2C,#3E0A12)"><span class="glyph">黑</span></span><span class="lname"><span class="nm">黑袍纠察队 第五季</span><span class="s-pill">在看</span></span><span class="lcell c-year">2026</span><span class="lcell c-prog"><b>S05</b> · E04/08</span><span class="lcell c-rating">★ 8.5</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#274672,#101E33)"><span class="glyph">幕</span></span><span class="lname"><span class="nm">幕府将军 第一季</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2024</span><span class="lcell c-prog">全 10 集</span><span class="lcell c-rating">★ 9.0</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#4A2C5E,#160B20)"><span class="glyph">毒</span></span><span class="lname"><span class="nm">毒液:最后一舞</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2024</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 7.5</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#B3383C,#20308C)"><span class="glyph">蜘</span></span><span class="lname"><span class="nm">蜘蛛侠:英雄无归</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2021</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 8.0</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#9C6B35,#4A2E15)"><span class="glyph">马</span></span><span class="lname"><span class="nm">马粥街残酷史</span><span class="s-pill wish">想看</span></span><span class="lcell c-year">2004</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating na">—</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#C2447C,#2BB3B0)"><span class="glyph">蜘</span></span><span class="lname"><span class="nm">蜘蛛侠:纵横宇宙</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2023</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 8.5</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#5E7C3A,#26331A)"><span class="glyph">落</span></span><span class="lname"><span class="nm">落叶归根</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2007</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 8.5</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#2E5E4E,#0E1F1A)"><span class="glyph">寄</span></span><span class="lname"><span class="nm">寄生虫</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2019</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 9.0</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#6E3B2A,#20110C)"><span class="glyph">八</span></span><span class="lname"><span class="nm">八恶人</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2015</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 8.5</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#1D6E8C,#123A4A)"><span class="glyph">你</span></span><span class="lname"><span class="nm">你想活出怎样的人生</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2023</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 8.0</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#233A8C,#0C1233)"><span class="glyph">名</span></span><span class="lname"><span class="nm">名侦探柯南:黑铁的鱼影</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2023</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 7.0</span><span class="lcell c-time mono">6 天前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#C29A4B,#6E5220)"><span class="glyph">沙</span></span><span class="lname"><span class="nm">沙丘:第二部</span><span class="s-pill wish">想看</span></span><span class="lcell c-year">2024</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating na">—</span><span class="lcell c-time mono">1 周前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#D06A28,#1A1A1A)"><span class="glyph">奥</span></span><span class="lname"><span class="nm">奥本海默</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2023</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 9.0</span><span class="lcell c-time mono">2 周前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#7A3FA0,#B03050)"><span class="glyph">瞬</span></span><span class="lname"><span class="nm">瞬息全宇宙</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2022</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 8.0</span><span class="lcell c-time mono">2 周前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#E88A2D,#2E6FB0)"><span class="glyph">疯</span></span><span class="lname"><span class="nm">疯狂动物城 2</span><span class="s-pill wish">想看</span></span><span class="lcell c-year">2025</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating na">—</span><span class="lcell c-time mono">3 周前</span></div>
+        <div class="lrow"><span class="thumb" style="background:linear-gradient(160deg,#2E5E46,#6E2230)"><span class="glyph">花</span></span><span class="lname"><span class="nm">花样年华</span><span class="s-pill watched">看过</span></span><span class="lcell c-year">2000</span><span class="lcell c-prog" style="color:var(--faint)">—</span><span class="lcell c-rating">★ 9.0</span><span class="lcell c-time mono">3 周前</span></div>
+      </div>
+    </div>
+
+    <div class="pager">
+      <span>第 1–16 部,共 741 部</span>
+      <div class="grow"></div>
+      <span>每页 50 ▾</span>
+      <button class="pager-btn disabled">‹ 上一页</button>
+      <button class="pager-btn">下一页 ›</button>
+    </div>
+  </main>
+
+  <aside class="inspector">
+    <div class="insp-top">
+      <div class="insp-poster" style="background:linear-gradient(160deg,#8C1D2C,#3E0A12)"><span class="glyph">黑</span><span class="sp">在看</span></div>
+      <div class="insp-headline">
+        <div class="insp-title">黑袍纠察队 第五季</div>
+        <div class="insp-meta">2026 · Amazon · 8 集</div>
+        <div class="insp-tags-line"><span class="mini-tag">#超英</span><span class="mini-tag">#亚马逊</span></div>
+      </div>
+      <span class="insp-close">✕</span>
+    </div>
+
+    <div class="card" style="gap:10px">
+      <div class="status-sel"><span>想看</span><span class="on">在看</span><span>看过</span></div>
+      <div class="prog-row"><span class="k">进度</span><span class="v">S05 · E04/08</span><span class="prog"><i></i></span></div>
+      <div class="stars"><span class="row">★★★★★<span class="fill">★★★★★</span></span><span class="num">8.5</span><span class="of">/ 10</span></div>
+    </div>
+
+    <div class="card">
+      <div class="sec-title">关系 · 3</div>
+      <div class="rel-row"><span class="rel-type">uses</span><span class="rel-target">Prime Video 年度订阅</span><span class="rel-kind">服务</span></div>
+      <div class="rel-row"><span class="rel-type">related_to</span><span class="rel-target">追剧清单</span><span class="rel-kind">信息</span></div>
+      <div class="rel-row"><span class="rel-type">related_to</span><span class="rel-target">黑袍纠察队 第四季</span><span class="rel-kind">剧集</span></div>
+      <div class="rel-link">在关系图中查看 →</div>
+    </div>
+
+    <div class="insp-meta-line"><span class="id">01a0d380…6aa9</span><span class="copy-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1"/></svg>复制</span><span>·</span><span>更新于 6 天前</span></div>
+
+    <div class="insp-actions" style="margin-top:auto">
+      <div class="primary-btn">编辑</div>
+      <div class="secondary-btn">标记看完</div>
+    </div>
+    <div class="detail-link">查看完整详情 →</div>
+  </aside>
+
+</div>
+
+</body>
+</html>

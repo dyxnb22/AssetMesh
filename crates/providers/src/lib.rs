@@ -1,4 +1,4 @@
-//! AssetMesh discovery providers (docs/06 provider design).
+//! AssetMesh discovery providers (docs/02 providers and discovery).
 //!
 //! Concrete Software discovery sources for Phase 2: macOS applications,
 //! Homebrew, and global CLI tool registries (npm, pipx). Providers are
@@ -11,10 +11,21 @@
 //! depends on the host machine's installed software.
 
 pub mod cli_tools;
+mod command;
 pub mod homebrew;
 pub mod macos_apps;
 
 pub use cli_tools::CliToolsProvider;
+pub use command::SystemCommandRunner;
+
+/// Keep a source's failure useful without rendering its entire stderr.
+fn diagnostic_text(bytes: &[u8]) -> String {
+    let mut message = String::from_utf8_lossy(&bytes[..bytes.len().min(2048)]).into_owned();
+    if bytes.len() > 2048 {
+        message.push('…');
+    }
+    message
+}
 pub use homebrew::HomebrewProvider;
 pub use macos_apps::MacosApplicationsProvider;
 
@@ -42,23 +53,4 @@ impl CommandError {
 /// provider output parsing is testable with fixture responses.
 pub trait CommandRunner: Send + Sync {
     fn run(&self, program: &str, args: &[&str]) -> Result<Output, CommandError>;
-}
-
-/// Production runner.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct SystemCommandRunner;
-
-impl CommandRunner for SystemCommandRunner {
-    fn run(&self, program: &str, args: &[&str]) -> Result<Output, CommandError> {
-        std::process::Command::new(program)
-            .args(args)
-            .output()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    CommandError::NotFound
-                } else {
-                    CommandError::Failed(e)
-                }
-            })
-    }
 }

@@ -129,6 +129,9 @@ fn service_cmd(name: &str, service_type: ServiceType) -> CreateService {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -143,7 +146,7 @@ fn duplicates(env: &TestEnv) -> DuplicateReviewService<MemFactory> {
 }
 
 fn assets(env: &TestEnv) -> AssetService<MemFactory> {
-    AssetService::new(env.factory.clone(), env.clock.clone(), env.ids.clone())
+    AssetService::new(env.factory.clone(), env.clock.clone())
 }
 
 fn types(view: &[assetmesh_core::application::activity_service::ActivityView]) -> Vec<String> {
@@ -224,7 +227,7 @@ fn activity_reports_events_from_every_module_newest_first() {
         .update_metadata(
             assetmesh_core::application::software_service::UpdateSoftwareMetadata {
                 asset_id: f.software,
-                version: Some("14.1.0".into()),
+                version: (Some("14.1.0".into())).into(),
                 ..Default::default()
             },
         )
@@ -587,6 +590,62 @@ fn no_candidates_when_the_library_has_no_duplicates() {
 }
 
 #[test]
+fn duplicate_scan_bounds_large_groups_and_reports_partial_results() {
+    use assetmesh_core::application::duplicate_review_service::MAX_DUPLICATE_PAIR_CHECKS;
+    use assetmesh_core::application::library_service::PageRequest;
+    let env = test_env();
+    for _ in 0..150 {
+        env.software_service()
+            .create_software(software_cmd("Shared Name", SoftwareCategory::Cli))
+            .unwrap();
+    }
+    let query = DuplicateQuery {
+        page: PageRequest::new(5, 0),
+        ..Default::default()
+    };
+    let page = duplicates(&env).candidates(&query).unwrap();
+    assert_eq!(
+        page.total, None,
+        "an incomplete scan must not advertise an exact total"
+    );
+    assert_eq!(page.items.len(), 5);
+    assert_eq!(
+        duplicates(&env).candidates(&query).unwrap().items,
+        page.items
+    );
+    let last = duplicates(&env)
+        .candidates(&DuplicateQuery {
+            page: PageRequest::new(5, MAX_DUPLICATE_PAIR_CHECKS - 5),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(last.items.len(), 5);
+    let beyond = duplicates(&env)
+        .candidates(&DuplicateQuery {
+            page: PageRequest::new(5, MAX_DUPLICATE_PAIR_CHECKS),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(beyond.items.is_empty());
+    assert_eq!(beyond.total, None);
+}
+
+#[test]
+fn subscriptions_from_one_provider_are_not_duplicates_without_identity_evidence() {
+    let env = test_env();
+    for index in 0..150 {
+        let mut command = service_cmd(&format!("Project {index}"), ServiceType::Saas);
+        command.provider = Some("Shared Provider".into());
+        env.service_service().create_service(command).unwrap();
+    }
+    let page = duplicates(&env)
+        .candidates(&DuplicateQuery::default())
+        .unwrap();
+    assert_eq!(page.total, Some(0));
+    assert!(page.items.is_empty());
+}
+
+#[test]
 fn same_normalized_name_and_kind_is_a_candidate() {
     let env = test_env();
     let first = env
@@ -659,11 +718,11 @@ fn a_pair_is_reported_once_with_merged_evidence() {
     let mut provider_cmd = service_cmd("OpenAI", ServiceType::Saas);
     provider_cmd.provider = Some("OpenAI".into());
     let third = env.service_service().create_service(provider_cmd).unwrap();
-    // Same provider, different name: paired with the other provider matches.
+    // Same provider, different name: this is a separate subscription.
     let mut provider_cmd2 = service_cmd("Different Name", ServiceType::Saas);
     provider_cmd2.provider = Some("OpenAI".into());
     let fourth = env.service_service().create_service(provider_cmd2).unwrap();
-    let _ = (second, fourth);
+    let _ = second;
 
     let mut service = duplicates(&env);
     let page = service.candidates(&DuplicateQuery::default()).unwrap();
@@ -688,8 +747,11 @@ fn a_pair_is_reported_once_with_merged_evidence() {
         .iter()
         .any(|evidence| matches!(evidence, DuplicateEvidence::SameProvider { .. })));
 
-    // (second, first) also share the normalized name, and (third, fourth) the
-    // provider — but each unordered pair appears exactly once.
+    assert!(!page.items.iter().any(|candidate| {
+        candidate.left.id == fourth.entry.asset.id || candidate.right.id == fourth.entry.asset.id
+    }));
+    assert_eq!(page.total, Some(3));
+    // The three same-name records yield each unordered pair exactly once.
     let mut seen: Vec<(AssetId, AssetId)> = page
         .items
         .iter()
@@ -806,10 +868,10 @@ fn provider_evidence_is_independent_of_row_order() {
     // updated_at DESC, id DESC). The evidence value must come from the
     // canonically smaller asset so both adapters report the same candidate.
     let env = test_env();
-    let mut first = service_cmd("First", ServiceType::Saas);
+    let mut first = service_cmd("Same Service", ServiceType::Saas);
     first.provider = Some("OpenAI".into());
     let a = env.service_service().create_service(first).unwrap();
-    let mut second = service_cmd("Second", ServiceType::Saas);
+    let mut second = service_cmd("same service", ServiceType::Saas);
     second.provider = Some("openai".into());
     let b = env.service_service().create_service(second).unwrap();
 
@@ -830,12 +892,17 @@ fn provider_evidence_is_independent_of_row_order() {
     } else {
         "openai"
     };
-    assert_eq!(
-        candidate.evidence,
-        vec![DuplicateEvidence::SameProvider {
+    assert!(candidate
+        .evidence
+        .contains(&DuplicateEvidence::SameProvider {
             provider: expected_provider.into()
-        }]
-    );
+        }));
+    assert!(candidate
+        .evidence
+        .contains(&DuplicateEvidence::SameNormalizedName {
+            normalized_name: "same service".into(),
+            kind: AssetKind::ServiceSaas,
+        }));
     let again = service.candidates(&DuplicateQuery::default()).unwrap();
     assert_eq!(again.items, page.items);
 }
@@ -860,7 +927,7 @@ fn duplicate_candidates_respect_kind_and_archived_filters() {
         .create_media(media_cmd("dune", MediaType::Movie))
         .unwrap();
 
-    AssetService::new(env.factory.clone(), env.clock.clone(), env.ids.clone())
+    AssetService::new(env.factory.clone(), env.clock.clone())
         .archive_asset(archived.entry.asset.id)
         .unwrap();
 
@@ -918,7 +985,7 @@ fn merged_tombstones_are_never_duplicate_candidates() {
         .create_software(software_cmd("RIPGREP", SoftwareCategory::Cli))
         .unwrap();
 
-    AssetService::new(env.factory.clone(), env.clock.clone(), env.ids.clone())
+    AssetService::new(env.factory.clone(), env.clock.clone())
         .merge_assets(loser.entry.asset.id, winner.entry.asset.id)
         .unwrap();
 

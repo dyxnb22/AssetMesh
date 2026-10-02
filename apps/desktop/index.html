@@ -1,13 +1,33 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AssetMesh</title>
+    <script>
+      try {
+        const theme = localStorage.getItem('assetmesh-theme');
+        document.documentElement.dataset.theme = theme === 'light' || theme === 'dark'
+          ? theme : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.lang = localStorage.getItem('assetmesh-lang') === 'en' ? 'en' : 'zh-CN';
+      } catch { /* The stylesheet and React retain their normal defaults. */ }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div role="status" aria-live="polite" style="display:flex;height:100vh;align-items:center;justify-content:center;background:var(--color-canvas);color:var(--color-muted);font-family:-apple-system,BlinkMacSystemFont,sans-serif">
+        <div style="text-align:center">
+          <div style="font-size:18px;font-weight:600;color:var(--color-ink);margin-bottom:8px">AssetMesh</div>
+          <div id="startup-label">正在打开资产库并校验状态……</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      if (document.documentElement.lang === 'en') {
+        document.getElementById('startup-label').textContent = 'Opening library and verifying state...';
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

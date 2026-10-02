@@ -177,6 +177,13 @@ impl DesktopError {
         }
     }
 
+    pub fn unsupported(msg: impl Into<String>) -> Self {
+        DesktopError {
+            category: DesktopErrorCategory::Unsupported,
+            message: msg.into(),
+        }
+    }
+
     pub fn unavailable(msg: impl Into<String>) -> Self {
         DesktopError {
             category: DesktopErrorCategory::Unavailable,

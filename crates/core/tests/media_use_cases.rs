@@ -183,22 +183,22 @@ fn status_lifecycle_sets_timestamps_and_emits_activity() {
     assert_eq!(view.entry.record.status, MediaStatus::Paused);
     assert!(view.entry.record.completed_at.is_none());
 
-    // paused -> completed -> planned is rejected by the matrix
+    // Completing a paused record sets its completion date.
     media.complete_media(id).unwrap();
     let view = media.get_media(id).unwrap();
     assert_eq!(view.entry.record.status, MediaStatus::Completed);
 }
 
 #[test]
-fn invalid_transition_is_rejected() {
+fn planned_media_can_be_corrected_to_paused() {
     let env = test_env();
     let mut media = env.media_service();
     let created = media
         .create_media(create_cmd("Fresh anime", MediaType::Anime))
         .unwrap();
-    // planned -> paused is not in the transition matrix
-    let err = media.pause_media(created.entry.asset.id).unwrap_err();
-    assert!(matches!(err, AppError::Validation { .. }));
+    media.pause_media(created.entry.asset.id).unwrap();
+    let view = media.get_media(created.entry.asset.id).unwrap();
+    assert_eq!(view.entry.record.status, MediaStatus::Paused);
 }
 
 #[test]
@@ -214,10 +214,10 @@ fn update_metadata_touches_asset_and_projection() {
         .update_metadata(UpdateMediaMetadata {
             asset_id: id,
             title: Some("New title".into()),
-            summary: Some("A summary".into()),
-            year: Some(1999),
-            platform: Some("DVD".into()),
-            notes: Some("Rewatched".into()),
+            summary: (Some("A summary".into())).into(),
+            year: (Some(1999)).into(),
+            platform: (Some("DVD".into())).into(),
+            notes: (Some("Rewatched".into())).into(),
             ..Default::default()
         })
         .unwrap();

@@ -141,6 +141,9 @@ fn create_service(name: &str, plan: Option<&str>, state: &DesktopState) -> Strin
             expires_at: None,
             auto_renew: Some(true),
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec!["ai".into()],
         },
         state,
@@ -497,8 +500,14 @@ fn merge_workflow_preview_and_successful_apply() {
     let loser = library_get_impl(&loser_id, &state).expect("get loser");
     assert_eq!(loser.lifecycle, "merged");
     assert_eq!(loser.merged_into.as_deref(), Some(winner_id.as_str()));
-    assert_eq!(loser.details["module"], "merged_redirect");
-    assert_eq!(loser.details["surviving_asset_id"], winner_id.as_str());
+    assert_eq!(
+        serde_json::to_value(&loser.details).unwrap()["module"],
+        "merged_redirect"
+    );
+    assert_eq!(
+        serde_json::to_value(&loser.details).unwrap()["surviving_asset_id"],
+        winner_id.as_str()
+    );
 }
 
 #[test]

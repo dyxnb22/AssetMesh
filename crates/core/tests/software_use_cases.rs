@@ -239,8 +239,8 @@ fn update_metadata_preserves_user_owned_fields_and_touches_projection() {
     let updated = software
         .update_metadata(UpdateSoftwareMetadata {
             asset_id,
-            version: Some("21".into()),
-            purpose: Some("Kept for one old project".into()),
+            version: (Some("21".into())).into(),
+            purpose: (Some("Kept for one old project".into())).into(),
             ..Default::default()
         })
         .unwrap();
@@ -257,6 +257,51 @@ fn update_metadata_preserves_user_owned_fields_and_touches_projection() {
         hits.iter().any(|h| h.asset_id == asset_id),
         "search: {hits:?}"
     );
+}
+
+#[test]
+fn explicit_blank_metadata_clears_optional_text_and_omitted_fields_are_preserved() {
+    let env = test_env();
+    let mut software = env.software_service();
+    let original = software
+        .create_software(CreateSoftware {
+            purpose: Some("uniqueclearpurpose".into()),
+            notes: Some("uniqueclearnotes".into()),
+            version: Some("1.0".into()),
+            install_location: Some("/Applications/Example.app".into()),
+            ..create_cmd("Example", SoftwareCategory::Application)
+        })
+        .unwrap();
+    let updated = software
+        .update_metadata(UpdateSoftwareMetadata {
+            asset_id: original.entry.asset.id,
+            expected_revision: Some(original.entry.asset.revision),
+            purpose: (Some(String::new())).into(),
+            notes: (Some("   ".into())).into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(updated.entry.record.purpose, None);
+    assert_eq!(updated.entry.record.notes, None);
+    assert_eq!(updated.entry.record.version, original.entry.record.version);
+    assert_eq!(
+        updated.entry.record.install_location,
+        original.entry.record.install_location
+    );
+    assert_eq!(
+        updated.entry.asset.revision,
+        original.entry.asset.revision + 1
+    );
+    assert!(env
+        .search_service()
+        .search("uniqueclearpurpose", 10)
+        .unwrap()
+        .is_empty());
+    assert!(env
+        .search_service()
+        .search("uniqueclearnotes", 10)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

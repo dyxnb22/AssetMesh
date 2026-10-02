@@ -5,6 +5,7 @@
 //! time, identity generation, search, discovery providers. There is
 //! deliberately no interface for every function.
 
+pub mod backup;
 pub mod clock;
 pub mod ids;
 pub mod providers;

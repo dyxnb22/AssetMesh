@@ -25,7 +25,7 @@ fn parse_tag_from(row: &rusqlite::Row, offset: usize) -> rusqlite::Result<Tag> {
     crate::repos::app_row(parse_tag_inner_from(row, offset))
 }
 
-fn parse_tag_inner(row: &rusqlite::Row) -> AppResult<Tag> {
+pub(crate) fn parse_tag_inner(row: &rusqlite::Row) -> AppResult<Tag> {
     parse_tag_inner_from(row, 0)
 }
 

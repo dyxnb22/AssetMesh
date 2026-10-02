@@ -124,10 +124,10 @@ pub fn media_command_impl(
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
             if title.is_none()
-                && summary.is_none()
-                && year.is_none()
-                && platform.is_none()
-                && notes.is_none()
+                && summary.is_leave()
+                && year.is_leave()
+                && platform.is_leave()
+                && notes.is_leave()
             {
                 return state.with_modules(|modules| {
                     let mut svc = modules.media();

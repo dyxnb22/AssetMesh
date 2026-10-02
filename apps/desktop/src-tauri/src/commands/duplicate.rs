@@ -74,6 +74,13 @@ pub fn merge_apply_impl(
     input: MergeApplyDto,
     state: &DesktopState,
 ) -> Result<MutationReceiptDto, DesktopError> {
+    state.with_service_operation(|| merge_apply_locked(input, state))
+}
+
+fn merge_apply_locked(
+    input: MergeApplyDto,
+    state: &DesktopState,
+) -> Result<MutationReceiptDto, DesktopError> {
     super::required_revision(input.expected_winner_revision, "expected_winner_revision")?;
     super::required_revision(input.expected_loser_revision, "expected_loser_revision")?;
     let winner_id = uuid::Uuid::parse_str(&input.winner_id)
@@ -83,8 +90,17 @@ pub fn merge_apply_impl(
         .map(AssetId::from_uuid)
         .map_err(|e| DesktopError::invalid_input(format!("invalid loser_id: {e}")))?;
 
+    if state.service_runtime().is_active(&input.winner_id)
+        || state.service_runtime().is_active(&input.loser_id)
+    {
+        return Err(DesktopError::conflict(
+            "stop the local services before merging their records",
+        ));
+    }
+
     state.with_modules(|modules| {
         let mut svc = modules.asset();
+        state.recovery_point("before_merge")?;
         let outcome = svc.merge_assets_with_revisions(
             loser_id,
             winner_id,

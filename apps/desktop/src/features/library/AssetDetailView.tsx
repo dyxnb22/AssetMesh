@@ -1,25 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { Badge } from '../../ui/Badge';
 import { ExternalRefsPanel } from './panels/ExternalRefsPanel';
-import { MediaPanel } from './panels/MediaPanel';
+import { MutationFeedback } from './MutationFeedback';
+import { useMediaStatusActions } from './useMediaStatusActions';
 import { MergedRedirectPanel } from './panels/MergedRedirectPanel';
-import { ServicePanel } from './panels/ServicePanel';
 import { InfoPanel } from './InfoEditor';
-import { SoftwarePanel } from './panels/SoftwarePanel';
 import { UnknownPanel } from './panels/UnknownPanel';
 import { RelationExplorer } from './RelationExplorer';
 import { ActivityFeed } from './ActivityFeed';
 import { getTransport, normalizeDesktopError } from './transport';
-import type {
-  AppCapabilities,
-  AssetDetailDto,
-  DesktopError,
-  MediaRecordDto,
-  MutationReceiptDto,
-  ServiceRecordDto,
-  SoftwareRecordDto,
-  UnknownDetailsDto,
-} from './types';
+import { MediaDetailEditor } from './detail/MediaDetailEditor';
+import { SoftwareDetailEditor } from './detail/SoftwareDetailEditor';
+import { ServiceDetailEditor } from './detail/ServiceDetailEditor';
+import { useDetailMutation } from './detail/useDetailMutation';
+import type { AppCapabilities, AssetDetailDto, DesktopError, MutationReceiptDto, UnknownDetailsDto } from './types';
 import { t } from '../../i18n';
 
 interface AssetDetailViewProps {
@@ -27,12 +21,16 @@ interface AssetDetailViewProps {
   onClose?: () => void;
   onFollowRedirect?: (survivingAssetId: string) => void;
   onSelectTag?: (tag: string) => void;
-  onAssetUpdated?: (receipt: MutationReceiptDto) => void;
+  onAssetUpdated?: (receipt: MutationReceiptDto, fresh?: AssetDetailDto) => void;
   capabilities?: AppCapabilities | null;
   onOpenAssetDetail?: (assetId: string) => void;
 }
 
-export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
+export const AssetDetailView: React.FC<AssetDetailViewProps> = (props) => (
+  <AssetDetailSession key={props.assetId} {...props} />
+);
+
+const AssetDetailSession: React.FC<AssetDetailViewProps> = ({
   assetId,
   onClose,
   onFollowRedirect,
@@ -45,49 +43,16 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<DesktopError | null>(null);
 
-  // Software Mutation State
-  const [isEditingSoftware, setIsEditingSoftware] = useState(false);
-  const [draftPurpose, setDraftPurpose] = useState('');
-  const [draftNotes, setDraftNotes] = useState('');
-
-  // Media Mutation State
-  const [isEditingMedia, setIsEditingMedia] = useState(false);
-  const [draftMediaTitle, setDraftMediaTitle] = useState('');
-  const [draftMediaSummary, setDraftMediaSummary] = useState('');
-  const [draftMediaYear, setDraftMediaYear] = useState<number | ''>('');
-  const [draftMediaPlatform, setDraftMediaPlatform] = useState('');
-  const [draftMediaNotes, setDraftMediaNotes] = useState('');
-
-  // Service Mutation State
-  const [isEditingService, setIsEditingService] = useState(false);
-  const [isRecordingRenewal, setIsRecordingRenewal] = useState(false);
-  const [draftServiceName, setDraftServiceName] = useState('');
-  const [draftServiceProvider, setDraftServiceProvider] = useState('');
-  const [draftServicePlan, setDraftServicePlan] = useState('');
-  const [draftServiceCost, setDraftServiceCost] = useState('');
-  const [draftServiceCurrency, setDraftServiceCurrency] = useState('');
-  const [draftServiceCadence, setDraftServiceCadence] = useState('');
-  const [draftServiceAutoRenew, setDraftServiceAutoRenew] = useState(true);
-  const [draftServiceRenewsAt, setDraftServiceRenewsAt] = useState('');
-  const [draftServiceDashboardUrl, setDraftServiceDashboardUrl] = useState('');
-  const [draftServiceNotes, setDraftServiceNotes] = useState('');
-
-  // Renewal State
-  const [renewalDate, setRenewalDate] = useState('');
-  const [renewalNextDate, setRenewalNextDate] = useState('');
-  const [renewalCost, setRenewalCost] = useState('');
-  const [renewalCurrency, setRenewalCurrency] = useState('USD');
-
-  // Archive State
   const [confirmingArchive, setConfirmingArchive] = useState(false);
-
-  const [submitting, setSubmitting] = useState(false);
-  const [mutationError, setMutationError] = useState<DesktopError | null>(null);
-  const [isConflict, setIsConflict] = useState(false);
-  const [receiptNotice, setReceiptNotice] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false);
-
+  const [editorVersion, setEditorVersion] = useState(0);
   const transport = getTransport();
+  const mutation = useDetailMutation(assetId, transport, (receipt, fresh) => {
+    setDetail(fresh);
+    onAssetUpdated?.(receipt);
+  });
+  const { pending: submitting, error: mutationError, notice: receiptNotice } = mutation;
+  const isConflict = mutationError?.category === 'stale_revision';
 
   useEffect(() => {
     let cancelled = false;
@@ -95,14 +60,6 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
     const fetchDetail = async () => {
       setLoading(true);
       setError(null);
-      setIsEditingSoftware(false);
-      setIsEditingMedia(false);
-      setIsEditingService(false);
-      setIsRecordingRenewal(false);
-      setConfirmingArchive(false);
-      setMutationError(null);
-      setIsConflict(false);
-      setReceiptNotice(null);
 
       try {
         const result = await transport.getAsset(assetId);
@@ -126,6 +83,12 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
       cancelled = true;
     };
   }, [assetId, transport]);
+
+  const mediaActions = useMediaStatusActions(async (receipt, fresh) => {
+    if (fresh) setDetail(fresh);
+    else setDetail(await transport.getAsset(assetId));
+    onAssetUpdated?.(receipt, fresh);
+  }, assetId);
 
   if (loading) {
     return (
@@ -163,1259 +126,42 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
     );
   }
 
-  const isSoftware = detail?.details.module === 'software';
-  const canEditSoftware = isSoftware && detail?.lifecycle === 'active';
-
-  const handleStartEditSoftware = () => {
-    if (!detail || !isSoftware) return;
-    const sw = detail.details as SoftwareRecordDto;
-    setDraftPurpose(sw.purpose || '');
-    setDraftNotes(sw.notes || '');
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-    setIsEditingSoftware(true);
-  };
-
-  const handleCancelEditSoftware = () => {
-    setIsEditingSoftware(false);
-    setMutationError(null);
-    setIsConflict(false);
-  };
-
-  const handleSaveSoftware = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!detail || !isSoftware || submitting) return;
-
-    setSubmitting(true);
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-
-    try {
-      const receipt = await transport.softwareCommand({
-        action: 'update_metadata',
-        asset_id: detail.id,
-        expected_revision: detail.revision,
-        purpose: draftPurpose.trim() || undefined,
-        notes: draftNotes.trim() || undefined,
-      });
-
-      // Mandatory Read-Back: UI never assumes success without reading back canonical state
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
-      setIsEditingSoftware(false);
-      setReceiptNotice(
-        receipt.changed
-          ? t('Saved successfully (rev {rev})', { rev: receipt.revision })
-          : 'No changes detected'
-      );
-      onAssetUpdated?.(receipt);
-    } catch (err: unknown) {
-      const norm = normalizeDesktopError(err);
-      if (norm.category === 'stale_revision') {
-        setIsConflict(true);
-      }
-      setMutationError(norm);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handleReloadLatest = async () => {
-    if (!detail) return;
     try {
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
-      setIsConflict(false);
-      setMutationError(null);
-      setIsEditingSoftware(false);
-      setIsEditingMedia(false);
-    } catch (err: unknown) {
-      setError(normalizeDesktopError(err));
-    }
-  };
-
-  const isMedia = detail?.details.module === 'media';
-  const canEditMedia = isMedia && detail?.lifecycle === 'active';
-
-  const handleStartEditMedia = () => {
-    if (!detail || !isMedia) return;
-    const med = detail.details as MediaRecordDto;
-    setDraftMediaTitle(detail.name || '');
-    setDraftMediaSummary(detail.summary || '');
-    setDraftMediaYear(med.year ?? '');
-    setDraftMediaPlatform(med.platform || '');
-    setDraftMediaNotes(med.notes || '');
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-    setIsEditingMedia(true);
-  };
-
-  const handleCancelEditMedia = () => {
-    setIsEditingMedia(false);
-    setMutationError(null);
-    setIsConflict(false);
-  };
-
-  const handleSaveMedia = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!detail || !isMedia || submitting) return;
-
-    setSubmitting(true);
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-
-    try {
-      const receipt = await transport.mediaCommand({
-        action: 'update_metadata',
-        asset_id: detail.id,
-        expected_revision: detail.revision,
-        title: draftMediaTitle.trim() || undefined,
-        summary: draftMediaSummary.trim() || undefined,
-        year: draftMediaYear !== '' ? Number(draftMediaYear) : undefined,
-        platform: draftMediaPlatform.trim() || undefined,
-        notes: draftMediaNotes.trim() || undefined,
-      });
-
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
-      setIsEditingMedia(false);
-      setReceiptNotice(
-        receipt.changed
-          ? t('Saved successfully (rev {rev})', { rev: receipt.revision })
-          : 'No changes detected'
-      );
-      onAssetUpdated?.(receipt);
-    } catch (err: unknown) {
-      const norm = normalizeDesktopError(err);
-      if (norm.category === 'stale_revision') {
-        setIsConflict(true);
-      }
-      setMutationError(norm);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleMediaTransitionStatus = async (status: string) => {
-    if (!detail || submitting) return;
-    setSubmitting(true);
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-
-    try {
-      const receipt = await transport.mediaCommand({
-        action: 'transition_status',
-        asset_id: detail.id,
-        status,
-        expected_revision: detail.revision,
-      });
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
-      setReceiptNotice(t('Status updated to {status}', { status: t(status) }));
-      onAssetUpdated?.(receipt);
-    } catch (err: unknown) {
-      setMutationError(normalizeDesktopError(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleMediaUpdateProgress = async (prog: {
-    unit?: string;
-    current?: number;
-    total?: number;
-  }) => {
-    if (!detail || submitting) return;
-    setSubmitting(true);
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-
-    try {
-      const receipt = await transport.mediaCommand({
-        action: 'update_progress',
-        asset_id: detail.id,
-        ...prog,
-        expected_revision: detail.revision,
-      });
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
-      setReceiptNotice('Progress updated');
-      onAssetUpdated?.(receipt);
-    } catch (err: unknown) {
-      setMutationError(normalizeDesktopError(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleMediaRate = async (rating: number) => {
-    if (!detail || submitting) return;
-    setSubmitting(true);
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-
-    try {
-      const receipt = await transport.mediaCommand({
-        action: 'rate',
-        asset_id: detail.id,
-        rating,
-        expected_revision: detail.revision,
-      });
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
-      setReceiptNotice(t('Rating updated to {rating}', { rating }));
-      onAssetUpdated?.(receipt);
-    } catch (err: unknown) {
-      setMutationError(normalizeDesktopError(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleArchiveAsset = async () => {
-    if (!detail || submitting) return;
-    setSubmitting(true);
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-
-    try {
-      let receipt;
-      if (detail.kind.startsWith('software')) {
-        receipt = await transport.softwareCommand({
-          action: 'archive',
-          asset_id: detail.id,
-          expected_revision: detail.revision,
-        });
-      } else if (detail.kind.startsWith('service')) {
-        receipt = await transport.serviceCommand({
-          action: 'archive',
-          asset_id: detail.id,
-          expected_revision: detail.revision,
-        });
-      } else if (detail.kind === 'info.item') {
-        receipt = await transport.infoCommand({
-          action: 'archive',
-          asset_id: detail.id,
-          expected_revision: detail.revision,
-        });
-      } else {
-        receipt = await transport.mediaCommand({
-          action: 'archive',
-          asset_id: detail.id,
-          expected_revision: detail.revision,
-        });
-      }
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
+      setDetail(await transport.getAsset(assetId));
+      mutation.clear();
       setConfirmingArchive(false);
-      setReceiptNotice('Asset archived');
-      onAssetUpdated?.(receipt);
-    } catch (err: unknown) {
-      setMutationError(normalizeDesktopError(err));
-    } finally {
-      setSubmitting(false);
+      setEditorVersion((version) => version + 1);
+    } catch (reason: unknown) {
+      mutation.fail(normalizeDesktopError(reason));
     }
   };
-
-  const isService = detail?.details.module === 'services';
-  const canEditService = isService && detail?.lifecycle === 'active';
-
-  const handleStartEditService = () => {
-    if (!detail || !isService) return;
-    const s = detail.details as ServiceRecordDto;
-    setDraftServiceName(detail.name || '');
-    setDraftServiceProvider(s.provider || '');
-    setDraftServicePlan(s.plan || '');
-    setDraftServiceCost(s.cost_minor != null ? (s.cost_minor / 100).toFixed(2) : '');
-    setDraftServiceCurrency(s.currency || 'USD');
-    setDraftServiceCadence(s.billing_cadence || 'monthly');
-    setDraftServiceAutoRenew(s.auto_renew ?? true);
-    setDraftServiceRenewsAt(s.renews_at ? s.renews_at.slice(0, 10) : '');
-    setDraftServiceDashboardUrl(s.dashboard_url || '');
-    setDraftServiceNotes(s.notes || '');
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-    setIsEditingService(true);
-    setIsRecordingRenewal(false);
-  };
-
-  const handleCancelEditService = () => {
-    setIsEditingService(false);
-    setMutationError(null);
-    setIsConflict(false);
-  };
-
-  const handleSaveService = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!detail || !isService || submitting) return;
-
-    if (!draftServiceName.trim()) {
-      setMutationError({
-        category: 'invalid_input',
-        message: 'service name must not be empty',
-      });
-      return;
-    }
-
-    setSubmitting(true);
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-
+  const handleArchiveAsset = async () => {
+    if (submitting || mediaActions.feedback.pending) return;
     try {
-      const receipt = await transport.serviceCommand({
-        action: 'update',
-        asset_id: detail.id,
-        expected_revision: detail.revision,
-        name: draftServiceName.trim() || undefined,
-        provider: draftServiceProvider.trim() || undefined,
-        plan: draftServicePlan.trim() || undefined,
-        cost: draftServiceCost.trim() || undefined,
-        currency: draftServiceCost.trim() ? draftServiceCurrency.trim().toUpperCase() : undefined,
-        billing_cadence: draftServiceCadence || undefined,
-        renews_at: draftServiceRenewsAt.trim() || undefined,
-        auto_renew: draftServiceAutoRenew,
-        dashboard_url: draftServiceDashboardUrl.trim() || undefined,
-        notes: draftServiceNotes.trim() || undefined,
-      });
-
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
-      setIsEditingService(false);
-      setReceiptNotice(receipt.changed ? 'Service updated' : 'No changes were made');
-      onAssetUpdated?.(receipt);
-    } catch (err: unknown) {
-      const norm = normalizeDesktopError(err);
-      setMutationError(norm);
-      if (norm.category === 'stale_revision') {
-        setIsConflict(true);
-      }
-    } finally {
-      setSubmitting(false);
-    }
+      const command = { action: 'archive' as const, asset_id: detail.id, expected_revision: detail.revision };
+      await mutation.run(() => {
+        switch (detail.details.module) {
+          case 'software': return transport.softwareCommand(command);
+          case 'services': return transport.serviceCommand(command);
+          case 'info': return transport.infoCommand(command);
+          case 'media': return transport.mediaCommand(command);
+          default: throw { category: 'invalid_input', message: 'This asset cannot be archived.' };
+        }
+      }, 'Asset archived');
+      setConfirmingArchive(false);
+    } catch { /* The mutation controller presents the error. */ }
   };
-
-  const handleStartRecordRenewal = () => {
-    if (!detail || !isService) return;
-    const s = detail.details as ServiceRecordDto;
-    setRenewalDate(s.renews_at ? s.renews_at.slice(0, 10) : new Date().toISOString().slice(0, 10));
-    setRenewalNextDate('');
-    setRenewalCost(s.cost_minor != null ? (s.cost_minor / 100).toFixed(2) : '');
-    setRenewalCurrency(s.currency || 'USD');
-    setMutationError(null);
-    setIsConflict(false);
-    setReceiptNotice(null);
-    setIsRecordingRenewal(true);
-    setIsEditingService(false);
-  };
-
-  const handleCancelRecordRenewal = () => {
-    setIsRecordingRenewal(false);
-    setMutationError(null);
-  };
-
-  const handleSubmitRenewal = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!detail || !isService || submitting) return;
-
-    if (!renewalDate.trim()) {
-      setMutationError({
-        category: 'invalid_input',
-        message: 'renewal date must not be empty',
-      });
-      return;
-    }
-
-    setSubmitting(true);
-    setMutationError(null);
-    setReceiptNotice(null);
-
-    try {
-      const receipt = await transport.serviceCommand({
-        action: 'record_renewal',
-        asset_id: detail.id,
-        renews_at: renewalDate.trim(),
-        next_renews_at: renewalNextDate.trim() || undefined,
-        cost: renewalCost.trim() || undefined,
-        currency: renewalCost.trim() ? renewalCurrency.trim().toUpperCase() : undefined,
-        expected_revision: detail.revision,
-      });
-
-      const freshDetail = await transport.getAsset(detail.id);
-      setDetail(freshDetail);
-      setIsRecordingRenewal(false);
-      setReceiptNotice('Renewal recorded');
-      onAssetUpdated?.(receipt);
-    } catch (err: unknown) {
-      setMutationError(normalizeDesktopError(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Exhaustive typed module detail renderer
   const renderModuleDetails = () => {
     switch (detail.details.module) {
-      case 'media':
-        if (isEditingMedia) {
-          return (
-            <form
-              onSubmit={handleSaveMedia}
-              data-testid="media-edit-form"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-mesh)',
-                borderRadius: 'var(--radius-md)',
-                padding: '14px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-muted)',
-                    fontWeight: 600,
-                  }}
-                >{t('Edit Media Metadata')}</span>
-                <Badge variant="mesh">{t('rev ')}{detail.revision}</Badge>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="media-title"
-                  style={{
-                    display: 'block',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    marginBottom: '4px',
-                    color: 'var(--color-ink)',
-                  }}
-                >{t('Title')}</label>
-                <input
-                  id="media-title"
-                  data-testid="media-title-input"
-                  type="text"
-                  value={draftMediaTitle}
-                  onChange={(e) => setDraftMediaTitle(e.target.value)}
-                  disabled={submitting}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'var(--color-canvas)',
-                    color: 'var(--color-ink)',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="media-summary"
-                  style={{
-                    display: 'block',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    marginBottom: '4px',
-                    color: 'var(--color-ink)',
-                  }}
-                >{t('Summary')}</label>
-                <input
-                  id="media-summary"
-                  data-testid="media-summary-input"
-                  type="text"
-                  value={draftMediaSummary}
-                  onChange={(e) => setDraftMediaSummary(e.target.value)}
-                  disabled={submitting}
-                  placeholder={t('Short tagline or subtitle')}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'var(--color-canvas)',
-                    color: 'var(--color-ink)',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label
-                    htmlFor="media-year"
-                    style={{
-                      display: 'block',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      marginBottom: '4px',
-                      color: 'var(--color-ink)',
-                    }}
-                  >{t('Release Year')}</label>
-                  <input
-                    id="media-year"
-                    data-testid="media-year-input"
-                    type="number"
-                    value={draftMediaYear}
-                    onChange={(e) =>
-                      setDraftMediaYear(e.target.value === '' ? '' : Number(e.target.value))
-                    }
-                    disabled={submitting}
-                    placeholder="e.g. 2023"
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '13px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                      color: 'var(--color-ink)',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="media-platform"
-                    style={{
-                      display: 'block',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      marginBottom: '4px',
-                      color: 'var(--color-ink)',
-                    }}
-                  >{t('Platform')}</label>
-                  <input
-                    id="media-platform"
-                    data-testid="media-platform-input"
-                    type="text"
-                    value={draftMediaPlatform}
-                    onChange={(e) => setDraftMediaPlatform(e.target.value)}
-                    disabled={submitting}
-                    placeholder={t('e.g. Steam, Crunchyroll')}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '13px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                      color: 'var(--color-ink)',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="media-notes"
-                  style={{
-                    display: 'block',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    marginBottom: '4px',
-                    color: 'var(--color-ink)',
-                  }}
-                >{t('Notes')}</label>
-                <textarea
-                  id="media-notes"
-                  data-testid="media-notes-input"
-                  rows={3}
-                  value={draftMediaNotes}
-                  onChange={(e) => setDraftMediaNotes(e.target.value)}
-                  disabled={submitting}
-                  placeholder={t('Personal reflections, notes, etc.')}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontFamily: 'inherit',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'var(--color-canvas)',
-                    color: 'var(--color-ink)',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
-                <button
-                  type="button"
-                  data-testid="cancel-media-button"
-                  onClick={handleCancelEditMedia}
-                  disabled={submitting}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: 'var(--color-canvas)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                    color: 'var(--color-ink)',
-                  }}
-                >{t('Cancel')}</button>
-                <button
-                  type="submit"
-                  data-testid="save-media-button"
-                  disabled={submitting}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: 'var(--color-mesh)',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {submitting ? t('Saving...') : t('Save Changes')}
-                </button>
-              </div>
-            </form>
-          );
-        }
-        return (
-          <MediaPanel
-            record={detail.details}
-            isEditable={canEditMedia}
-            onEditMetadata={handleStartEditMedia}
-            onTransitionStatus={handleMediaTransitionStatus}
-            onUpdateProgress={handleMediaUpdateProgress}
-            onRate={handleMediaRate}
-          />
-        );
-      case 'software':
-        if (isEditingSoftware) {
-          return (
-            <form
-              onSubmit={handleSaveSoftware}
-              data-testid="software-edit-form"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-mesh)',
-                borderRadius: 'var(--radius-md)',
-                padding: '14px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-muted)',
-                    fontWeight: 600,
-                  }}
-                >{t('Edit Software Metadata')}</span>
-                <Badge variant="mesh">{t('rev ')}{detail.revision}</Badge>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="software-purpose"
-                  style={{
-                    display: 'block',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    marginBottom: '4px',
-                    color: 'var(--color-ink)',
-                  }}
-                >{t('Purpose')}</label>
-                <input
-                  id="software-purpose"
-                  data-testid="software-purpose-input"
-                  type="text"
-                  value={draftPurpose}
-                  onChange={(e) => setDraftPurpose(e.target.value)}
-                  disabled={submitting}
-                  placeholder={t('e.g. CLI tool for git repository management')}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'var(--color-canvas)',
-                    color: 'var(--color-ink)',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="software-notes"
-                  style={{
-                    display: 'block',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    marginBottom: '4px',
-                    color: 'var(--color-ink)',
-                  }}
-                >{t('Notes')}</label>
-                <textarea
-                  id="software-notes"
-                  data-testid="software-notes-input"
-                  rows={3}
-                  value={draftNotes}
-                  onChange={(e) => setDraftNotes(e.target.value)}
-                  disabled={submitting}
-                  placeholder={t('Personal usage notes, configuration tips, etc.')}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontFamily: 'inherit',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'var(--color-canvas)',
-                    color: 'var(--color-ink)',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
-                <button
-                  type="button"
-                  data-testid="cancel-edit-button"
-                  onClick={handleCancelEditSoftware}
-                  disabled={submitting}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: 'var(--color-canvas)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                    color: 'var(--color-ink)',
-                  }}
-                >{t('Cancel')}</button>
-                <button
-                  type="submit"
-                  data-testid="save-software-button"
-                  disabled={submitting}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: 'var(--color-mesh)',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {submitting ? t('Saving...') : t('Save Changes')}
-                </button>
-              </div>
-            </form>
-          );
-        }
-        return (
-          <SoftwarePanel
-            record={detail.details}
-            onEdit={canEditSoftware ? handleStartEditSoftware : undefined}
-          />
-        );
-      case 'services':
-        if (isEditingService) {
-          return (
-            <form
-              onSubmit={handleSaveService}
-              data-testid="service-edit-form"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-mesh)',
-                borderRadius: 'var(--radius-md)',
-                padding: '14px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-muted)',
-                    fontWeight: 600,
-                  }}
-                >{t('Edit Service Subscription')}</span>
-                <Badge variant="mesh">{t('rev ')}{detail.revision}</Badge>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="service-edit-name"
-                  style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                >{t('Name *')}</label>
-                <input
-                  id="service-edit-name"
-                  data-testid="service-name-input"
-                  type="text"
-                  value={draftServiceName}
-                  onChange={(e) => setDraftServiceName(e.target.value)}
-                  disabled={submitting}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'var(--color-canvas)',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label
-                    htmlFor="service-edit-provider"
-                    style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                  >{t('Provider')}</label>
-                  <input
-                    id="service-edit-provider"
-                    data-testid="service-provider-input"
-                    type="text"
-                    value={draftServiceProvider}
-                    onChange={(e) => setDraftServiceProvider(e.target.value)}
-                    disabled={submitting}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '13px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="service-edit-plan"
-                    style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                  >{t('Plan / Tier')}</label>
-                  <input
-                    id="service-edit-plan"
-                    data-testid="service-plan-input"
-                    type="text"
-                    value={draftServicePlan}
-                    onChange={(e) => setDraftServicePlan(e.target.value)}
-                    disabled={submitting}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '13px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label
-                    htmlFor="service-edit-cost"
-                    style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >{t('Cost (Decimal)')}</label>
-                  <input
-                    id="service-edit-cost"
-                    data-testid="service-cost-input"
-                    type="text"
-                    value={draftServiceCost}
-                    onChange={(e) => setDraftServiceCost(e.target.value)}
-                    disabled={submitting}
-                    placeholder="19.99"
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '12px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="service-edit-currency"
-                    style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >{t('Currency')}</label>
-                  <input
-                    id="service-edit-currency"
-                    data-testid="service-currency-input"
-                    type="text"
-                    value={draftServiceCurrency}
-                    onChange={(e) => setDraftServiceCurrency(e.target.value)}
-                    disabled={submitting}
-                    placeholder={t('USD')}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '12px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="service-edit-cadence"
-                    style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >{t('Cadence')}</label>
-                  <select
-                    id="service-edit-cadence"
-                    data-testid="service-cadence-select"
-                    value={draftServiceCadence}
-                    onChange={(e) => setDraftServiceCadence(e.target.value)}
-                    disabled={submitting}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '12px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  >
-                    <option value="monthly">{t('Monthly')}</option>
-                    <option value="yearly">{t('Yearly')}</option>
-                    <option value="quarterly">{t('Quarterly')}</option>
-                    <option value="usage_based">{t('Usage-based')}</option>
-                    <option value="one_time">{t('One-time')}</option>
-                    <option value="other">{t('Other')}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label
-                    htmlFor="service-edit-renews"
-                    style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >{t('Next Renewal Date')}</label>
-                  <input
-                    id="service-edit-renews"
-                    data-testid="service-renews-input"
-                    type="date"
-                    value={draftServiceRenewsAt}
-                    onChange={(e) => setDraftServiceRenewsAt(e.target.value)}
-                    disabled={submitting}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '12px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '16px' }}>
-                  <input
-                    id="service-edit-autorenew"
-                    data-testid="service-autorenew-checkbox"
-                    type="checkbox"
-                    checked={draftServiceAutoRenew}
-                    onChange={(e) => setDraftServiceAutoRenew(e.target.checked)}
-                    disabled={submitting}
-                  />
-                  <label
-                    htmlFor="service-edit-autorenew"
-                    style={{ fontSize: '12px', color: 'var(--color-ink)', cursor: 'pointer' }}
-                  >{t('Auto-renewing')}</label>
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="service-edit-notes"
-                  style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}
-                >{t('Notes')}</label>
-                <textarea
-                  id="service-edit-notes"
-                  data-testid="service-notes-input"
-                  rows={2}
-                  value={draftServiceNotes}
-                  onChange={(e) => setDraftServiceNotes(e.target.value)}
-                  disabled={submitting}
-                  placeholder={t('Notes about billing, plans, or license')}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'var(--color-canvas)',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
-                <button
-                  type="button"
-                  data-testid="cancel-service-button"
-                  onClick={handleCancelEditService}
-                  disabled={submitting}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: 'var(--color-canvas)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                  }}
-                >{t('Cancel')}</button>
-                <button
-                  type="submit"
-                  data-testid="save-service-button"
-                  disabled={submitting}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: 'var(--color-mesh)',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {submitting ? t('Saving...') : t('Save Changes')}
-                </button>
-              </div>
-            </form>
-          );
-        }
-
-        if (isRecordingRenewal) {
-          return (
-            <form
-              onSubmit={handleSubmitRenewal}
-              data-testid="record-renewal-form"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-mesh)',
-                borderRadius: 'var(--radius-md)',
-                padding: '14px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-muted)',
-                    fontWeight: 600,
-                  }}
-                >{t('Record Explicit Renewal')}</span>
-                <Badge variant="mesh">{t('rev ')}{detail.revision}</Badge>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label
-                    htmlFor="renewal-date"
-                    style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >{t('Renewal Occurred At *')}</label>
-                  <input
-                    id="renewal-date"
-                    data-testid="renewal-date-input"
-                    type="date"
-                    required
-                    value={renewalDate}
-                    onChange={(e) => setRenewalDate(e.target.value)}
-                    disabled={submitting}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '12px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="renewal-next-date"
-                    style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >{t('Next Renewal Date (Optional)')}</label>
-                  <input
-                    id="renewal-next-date"
-                    data-testid="renewal-next-date-input"
-                    type="date"
-                    value={renewalNextDate}
-                    onChange={(e) => setRenewalNextDate(e.target.value)}
-                    disabled={submitting}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '12px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label
-                    htmlFor="renewal-cost"
-                    style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >{t('Charged Cost (Optional)')}</label>
-                  <input
-                    id="renewal-cost"
-                    data-testid="renewal-cost-input"
-                    type="text"
-                    value={renewalCost}
-                    onChange={(e) => setRenewalCost(e.target.value)}
-                    disabled={submitting}
-                    placeholder="19.99"
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '12px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="renewal-currency"
-                    style={{ display: 'block', fontSize: '11px', color: 'var(--color-muted)', marginBottom: '2px' }}
-                  >{t('Currency')}</label>
-                  <input
-                    id="renewal-currency"
-                    data-testid="renewal-currency-input"
-                    type="text"
-                    value={renewalCurrency}
-                    onChange={(e) => setRenewalCurrency(e.target.value)}
-                    disabled={submitting}
-                    placeholder={t('USD')}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      fontSize: '12px',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-sm)',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--color-canvas)',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
-                <button
-                  type="button"
-                  data-testid="cancel-renewal-button"
-                  onClick={handleCancelRecordRenewal}
-                  disabled={submitting}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: 'var(--color-canvas)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                  }}
-                >{t('Cancel')}</button>
-                <button
-                  type="submit"
-                  data-testid="submit-renewal-button"
-                  disabled={submitting}
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: 'var(--color-mesh)',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {submitting ? t('Recording...') : t('Record Renewal')}
-                </button>
-              </div>
-            </form>
-          );
-        }
-
-        return (
-          <ServicePanel
-            record={detail.details}
-            onEdit={canEditService ? handleStartEditService : undefined}
-            onRecordRenewal={canEditService ? handleStartRecordRenewal : undefined}
-          />
-        );
-      case 'merged_redirect':
-        return (
-          <MergedRedirectPanel
-            record={detail.details}
-            onFollowRedirect={(survivorId) => onFollowRedirect?.(survivorId)}
-          />
-        );
-      case 'info':
-        return <InfoPanel detail={detail} record={detail.details} onSaved={(receipt, fresh) => {
-          setDetail(fresh);
-          onAssetUpdated?.(receipt);
-        }} />;
-      default:
-        return <UnknownPanel record={detail.details as UnknownDetailsDto} />;
+      case 'media': return <MediaDetailEditor detail={detail} record={detail.details} mutation={mutation} mediaActions={mediaActions} />;
+      case 'software': return <SoftwareDetailEditor detail={detail} record={detail.details} mutation={mutation} />;
+      case 'services': return <ServiceDetailEditor detail={detail} record={detail.details} mutation={mutation} />;
+      case 'merged_redirect': return <MergedRedirectPanel record={detail.details} onFollowRedirect={(id) => onFollowRedirect?.(id)} />;
+      case 'info': return <InfoPanel detail={detail} record={detail.details} onSaved={(receipt, fresh) => {
+        setDetail(fresh); onAssetUpdated?.(receipt);
+      }} />;
+      default: return <UnknownPanel record={detail.details as UnknownDetailsDto} />;
     }
   };
 
@@ -1448,6 +194,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
                 {t(detail.lifecycle)}
               </Badge>
             )}
+            <details className="quiet-details"><summary>{t('Technical details')}</summary>
             <span
               style={{
                 fontSize: '11px',
@@ -1460,6 +207,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
               title={t('Optimistic concurrency revision')}
             >{t('rev ')}{detail.revision}
             </span>
+            </details>
             {detail.lifecycle === 'active' && !confirmingArchive && (
               <button
                 type="button"
@@ -1537,7 +285,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
             <button
               type="button"
               data-testid="confirm-archive-button"
-              disabled={submitting}
+              disabled={submitting || mediaActions.feedback.pending}
               onClick={handleArchiveAsset}
               style={{
                 padding: '4px 10px',
@@ -1554,7 +302,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
             <button
               type="button"
               data-testid="cancel-archive-button"
-              disabled={submitting}
+              disabled={submitting || mediaActions.feedback.pending}
               onClick={() => setConfirmingArchive(false)}
               style={{
                 padding: '4px 10px',
@@ -1586,38 +334,12 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         </div>
       )}
 
-      {/* Receipt Notice */}
-      {receiptNotice && (
-        <div
-          data-testid="mutation-receipt-badge"
-          style={{
-            padding: '8px 12px',
-            backgroundColor: 'var(--color-canvas)',
-            border: '1px solid var(--color-mesh)',
-            borderRadius: 'var(--radius-md)',
-            color: 'var(--color-mesh)',
-            fontSize: '12px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <span>✓ {t(receiptNotice)}</span>
-          <button
-            type="button"
-            onClick={() => setReceiptNotice(null)}
-            aria-label={t('Dismiss notice')}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-muted)',
-              fontSize: '14px',
-            }}
-          >
-            ✕
-          </button>
+      <MutationFeedback {...mediaActions.feedback} />
+      {submitting && <MutationFeedback pending notice={null} error={null} onDismiss={() => {}} />}
+
+      {receiptNotice && !submitting && (
+        <div data-testid="mutation-receipt-badge">
+          <MutationFeedback pending={false} notice={t(receiptNotice)} error={null} onDismiss={mutation.clear} />
         </div>
       )}
 
@@ -1701,8 +423,9 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
       )}
 
       {/* Typed Module Details */}
-      {renderModuleDetails()}
+      <React.Fragment key={`${editorVersion}:${detail.lifecycle}`}>{renderModuleDetails()}</React.Fragment>
 
+      <details className="quiet-details"><summary>{t('Record information')}</summary>
       {/* Canonical Metadata Card */}
       <div
         style={{
@@ -1758,6 +481,8 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
         </div>
       </div>
 
+      </details>
+
       {/* Tags */}
       {detail.tags.length > 0 && (
         <div
@@ -1806,7 +531,7 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({
             try {
               setDetail(await transport.getAsset(detail.id));
             } catch (err: unknown) {
-              setMutationError(normalizeDesktopError(err));
+              mutation.fail(normalizeDesktopError(err));
             }
             onAssetUpdated?.({
               operation: 'relation.update',

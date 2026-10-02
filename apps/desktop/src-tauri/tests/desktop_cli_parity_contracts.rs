@@ -85,7 +85,6 @@ fn cli_and_desktop_produce_identical_library_results_across_all_domains() {
     let mut asset_svc = assetmesh_core::application::asset_service::AssetService::new(
         factory.clone(),
         clock.clone(),
-        ids.clone(),
     );
     asset_svc.archive_asset(m2.entry.asset.id).unwrap();
 
@@ -143,6 +142,9 @@ fn cli_and_desktop_produce_identical_library_results_across_all_domains() {
             expires_at: None,
             auto_renew: None,
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec!["ai".into(), "developer".into()],
             external_refs: Vec::new(),
         })
@@ -166,6 +168,9 @@ fn cli_and_desktop_produce_identical_library_results_across_all_domains() {
             expires_at: None,
             auto_renew: None,
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec!["hosting".into(), "infrastructure".into()],
             external_refs: Vec::new(),
         })

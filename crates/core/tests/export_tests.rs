@@ -78,7 +78,7 @@ fn build_library(env: &support::TestEnv) {
     media
         .update_metadata(UpdateMediaMetadata {
             asset_id: game.entry.asset.id,
-            notes: Some("Best writing in games".into()),
+            notes: (Some("Best writing in games".into())).into(),
             ..Default::default()
         })
         .unwrap();

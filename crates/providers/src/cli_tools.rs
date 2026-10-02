@@ -28,12 +28,34 @@ where
     R: std::fmt::Debug,
 {
     runner: R,
+    source: CliSource,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CliSource {
+    All,
+    Npm,
+    Pipx,
 }
 
 impl CliToolsProvider<crate::SystemCommandRunner> {
     pub fn system_default() -> Self {
         CliToolsProvider {
-            runner: crate::SystemCommandRunner,
+            runner: crate::SystemCommandRunner::default(),
+            source: CliSource::All,
+        }
+    }
+
+    pub fn npm_default() -> Self {
+        Self {
+            source: CliSource::Npm,
+            ..Self::system_default()
+        }
+    }
+    pub fn pipx_default() -> Self {
+        Self {
+            source: CliSource::Pipx,
+            ..Self::system_default()
         }
     }
 }
@@ -43,7 +65,10 @@ where
     R: std::fmt::Debug,
 {
     pub fn with_runner(runner: R) -> Self {
-        CliToolsProvider { runner }
+        CliToolsProvider {
+            runner,
+            source: CliSource::All,
+        }
     }
 }
 
@@ -52,7 +77,11 @@ where
     R: std::fmt::Debug,
 {
     fn name(&self) -> &'static str {
-        PROVIDER_NAME
+        match self.source {
+            CliSource::All => PROVIDER_NAME,
+            CliSource::Npm => "npm_global",
+            CliSource::Pipx => "pipx",
+        }
     }
 
     fn description(&self) -> &'static str {
@@ -60,6 +89,11 @@ where
     }
 
     fn scan(&self) -> AppResult<Vec<SoftwareCandidate>> {
+        match self.source {
+            CliSource::Npm => return self.scan_npm(),
+            CliSource::Pipx => return self.scan_pipx(),
+            CliSource::All => {}
+        }
         let mut candidates = Vec::new();
         let mut failed: Option<AppError> = None;
 
@@ -166,7 +200,7 @@ where
             }
         };
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = crate::diagnostic_text(&output.stderr);
             return Err(AppError::provider_unavailable(format!(
                 "{program} failed ({}): {}",
                 output.status,

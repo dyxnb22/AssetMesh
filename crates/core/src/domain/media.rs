@@ -121,32 +121,9 @@ impl MediaStatus {
         }
     }
 
-    /// Small, explicit transition matrix. The rules exist to keep state
-    /// explainable, not to prevent legitimate personal data: anything can be
-    /// re-opened, and only a re-started item returns to `planned`.
+    /// Personal records may be corrected directly to any other status.
     pub fn can_transition_to(&self, to: MediaStatus) -> bool {
-        use MediaStatus::*;
-        matches!(
-            (self, to),
-            (Planned, InProgress)
-                | (Planned, Completed)
-                | (Planned, Dropped)
-                | (InProgress, Planned)
-                | (InProgress, Paused)
-                | (InProgress, Completed)
-                | (InProgress, Dropped)
-                | (Paused, Planned)
-                | (Paused, InProgress)
-                | (Paused, Completed)
-                | (Paused, Dropped)
-                | (Dropped, Planned)
-                | (Dropped, InProgress)
-                | (Dropped, Paused)
-                | (Dropped, Completed)
-                | (Completed, InProgress)
-                | (Completed, Paused)
-                | (Completed, Dropped)
-        )
+        *self != to
     }
 }
 
@@ -207,7 +184,7 @@ impl MediaRecord {
 
     /// Record-level invariants. These apply to every write path, including
     /// import; interactive status changes additionally go through the
-    /// transition matrix in [`MediaRecord::transition_to`].
+    /// timestamp rules in [`MediaRecord::transition_to`].
     pub fn validate(&self) -> AppResult<()> {
         if let Some(rating) = self.rating {
             if !rating.is_finite() {
@@ -295,7 +272,7 @@ impl MediaRecord {
     }
 
     /// Applies an interactive status change, maintaining the timestamp fields
-    /// consistently with the transition matrix.
+    /// consistently when the status changes.
     ///
     /// `started_at` records when the item was last (re-)started; returning to
     /// `planned` clears it. Completing sets `completed_at`; leaving
@@ -459,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn status_transition_matrix_is_enforced() {
+    fn status_corrections_update_timestamps() {
         let now = chrono::Utc::now();
         let mut r = record(MediaStatus::Planned);
         r.transition_to(MediaStatus::InProgress, now).unwrap();
@@ -476,15 +453,41 @@ mod tests {
         r.transition_to(MediaStatus::InProgress, now).unwrap();
         assert!(r.completed_at.is_none());
 
-        // Completed -> Planned is not allowed.
+        // Correcting a completion directly to planned clears both timestamps.
         r.transition_to(MediaStatus::Completed, now).unwrap();
-        assert!(r.transition_to(MediaStatus::Planned, now).is_err());
+        r.transition_to(MediaStatus::Planned, now).unwrap();
+        assert!(r.started_at.is_none());
+        assert!(r.completed_at.is_none());
 
         // Back to planned clears started_at.
         r.transition_to(MediaStatus::Paused, now).unwrap();
         r.transition_to(MediaStatus::Planned, now).unwrap();
         assert!(r.started_at.is_none());
         assert!(r.validate().is_ok());
+    }
+
+    #[test]
+    fn all_status_pairs_allow_direct_correction_except_same_status() {
+        let statuses = [
+            MediaStatus::Planned,
+            MediaStatus::InProgress,
+            MediaStatus::Completed,
+            MediaStatus::Paused,
+            MediaStatus::Dropped,
+        ];
+        for from in statuses {
+            for to in statuses {
+                let mut r = record(from);
+                if from == MediaStatus::Completed {
+                    r.started_at = Some(chrono::Utc::now());
+                    r.completed_at = Some(chrono::Utc::now());
+                }
+                assert_eq!(r.transition_to(to, chrono::Utc::now()).is_ok(), from != to);
+                if from != to {
+                    r.validate().unwrap();
+                }
+            }
+        }
     }
 
     #[test]

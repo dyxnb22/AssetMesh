@@ -28,11 +28,7 @@ pub fn project_info(
     tags: &[Tag],
     refs: &[AssetExternalRef],
 ) -> SearchDocument {
-    let mut keywords: Vec<String> = tags.iter().map(|tag| tag.name.clone()).collect();
-    keywords.extend(
-        refs.iter()
-            .map(|reference| format!("{}:{}", reference.namespace, reference.external_id)),
-    );
+    let keywords = asset_keywords(tags, refs);
     let mut body = record.notes.clone().unwrap_or_default();
     if record.info_type != crate::domain::info::InfoType::ApiKey {
         if !body.is_empty() {
@@ -88,19 +84,7 @@ pub fn project_media(
         }
     }
 
-    let mut keywords: Vec<String> = Vec::new();
-    for tag in tags {
-        let name = tag.name.trim();
-        if !name.is_empty() && !keywords.iter().any(|k| k.eq_ignore_ascii_case(name)) {
-            keywords.push(name.to_string());
-        }
-    }
-    for reference in refs {
-        let keyword = format!("{}:{}", reference.namespace, reference.external_id);
-        if !keywords.contains(&keyword) {
-            keywords.push(keyword);
-        }
-    }
+    let keywords = asset_keywords(tags, refs);
 
     SearchDocument {
         asset_id: asset.id,
@@ -163,19 +147,7 @@ pub fn project_software(
         }
     }
 
-    let mut keywords: Vec<String> = Vec::new();
-    for tag in tags {
-        let name = tag.name.trim();
-        if !name.is_empty() && !keywords.iter().any(|k| k.eq_ignore_ascii_case(name)) {
-            keywords.push(name.to_string());
-        }
-    }
-    for reference in refs {
-        let keyword = format!("{}:{}", reference.namespace, reference.external_id);
-        if !keywords.contains(&keyword) {
-            keywords.push(keyword);
-        }
-    }
+    let keywords = asset_keywords(tags, refs);
 
     SearchDocument {
         asset_id: asset.id,
@@ -266,19 +238,7 @@ pub fn project_service(
         }
     }
 
-    let mut keywords: Vec<String> = Vec::new();
-    for tag in tags {
-        let name = tag.name.trim();
-        if !name.is_empty() && !keywords.iter().any(|k| k.eq_ignore_ascii_case(name)) {
-            keywords.push(name.to_string());
-        }
-    }
-    for reference in refs {
-        let keyword = format!("{}:{}", reference.namespace, reference.external_id);
-        if !keywords.contains(&keyword) {
-            keywords.push(keyword);
-        }
-    }
+    let mut keywords = asset_keywords(tags, refs);
     // Provider and domain labels are useful search terms but never identity.
     for label in [record.provider.as_deref(), record.domain_name.as_deref()] {
         if let Some(label) = label.map(str::trim) {
@@ -301,4 +261,22 @@ pub fn project_service(
         keywords,
         updated_at: asset.updated_at,
     }
+}
+
+/// Shared tag/ref vocabulary; module-specific terms are added by the caller.
+fn asset_keywords(tags: &[Tag], refs: &[AssetExternalRef]) -> Vec<String> {
+    let mut keywords: Vec<String> = Vec::new();
+    for tag in tags {
+        let name = tag.name.trim();
+        if !name.is_empty() && !keywords.iter().any(|k| k.eq_ignore_ascii_case(name)) {
+            keywords.push(name.to_string());
+        }
+    }
+    for reference in refs {
+        let keyword = format!("{}:{}", reference.namespace, reference.external_id);
+        if !keywords.contains(&keyword) {
+            keywords.push(keyword);
+        }
+    }
+    keywords
 }

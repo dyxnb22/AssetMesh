@@ -5,12 +5,13 @@
     "apps/desktop"
   ],
   "scripts": {
+    "clean:dev-cache": "cargo clean --profile dev",
     "typecheck": "npm run --workspace=apps/desktop typecheck",
     "lint": "npm run --workspace=apps/desktop lint",
     "test": "npm run --workspace=apps/desktop test",
     "build": "npm run --workspace=apps/desktop build",
     "test:e2e": "npm run --workspace=apps/desktop test:e2e",
     "test:frontend-workflow": "npm run --workspace=apps/desktop test:frontend-workflow",
-    "test:scale": "cargo test -p assetmesh-storage-sqlite --test scale_benchmark -- --nocapture"
+    "test:scale": "cargo test -p assetmesh-storage-sqlite --test scale_benchmark -- --ignored --nocapture"
   }
 }

@@ -18,7 +18,7 @@ interface SavedFilter {
 }
 
 const storageKey = 'assetmesh-saved-filters-v1';
-const modules = new Set(['all', 'media', 'software', 'services', 'info']);
+const modules = new Set(['all', 'media', 'software', 'services', 'subscriptions', 'info']);
 const lifecycles = new Set(['active', 'active_or_archived', 'all']);
 const sorts = new Set(['updated_desc', 'updated_asc', 'name_asc', 'name_desc', 'kind_asc']);
 
@@ -52,6 +52,7 @@ export const SavedFilters: React.FC<{
   const persist = (next: SavedFilter[]) => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(next));
+      window.dispatchEvent(new Event('assetmesh-preferences-changed'));
       setFilters(next);
       setError('');
       return true;

@@ -128,6 +128,9 @@ fn service_cmd(name: &str, service_type: ServiceType) -> CreateService {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -146,11 +149,7 @@ fn graph(fixture: &Fixture) -> RelationQueryService<support::MemFactory> {
 }
 
 fn assets(fixture: &Fixture) -> AssetService<support::MemFactory> {
-    AssetService::new(
-        fixture.env.factory.clone(),
-        fixture.env.clock.clone(),
-        fixture.env.ids.clone(),
-    )
+    AssetService::new(fixture.env.factory.clone(), fixture.env.clock.clone())
 }
 
 fn relate(fixture: &Fixture, source: AssetId, relation_type: RelationType, target: AssetId) {
@@ -946,8 +945,8 @@ fn a_traversal_runs_in_one_snapshot_with_one_query_per_frontier() {
         "expected one batch query per frontier, got {relation_queries}"
     );
     assert!(
-        accesses.iter().filter(|a| **a == "assets").count() <= 1,
-        "the asset index is loaded once, not per node"
+        accesses.iter().filter(|a| **a == "assets").count() <= 1 + 2 * relation_queries,
+        "identity reads are batched by frontier"
     );
 }
 
@@ -1077,19 +1076,17 @@ fn neighbors_hydrate_only_the_neighbouring_assets() {
 
     assert_eq!(*probe.scopes.borrow(), 1);
     let accesses = probe.accesses.borrow();
-    // Exactly the two hydrated assets' modules are read, once each, by
-    // identity. Loading the library index instead would read all three module
-    // readers regardless of which modules the two assets belong to — which is
-    // exactly what this guards against.
+    // Hydration goes through the batched library port, rather than calling
+    // a module reader per node or loading a module-wide index.
     assert_eq!(
         accesses.iter().filter(|a| **a == "media").count(),
-        1,
-        "the queried media asset is one point lookup"
+        0,
+        "media is hydrated through the library batch"
     );
     assert_eq!(
         accesses.iter().filter(|a| **a == "software").count(),
-        1,
-        "the software neighbour is one point lookup"
+        0,
+        "software is hydrated through the library batch"
     );
     assert_eq!(
         accesses.iter().filter(|a| **a == "services").count(),
@@ -1098,14 +1095,15 @@ fn neighbors_hydrate_only_the_neighbouring_assets() {
     );
     assert_eq!(
         accesses.iter().filter(|a| **a == "assets").count(),
-        2,
-        "the queried asset and its neighbour are fetched by identity"
+        1,
+        "the queried asset and its neighbour share one identity batch"
     );
     assert_eq!(
         accesses.iter().filter(|a| **a == "tags").count(),
-        2,
-        "each hydrated asset's tags come from one lookup"
+        1,
+        "bare asset tags use a single batch"
     );
+    assert_eq!(accesses.iter().filter(|a| **a == "library").count(), 1);
 }
 
 #[test]

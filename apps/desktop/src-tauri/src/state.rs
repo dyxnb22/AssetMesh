@@ -1,7 +1,10 @@
 //! Composition root and state management for the desktop adapter.
 
+use assetmesh_core::application::backup_service::BackupService;
+use assetmesh_storage_sqlite::backup::{selected_database, SqliteBackupStore};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 
 use assetmesh_core::application::activity_service::ActivityService;
 use assetmesh_core::application::asset_service::AssetService;
@@ -90,7 +93,7 @@ impl DesktopModules {
     }
 
     pub fn asset(&self) -> AssetService<SharedSqlite> {
-        AssetService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
+        AssetService::new(self.factory.clone(), self.clock.clone())
     }
 
     pub fn library(&self) -> LibraryService<SharedSqlite> {
@@ -115,10 +118,19 @@ impl DesktopModules {
 }
 
 pub struct DesktopState {
+    pub startup_timings: crate::startup::StartupTimings,
     runtime: RwLock<RuntimeState>,
     default_db_path: RwLock<Option<PathBuf>>,
     pub clock: SharedClock,
     pub ids: SharedIdGenerator,
+    backup: RwLock<Option<Arc<BackupService<SharedSqlite>>>>,
+    history_maintenance_due: Mutex<Option<assetmesh_core::domain::Timestamp>>,
+    /// In-memory registry of the local-service processes this process
+    /// started. Never persisted: running state is temporary runtime fact.
+    service_runtime: crate::runtime::LocalServiceRuntime,
+    service_operations: Mutex<()>,
+    service_status_cache: Mutex<Option<(std::time::Instant, Vec<crate::runtime::RuntimeStatus>)>>,
+    service_runtime_shutdown: AtomicBool,
 }
 
 enum RuntimeState {
@@ -161,8 +173,15 @@ impl Default for DesktopState {
 impl DesktopState {
     pub fn new() -> Self {
         Self {
+            startup_timings: crate::startup::StartupTimings::default(),
             runtime: RwLock::new(RuntimeState::Loading),
             default_db_path: RwLock::new(None),
+            backup: RwLock::new(None),
+            history_maintenance_due: Mutex::new(None),
+            service_runtime: crate::runtime::LocalServiceRuntime::new(),
+            service_operations: Mutex::new(()),
+            service_status_cache: Mutex::new(None),
+            service_runtime_shutdown: AtomicBool::new(false),
             clock: Arc::new(SystemClock),
             ids: Arc::new(UuidV7Generator),
         }
@@ -170,8 +189,15 @@ impl DesktopState {
 
     pub fn with_clock_and_ids(clock: SharedClock, ids: SharedIdGenerator) -> Self {
         Self {
+            startup_timings: crate::startup::StartupTimings::default(),
             runtime: RwLock::new(RuntimeState::Loading),
             default_db_path: RwLock::new(None),
+            backup: RwLock::new(None),
+            history_maintenance_due: Mutex::new(None),
+            service_runtime: crate::runtime::LocalServiceRuntime::new(),
+            service_operations: Mutex::new(()),
+            service_status_cache: Mutex::new(None),
+            service_runtime_shutdown: AtomicBool::new(false),
             clock,
             ids,
         }
@@ -187,7 +213,12 @@ impl DesktopState {
 
     /// Initializes the database connection and runs pending migrations.
     pub fn initialize(&self, db_path: &Path) -> Result<AppStatus, DesktopError> {
-        let path_str = db_path.to_string_lossy().to_string();
+        let selected = selected_database(db_path);
+        let path_str = selected
+            .as_ref()
+            .unwrap_or(&db_path.to_path_buf())
+            .to_string_lossy()
+            .to_string();
         if let Some(parent) = db_path.parent() {
             // A failure here still surfaces from `open` below; aborting the launch
             // instead would leave the user with no window and no explanation.
@@ -196,15 +227,34 @@ impl DesktopState {
         if let Ok(mut guard) = self.default_db_path.write() {
             *guard = Some(db_path.to_path_buf());
         }
-        let next = match assetmesh_storage_sqlite::open(&path_str) {
+        let opened = selected.and_then(|_| assetmesh_storage_sqlite::open(&path_str));
+        let next = match opened {
             Ok(sqlite_factory) => {
                 let shared = SharedSqlite(Arc::new(sqlite_factory));
+                let store = Arc::new(SqliteBackupStore::new(shared.clone(), db_path));
+                let backup = Arc::new(BackupService::new(
+                    store,
+                    shared.clone(),
+                    self.clock.clone(),
+                ));
+                *self
+                    .backup
+                    .write()
+                    .map_err(|_| DesktopError::internal("Backup lock failed"))? = Some(backup);
                 RuntimeState::Ready {
                     db_path: path_str,
                     modules: DesktopModules::new(shared, self.clock.clone(), self.ids.clone()),
                 }
             }
             Err(err) => {
+                let recovery = SharedSqlite(Arc::new(assetmesh_storage_sqlite::open_in_memory()?));
+                let store = Arc::new(SqliteBackupStore::new(recovery.clone(), db_path));
+                *self
+                    .backup
+                    .write()
+                    .map_err(|_| DesktopError::internal("Backup lock failed"))? = Some(Arc::new(
+                    BackupService::new(store, recovery, self.clock.clone()).recovery_only(),
+                ));
                 let corrupt = matches!(
                     err,
                     assetmesh_core::AppError::CorruptData { .. }
@@ -227,6 +277,121 @@ impl DesktopState {
             .write()
             .map_err(|_| DesktopError::internal("Lock poisoned"))? = next;
         Ok(status)
+    }
+
+    pub fn backup(&self) -> Result<Arc<BackupService<SharedSqlite>>, DesktopError> {
+        self.backup
+            .read()
+            .map_err(|_| DesktopError::internal("Backup lock failed"))?
+            .clone()
+            .ok_or_else(|| DesktopError::setup_required("Database is not initialized"))
+    }
+
+    pub fn backup_tick(&self, flush: bool) {
+        if let Ok(backup) = self.backup() {
+            if !flush && matches!(self.get_status(), AppStatus::Ready { .. }) {
+                let now = self.clock.now();
+                if let Ok(mut due) = self.history_maintenance_due.lock() {
+                    if due.is_none_or(|next| now >= next) {
+                        let result = self.with_modules(|modules| {
+                            Ok(modules.factory().0.maintain_history(now, || {
+                                backup.create("before_history_cleanup").map(|_| ())
+                            })?)
+                        });
+                        *due = Some(
+                            now + if result.is_ok() {
+                                chrono::Duration::days(1)
+                            } else {
+                                chrono::Duration::hours(1)
+                            },
+                        );
+                        if let Err(error) = result {
+                            eprintln!("[assetmesh] history maintenance postponed: {error}");
+                        }
+                    }
+                }
+            }
+            if let Err(error) = backup.tick(env!("CARGO_PKG_VERSION"), flush) {
+                eprintln!("[assetmesh] automatic backup failed: {error}");
+            }
+        }
+    }
+
+    pub fn recovery_point(&self, reason: &str) -> Result<(), DesktopError> {
+        self.backup()?.create(reason)?;
+        Ok(())
+    }
+
+    /// Serialize canonical service changes with launch/stop decisions. The
+    /// runtime registry alone cannot protect the read-config → spawn interval.
+    pub(crate) fn with_service_operation<R>(
+        &self,
+        action: impl FnOnce() -> Result<R, DesktopError>,
+    ) -> Result<R, DesktopError> {
+        let _guard = self
+            .service_operations
+            .lock()
+            .map_err(|_| DesktopError::internal("Service operation lock failed"))?;
+        // Check after acquiring the lock: an operation queued before Quit
+        // must not launch a new process after shutdown has cleaned up.
+        if self.service_runtime_shutdown.load(Ordering::Acquire) {
+            return Err(DesktopError::unavailable("AssetMesh is quitting"));
+        }
+        let result = action();
+        self.invalidate_service_statuses();
+        result
+    }
+
+    pub fn invalidate_service_statuses(&self) {
+        if let Ok(mut cached) = self.service_status_cache.lock() {
+            *cached = None;
+        }
+    }
+
+    pub(crate) fn cached_service_statuses(
+        &self,
+        read: impl FnOnce() -> Result<Vec<crate::runtime::RuntimeStatus>, DesktopError>,
+    ) -> Result<Vec<crate::runtime::RuntimeStatus>, DesktopError> {
+        let mut cache = self
+            .service_status_cache
+            .lock()
+            .map_err(|_| DesktopError::internal("Service status cache lock failed"))?;
+        let mut statuses = match cache.as_ref() {
+            Some((at, rows)) if at.elapsed() < std::time::Duration::from_secs(5) => rows.clone(),
+            _ => {
+                let rows = read()?;
+                *cache = Some((std::time::Instant::now(), rows.clone()));
+                rows
+            }
+        };
+        // Managed process transitions remain immediate even inside the probe cache.
+        for managed in self.service_runtime.statuses() {
+            if let Some(row) = statuses
+                .iter_mut()
+                .find(|row| row.asset_id == managed.asset_id)
+            {
+                *row = managed;
+            } else {
+                statuses.push(managed);
+            }
+        }
+        Ok(statuses)
+    }
+
+    /// The local-service process runtime: one per application process.
+    pub fn service_runtime(&self) -> &crate::runtime::LocalServiceRuntime {
+        &self.service_runtime
+    }
+
+    /// Stops every service process this application started. Boundedly
+    /// blocks, so it can run from the exit hook. Returns true for the first
+    /// shutdown so successive native exit events flush the final backup once.
+    pub fn shutdown_service_runtime(&self) -> bool {
+        let first_shutdown = !self.service_runtime_shutdown.swap(true, Ordering::AcqRel);
+        if let Ok(_guard) = self.service_operations.lock() {
+            self.service_runtime.shutdown_all();
+        }
+        first_shutdown
     }
 
     pub fn get_status(&self) -> AppStatus {
@@ -274,5 +439,59 @@ impl DesktopState {
     ) -> Result<R, DesktopError> {
         let mut factory = self.modules()?.factory().clone();
         f(&mut factory)
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+    #[test]
+    fn status_consumers_share_collection_and_service_operations_invalidate_it() {
+        let state = DesktopState::new();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        for _ in 0..100 {
+            state
+                .cached_service_statuses(|| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(Vec::new())
+                })
+                .unwrap();
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        state.with_service_operation(|| Ok(())).unwrap();
+        state
+            .cached_service_statuses(|| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Vec::new())
+            })
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_service_operation_queued_before_quit_cannot_run_after_shutdown_begins() {
+        let state = Arc::new(DesktopState::new());
+        let guard = state.service_operations.lock().unwrap();
+        let (entering, queued) = mpsc::channel();
+        let action_state = state.clone();
+        let action = std::thread::spawn(move || {
+            entering.send(()).unwrap();
+            action_state.with_service_operation(|| Ok("would start a service"))
+        });
+        queued.recv_timeout(Duration::from_secs(3)).unwrap();
+
+        let shutdown_state = state.clone();
+        let shutdown = std::thread::spawn(move || shutdown_state.shutdown_service_runtime());
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !state.service_runtime_shutdown.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "shutdown did not begin");
+            std::thread::yield_now();
+        }
+        drop(guard);
+
+        assert_eq!(action.join().unwrap().unwrap_err().category, "unavailable");
+        shutdown.join().unwrap();
     }
 }

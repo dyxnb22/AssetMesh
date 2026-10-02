@@ -15,6 +15,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
   onClose,
   onAdopted,
 }) => {
+  const [failedSources, setFailedSources] = useState<{ source: string; message: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [candidates, setCandidates] = useState<ClassifiedCandidateDto[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<ClassifiedCandidateDto | null>(null);
@@ -23,6 +24,8 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
   const [tagsInput, setTagsInput] = useState('');
   const [target, setTarget] = useState<'auto' | 'create_new'>('auto');
 
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [batchNotice, setBatchNotice] = useState('');
   const [adopting, setAdopting] = useState(false);
   const [error, setError] = useState<DesktopError | null>(null);
   const [receipt, setReceipt] = useState<MutationReceiptDto | null>(null);
@@ -31,14 +34,18 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
 
   const runDiscovery = async () => {
     setLoading(true);
+    setFailedSources([]);
+    setChecked(new Set());
+    setBatchNotice('');
     setError(null);
     setSelectedCandidate(null);
     setReceipt(null);
     try {
       const results = await transport.softwareDiscover();
-      setCandidates(results);
-      if (results.length > 0) {
-        setSelectedCandidate(results[0]);
+      setCandidates(results.candidates);
+      setFailedSources(results.failed_sources);
+      if (results.candidates.length > 0) {
+        setSelectedCandidate(results.candidates[0]);
       }
     } catch (err) {
       setError(normalizeDesktopError(err));
@@ -106,6 +113,40 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
     }
   };
 
+  const handleBatchAdopt = async () => {
+    if (adopting || !checked.size) return;
+    setAdopting(true);
+    setError(null);
+    const remaining = new Set(checked);
+    let added = 0;
+    let lastId: string | undefined;
+    const failures: string[] = [];
+    const adopted = new Map<number, string>();
+    for (const index of checked) {
+      const item = candidates[index];
+      if (!item || item.disposition !== 'new') continue;
+      try {
+        // Auto reclassifies inside the transaction. No existing revision is
+        // supplied, so a newly matching asset cannot be silently updated.
+        const result = await transport.softwareCommand({ action: 'adopt_candidate', candidate: item.candidate, target: 'auto' });
+        lastId = result.asset_ids[0] ?? lastId;
+        added += 1;
+        if (result.asset_ids[0]) adopted.set(index, result.asset_ids[0]);
+        remaining.delete(index);
+      } catch (failure) {
+        failures.push(`${item.candidate.display_name}: ${normalizeDesktopError(failure).message}`);
+      }
+    }
+    const refreshed = candidates.map((item, index) => adopted.has(index)
+      ? { ...item, disposition: 'exact_match' as const, matched_asset_ids: [adopted.get(index)!] } : item);
+    setCandidates(refreshed);
+    if (selectedCandidate) setSelectedCandidate(refreshed[candidates.indexOf(selectedCandidate)] ?? selectedCandidate);
+    setChecked(remaining);
+    setBatchNotice(t('Added {n} applications.', { n: added }) + (failures.length ? ` ${failures.join('; ')}` : ''));
+    setAdopting(false);
+    if (lastId) onAdopted(lastId);
+  };
+
   return (
     <div
       role="dialog"
@@ -142,6 +183,10 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
           overflow: 'hidden',
         }}
       >
+        {failedSources.length > 0 && <div role="status" style={{ padding: '12px 20px', fontSize: '13px', color: 'var(--color-muted)' }}>
+          <p>{t('Some sources could not be scanned. Completed results remain available.')}</p>
+          {failedSources.map((failure) => <p key={failure.source}>{failure.source}: {failure.message}</p>)}
+        </div>}
         {/* Header */}
         <div
           style={{
@@ -212,6 +257,13 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
             >{t('Discovered Candidates (')}{candidates.length})
             </div>
 
+            <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label><input type="checkbox" aria-label={t('Select new applications')} disabled={adopting || loading}
+                checked={candidates.some((item) => item.disposition === 'new') && candidates.every((item, index) => item.disposition !== 'new' || checked.has(index))}
+                onChange={(event) => setChecked(event.target.checked ? new Set(candidates.flatMap((item, index) => item.disposition === 'new' ? [index] : [])) : new Set())} /> {t('Select new applications')}</label>
+              <button className="todo-button" data-testid="batch-adopt-button" disabled={adopting || !checked.size} onClick={() => void handleBatchAdopt()}>{t('Add selected ({n})', { n: checked.size })}</button>
+              {batchNotice && <div role="status" data-testid="batch-adopt-notice">{batchNotice}</div>}
+            </div>
             {loading && (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-muted)', fontSize: '13px' }}>{t('Scanning system providers (macOS Apps, Homebrew, CLI tools)...')}</div>
             )}
@@ -231,6 +283,7 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                     key={`${c.candidate.provider}-${c.candidate.display_name}-${idx}`}
                     data-testid={`discovery-candidate-${c.candidate.display_name}`}
                     onClick={() => {
+                      if (adopting) return;
                       setSelectedCandidate(c);
                       setReceipt(null);
                     }}
@@ -243,10 +296,13 @@ export const SoftwareDiscoveryModal: React.FC<SoftwareDiscoveryModalProps> = ({
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                       <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--color-ink)' }}>
+                        {isNew && <input type="checkbox" aria-label={t('Select {name}', { name: c.candidate.display_name })}
+                          disabled={adopting} checked={checked.has(idx)} onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => setChecked((previous) => { const next = new Set(previous); if (event.target.checked) next.add(idx); else next.delete(idx); return next; })} />}
                         {c.candidate.display_name}
                       </span>
                       <Badge variant={isNew ? 'mesh' : isExact ? 'muted' : 'attention'}>
-                        {c.disposition}
+                        {t(({ new: 'New application', exact_match: 'Already added', potential_duplicate: 'Possible duplicate', conflict: 'Needs review' })[c.disposition] ?? c.disposition)}
                       </Badge>
                     </div>
                     <div style={{ fontSize: '11px', color: 'var(--color-muted)' }}>

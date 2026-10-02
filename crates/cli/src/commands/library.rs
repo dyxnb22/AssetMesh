@@ -175,6 +175,7 @@ pub(crate) fn run_library(factory: SharedFactory, cmd: LibraryCommand) -> Result
                 kinds: Vec::new(),
                 tags,
                 page: PageRequest::new(limit, offset),
+                ..Default::default()
             };
             let page = library.search_assets(&query)?;
             print_asset_list(&page, json);

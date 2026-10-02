@@ -6,6 +6,7 @@
 //! adoption writes canonical state, and it never overwrites user-owned
 //! purpose/notes except through explicit user overrides (docs/09).
 
+use crate::application::patch::Patch;
 use crate::application::projection::project_software;
 use crate::application::shared::{ensure_ref_available, normalize_tags, ExternalRefInput};
 use crate::application::software_discovery::{
@@ -53,17 +54,18 @@ pub struct CreateSoftware {
     pub external_refs: Vec<ExternalRefInput>,
 }
 
+/// Omitted fields are preserved; null or explicitly blank optional text clears the field.
 #[derive(Debug, Clone, Default)]
 pub struct UpdateSoftwareMetadata {
     pub asset_id: AssetId,
     pub name: Option<String>,
-    pub summary: Option<String>,
-    pub version: Option<String>,
-    pub install_location: Option<String>,
-    pub executable_path: Option<String>,
-    pub purpose: Option<String>,
-    pub notes: Option<String>,
-    pub architecture: Option<String>,
+    pub summary: Patch<String>,
+    pub version: Patch<String>,
+    pub install_location: Patch<String>,
+    pub executable_path: Patch<String>,
+    pub purpose: Patch<String>,
+    pub notes: Patch<String>,
+    pub architecture: Patch<String>,
     pub expected_revision: Option<i64>,
 }
 
@@ -250,26 +252,19 @@ impl<F: UnitOfWorkFactory> SoftwareService<F> {
                 }
                 asset.name = name.to_string();
             }
-            if cmd.summary.is_some() {
-                asset.summary = cmd.summary.clone();
-            }
-            if let Some(value) = optional_text(&cmd.version, "version")? {
-                record.version = Some(value);
-            }
-            if let Some(value) = optional_text(&cmd.install_location, "install_location")? {
-                record.install_location = Some(value);
-            }
-            if let Some(value) = optional_text(&cmd.executable_path, "executable_path")? {
-                record.executable_path = Some(value);
-            }
-            if let Some(value) = optional_text(&cmd.purpose, "purpose")? {
-                record.purpose = Some(value);
-            }
-            if let Some(value) = optional_text(&cmd.notes, "notes")? {
-                record.notes = Some(value);
-            }
-            if let Some(value) = optional_text(&cmd.architecture, "architecture")? {
-                record.architecture = Some(value);
+            cmd.summary
+                .clone()
+                .normalize_text()
+                .apply_to(&mut asset.summary);
+            for (patch, field) in [
+                (&cmd.version, &mut record.version),
+                (&cmd.install_location, &mut record.install_location),
+                (&cmd.executable_path, &mut record.executable_path),
+                (&cmd.purpose, &mut record.purpose),
+                (&cmd.notes, &mut record.notes),
+                (&cmd.architecture, &mut record.architecture),
+            ] {
+                patch.apply_to(field);
             }
 
             asset.validate()?;
@@ -839,7 +834,6 @@ pub(crate) fn build_view(
 
 #[cfg(test)]
 mod tests {
-
     use crate::application::software_discovery::normalize_name;
 
     #[test]

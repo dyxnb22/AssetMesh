@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { setTransport } from '../features/library/transport';
-import type { AssetSummary } from '../features/library/types';
+import type { AppStatus, AssetSummary } from '../features/library/types';
 import { FakeDesktopTransport } from '../test/fake-transport';
 import { App } from './App';
 
@@ -50,37 +50,17 @@ describe('App Desktop Shell', () => {
     window.location.hash = '';
   });
 
-  it('renders loading state initially', async () => {
-    const fake = new FakeDesktopTransport();
-    fake.status = { status: 'loading' };
-    setTransport(fake);
-
-    render(<App />);
-    await waitFor(() => {
-      expect(screen.getByRole('status')).toBeInTheDocument();
-      expect(screen.getByText(/Opening library and verifying state/i)).toBeInTheDocument();
-    });
-  });
-
-  it('renders setup failure state when database setup fails', async () => {
-    const fake = new FakeDesktopTransport();
-    fake.status = { status: 'setup_failure', message: 'unable to open database file' };
-    setTransport(fake);
-
-    render(<App />);
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-      expect(screen.getByText('Setup Required')).toBeInTheDocument();
-      expect(screen.getByText(/unable to open database file/i)).toBeInTheDocument();
-    });
-  });
-
-  it('re-initializes the database when Retry is pressed on the setup card', async () => {
+  it('shows pending setup, preserves the failure reason and loads assets after retry', async () => {
     const fake = new FakeDesktopTransport(sampleAssets);
     fake.status = {
       status: 'setup_failure',
       message: 'The database could not be opened. Check that its location exists and is writable.',
     };
+    let resolveStatus!: (status: AppStatus) => void;
+    const statusRequest = new Promise<AppStatus>((resolve) => {
+      resolveStatus = resolve;
+    });
+    fake.getStatus = () => statusRequest;
     const inits: (string | undefined)[] = [];
     const originalInit = fake.init.bind(fake);
     fake.init = async (dbPath?: string) => {
@@ -90,12 +70,16 @@ describe('App Desktop Shell', () => {
     setTransport(fake);
 
     render(<App />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument());
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    await act(async () => resolveStatus(fake.status));
+    expect(screen.getByRole('alert')).toHaveTextContent(fake.status.message);
+    await screen.findByRole('button', { name: 'Retry' });
     expect(inits).toHaveLength(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull());
+    await screen.findByRole('row', { name: /Sousou no Frieren/ });
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     expect(inits).toEqual([undefined]);
   });
 
@@ -128,7 +112,6 @@ describe('App Desktop Shell', () => {
     render(<App />);
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
-      expect(screen.getByText('Corrupt Data')).toBeInTheDocument();
       expect(screen.getByText(/checksum mismatch/i)).toBeInTheDocument();
     });
   });
@@ -290,21 +273,12 @@ describe('App Desktop Shell', () => {
       expect(screen.getAllByRole('row')).toHaveLength(5);
     });
 
-    expect(prevBtn).toBeEnabled();
-    expect(nextBtn).toBeDisabled();
-  });
-
-  it('displays empty state with reset filters button', async () => {
-    const fake = new FakeDesktopTransport([]);
-    setTransport(fake);
-
-    render(<App />);
-
+    expect(screen.getByRole('button', { name: 'Previous Page' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Next Page' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Previous Page' }));
     await waitFor(() => {
-      expect(screen.getByText('No assets found')).toBeInTheDocument();
-      expect(
-        screen.getByText('No assets match the current view and filter criteria.')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 2 (30 total)')).toBeInTheDocument();
+      expect(screen.getAllByRole('row')).toHaveLength(25);
     });
   });
 
@@ -320,7 +294,6 @@ describe('App Desktop Shell', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
-      expect(screen.getByText('Query Execution Failed')).toBeInTheDocument();
       expect(screen.getByText('Storage is currently busy; retry later.')).toBeInTheDocument();
     });
 

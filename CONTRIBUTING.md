@@ -1,35 +1,30 @@
 # Contributing
 
-AssetMesh has completed its Phase 1 (Media Records), Phase 2 (Software
-Inventory), Phase 3 (Services and Subscriptions), and Phase 4 (Unified Library
-Core) headless vertical slices and Phase 5 (Tauri desktop application shell).
-The next planned target is Phase 6 runtime enrichment; the desktop remains an
-adapter over the Phase 4 application contract.
+AssetMesh is a personal local-first application with a working desktop client and
+CLI. Start with [README.md](README.md) for the product and
+[DEVELOPMENT.md](DEVELOPMENT.md) for setup, commands and test ownership.
 
 Development principles:
 
-1. Prefer a complete vertical slice or complete application contract over broad scaffolding.
-2. Keep domain/application logic independent of UI frameworks.
-3. Treat CLI, desktop, HTTP, and agent integrations as adapters over the same application layer.
-4. Do not introduce a new provider abstraction until at least one concrete use case needs it.
-5. Add migration and import/export tests for user-owned data changes.
-6. Treat data portability and backward compatibility as product features.
-7. Keep AI/discovery advisory; canonical state must remain explainable.
-8. Do not move business rules, identity semantics, matching logic, merge behavior, search semantics, relation traversal semantics, or duplicate-review decisions into presentation code.
-9. Keep cross-module reads inside stable application query services rather than making adapters join module repositories themselves.
-10. Prefer typed application DTOs over unstructured JSON at the core boundary.
+1. Prefer a complete small workflow over broad scaffolding.
+2. Keep domain/application logic independent of UI frameworks and storage drivers.
+3. Desktop and CLI call application services; they do not assemble cross-module
+   views by joining repositories or SQLite tables.
+4. Keep identity, matching, merge, traversal and lifecycle semantics in the core.
+5. Use typed application DTOs at adapter boundaries.
+6. Add migration and round-trip coverage when changing user-owned data formats.
+7. Treat portability and backward compatibility as product features.
+8. Keep discovery advisory; canonical writes remain explicit and explainable.
+9. Introduce abstractions and infrastructure only for a concrete implemented need.
+10. Run checks appropriate to the change. Avoid tests that merely freeze constants,
+    copy, CSS details or fake fixture counts.
 
-Completed implementation targets: `docs/08-media-records-v1.md`,
-`docs/09-software-inventory-v1.md`, `docs/10-services-subscriptions-v1.md`, and
-`docs/11-unified-library-core.md` (Phase 4A-4D).
+The [Architecture](docs/02-architecture.md), [Domain Model](docs/03-domain-model.md),
+[Storage & Portability](docs/05-storage-and-portability.md), module contracts and
+[ADRs](docs/adr/README.md) define lasting boundaries. The
+[Desktop Contract](docs/12-desktop-contract.md) describes adapter behavior.
 
-The next implementation target is **Phase 6 — Runtime Enrichment**. Start with
-`docs/12-phases-5-7-execution-plan.md`; `docs/07-roadmap.md` contains the
-phase-level roadmap, while `docs/11-unified-library-core.md` defines the stable
-application contract the desktop adapter consumes.
-
-Keep Tauri and React in `apps/desktop`; do not add
-HTTP/MCP servers, semantic/vector search, runtime monitoring, plugin
-infrastructure, or sync as part of the same change unless the roadmap is
-explicitly revised first. Desktop commands must call application services and
-must not access repositories or SQLite directly.
+The [Roadmap](docs/07-roadmap.md) lists optional follow-ups. Do not automatically
+start runtime enrichment, add a new module or build HTTP/MCP servers, sync,
+plugins, vector search or job infrastructure merely because an earlier phase plan
+mentioned them.

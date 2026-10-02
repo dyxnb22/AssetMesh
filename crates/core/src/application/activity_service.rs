@@ -19,14 +19,11 @@
 //! - **History survives lifecycle changes.** A merged or archived asset's
 //!   events are still reported, with the asset named as it stands today.
 
-use std::collections::HashMap;
-
 use crate::application::library_service::{Page, PageRequest};
 use crate::domain::activity::{ActivityEvent, ActivityModule};
 use crate::domain::asset::{Asset, AssetKind};
 use crate::domain::ids::{ActivityId, AssetId};
 use crate::domain::Timestamp;
-use crate::ports::repos::{AssetFilter, LifecycleFilter};
 use crate::ports::uow::UnitOfWorkFactory;
 use crate::AppResult;
 use serde::Serialize;
@@ -83,6 +80,11 @@ impl ActivityQuery {
         Self::default()
     }
 
+    /// Shared filter semantics for adapters that evaluate events in memory.
+    pub fn matches(&self, event: &ActivityEvent, asset: Option<&Asset>) -> bool {
+        matches(self, event, asset)
+    }
+
     /// The most recent events, unfiltered.
     pub fn recent() -> Self {
         Self::default()
@@ -110,56 +112,7 @@ impl<F: UnitOfWorkFactory> ActivityService<F> {
 
     /// One page of matching events, newest first.
     pub fn query(&mut self, query: &ActivityQuery) -> AppResult<Page<ActivityView>> {
-        let limit = query.page.effective_limit();
-        self.factory.read(&mut |q| {
-            // Every event is read once; filtering, ordering, and paging happen
-            // here, so there is no per-event asset lookup.
-            let events = q.activity().list_all()?;
-            let assets = q
-                .assets()
-                .list(&AssetFilter {
-                    kind: None,
-                    lifecycle: Some(LifecycleFilter::All),
-                })?
-                .into_iter()
-                .map(|asset| (asset.id, asset))
-                .collect::<HashMap<_, _>>();
-
-            let mut matched: Vec<&ActivityEvent> = events
-                .iter()
-                .filter(|event| {
-                    let asset = event.asset_id.and_then(|id| assets.get(&id));
-                    matches(query, event, asset)
-                })
-                .collect();
-            // Newest first, with the event id as the deterministic tie-breaker
-            // (UUIDv7 is time-ordered, but the timestamp alone is not unique).
-            matched.sort_by(|a, b| {
-                b.occurred_at
-                    .cmp(&a.occurred_at)
-                    .then_with(|| b.id.cmp(&a.id))
-            });
-
-            let total = matched.len();
-            let items = matched
-                .into_iter()
-                .skip(query.page.offset)
-                .take(limit)
-                .map(|event| {
-                    // `and_then`, never `unwrap_or_default`: `AssetId::default()`
-                    // generates a fresh UUIDv7, so a defaulted lookup would be a
-                    // random probe that only happens to miss.
-                    let asset = event.asset_id.and_then(|id| assets.get(&id));
-                    to_view(event, asset)
-                })
-                .collect();
-            Ok(Page {
-                items,
-                offset: query.page.offset,
-                limit,
-                total: Some(total),
-            })
-        })
+        self.factory.read(&mut |q| q.activity().query(query))
     }
 
     /// The most recent events across every module.
@@ -186,10 +139,9 @@ impl<F: UnitOfWorkFactory> ActivityService<F> {
 
 /// Whether one event satisfies every filter of `query`.
 ///
-/// `asset` is the event's asset as currently stored, when it still exists. It
-/// is passed in rather than looked up here because the caller already has the
-/// full asset table for its name projection, and a per-event lookup would be a
-/// per-row round-trip.
+/// `asset` is the event's asset as currently stored, when it still exists.
+/// In-memory adapters reuse this rule; persistent adapters apply equivalent
+/// filters before paging and use the centralized module classification.
 fn matches(query: &ActivityQuery, event: &ActivityEvent, asset: Option<&Asset>) -> bool {
     if let Some(asset_id) = query.asset_id {
         if event.asset_id != Some(asset_id) {
@@ -230,17 +182,19 @@ fn matches(query: &ActivityQuery, event: &ActivityEvent, asset: Option<&Asset>) 
 }
 
 /// Projects one stored event into the adapter-facing view.
-fn to_view(event: &ActivityEvent, asset: Option<&Asset>) -> ActivityView {
-    ActivityView {
-        id: event.id,
-        event_type: event.event_type.clone(),
-        module: ActivityModule::of_event_type(&event.event_type),
-        occurred_at: event.occurred_at,
-        actor: event.actor.clone(),
-        asset_id: event.asset_id,
-        // An event about an asset that no longer exists still happened; it is
-        // simply reported without a name rather than dropped.
-        asset_name: asset.map(|asset| asset.name.clone()),
-        payload: event.payload.clone(),
+impl ActivityView {
+    pub fn from_event(event: &ActivityEvent, asset_name: Option<String>) -> Self {
+        Self {
+            id: event.id,
+            event_type: event.event_type.clone(),
+            module: ActivityModule::of_event_type(&event.event_type),
+            occurred_at: event.occurred_at,
+            actor: event.actor.clone(),
+            asset_id: event.asset_id,
+            // An event about an asset that no longer exists still happened; it is
+            // simply reported without a name rather than dropped.
+            asset_name,
+            payload: event.payload.clone(),
+        }
     }
 }

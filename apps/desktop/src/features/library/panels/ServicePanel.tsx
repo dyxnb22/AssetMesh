@@ -115,6 +115,24 @@ export const ServicePanel: React.FC<ServicePanelProps> = ({
         </div>
       )}
 
+      {record.service_type === 'local' && (record.project_dir || record.start_command) && (
+        <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '8px', fontSize: '12px' }}>
+          <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Launch Configuration')}</div>
+          {record.project_dir && (
+            <div style={{ marginBottom: '4px' }}>
+              <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Project Directory')}</div>
+              <code style={{ fontSize: '11px', wordBreak: 'break-all' }}>{record.project_dir}</code>
+            </div>
+          )}
+          {record.start_command && (
+            <div>
+              <div style={{ color: 'var(--color-muted)', marginBottom: '2px' }}>{t('Start Command')}</div>
+              <code style={{ fontSize: '11px', wordBreak: 'break-all' }}>{record.start_command}</code>
+            </div>
+          )}
+        </div>
+      )}
+
       {(record.dashboard_url || record.endpoint_url) && (
         <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: '8px', fontSize: '12px' }}>
           {record.dashboard_url && (

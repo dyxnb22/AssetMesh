@@ -57,7 +57,7 @@ impl TestSqlite {
         ServiceService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
     }
     fn asset_service(&self) -> AssetService<SharedSqlite> {
-        AssetService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
+        AssetService::new(self.factory.clone(), self.clock.clone())
     }
     fn relation_service(&self) -> RelationService<SharedSqlite> {
         RelationService::new(self.factory.clone(), self.clock.clone(), self.ids.clone())
@@ -121,6 +121,9 @@ fn service_cmd(name: &str, service_type: ServiceType) -> CreateService {
         expires_at: None,
         auto_renew: None,
         notes: None,
+        project_dir: None,
+        start_command: None,
+        stop_command: None,
         tags: Vec::new(),
         external_refs: Vec::new(),
     }
@@ -554,9 +557,7 @@ fn sqlite_graph_queries_never_mutate_state_and_keep_search_consistent() {
     assert_eq!(before, after, "graph queries are read-only");
 
     // Rebuilding the derived search index does not change the graph either.
-    SearchService::new(f.db.factory.clone(), f.db.clock.clone())
-        .rebuild()
-        .unwrap();
+    SearchService::new(f.db.factory.clone()).rebuild().unwrap();
     let view = g
         .dependencies(f.media, &TraversalOptions::default())
         .unwrap();

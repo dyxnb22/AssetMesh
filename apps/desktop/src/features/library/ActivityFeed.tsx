@@ -225,6 +225,8 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
             </select>
           </div>
 
+          <details className="quiet-details"><summary>{t('Advanced filters')}</summary>
+            <div style={{ display: 'flex', gap: 8, paddingTop: 8 }}>
           {/* Event type filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <label htmlFor="activity-type-input" style={{ color: 'var(--color-muted)' }}>{t('Event:')}</label>
@@ -274,6 +276,8 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
               }}
             />
           </div>
+
+            </div></details>
 
           {(moduleFilter !== 'all' || kindFilter !== 'all' || eventTypeFilter || actorFilter || sinceFilter || untilFilter) && (
             <button

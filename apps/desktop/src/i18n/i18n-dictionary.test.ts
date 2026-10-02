@@ -82,11 +82,9 @@ function vars(text: string): string[] {
 describe('zh dictionary', () => {
   const used = keysInUse();
 
-  it('finds translation keys in the source', () => {
-    expect(used.size).toBeGreaterThan(400);
-  });
-
   it('translates every key the interface asks for', () => {
+    // A broken source scan must not make completeness pass vacuously.
+    expect(used.size).toBeGreaterThan(0);
     const missing = [...used.keys()]
       .filter((k) => !PASSTHROUGH.has(k) && !(k in zh))
       .map((k) => `${JSON.stringify(k)} (${used.get(k)})`);

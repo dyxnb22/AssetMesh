@@ -25,13 +25,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::application::library_service::{
-    load_library_rows, AssetSummary, LibraryModule, LibraryRow,
-};
+use crate::application::library_service::AssetSummary;
 use crate::domain::asset::{Asset, LifecycleState};
 use crate::domain::ids::AssetId;
 use crate::domain::relation::{Relation, RelationType};
-use crate::ports::repos::{AssetFilter, LifecycleFilter};
 use crate::ports::uow::{QueryUnitOfWork, UnitOfWorkFactory};
 use crate::{AppError, AppResult};
 use serde::Serialize;
@@ -43,6 +40,8 @@ pub const DEFAULT_MAX_DEPTH: usize = 8;
 /// rejected: adapters should not have to special-case an over-eager value, and
 /// no real personal graph needs more than this.
 pub const MAX_TRAVERSAL_DEPTH: usize = 32;
+pub const MAX_TRAVERSAL_NODES: usize = 1000;
+pub const MAX_TRAVERSAL_EDGES: usize = 5000;
 
 /// Relation types whose meaning supports "A needs B in order to work".
 ///
@@ -409,7 +408,7 @@ fn run_traversal(
     root: AssetId,
     options: &TraversalOptions,
 ) -> AppResult<TraversalView> {
-    let hydration = GraphHydration::load(q)?;
+    let mut hydration = GraphHydration::for_ids(q, &[root])?;
     let root_asset = hydration
         .asset(root)?
         .ok_or_else(|| AppError::not_found("asset", root))?;
@@ -431,14 +430,59 @@ fn run_traversal(
     let mut frontier: Vec<AssetId> = vec![root];
     let mut stopped_at_bound = false;
 
-    for depth in 1..=max_depth {
+    let mut examined_edges = 0;
+    let mut budget_truncated = false;
+    'levels: for depth in 1..=max_depth {
         if frontier.is_empty() {
             break;
         }
-        let mut edges = q.relations().list_for_assets(&frontier)?;
+        let remaining = MAX_TRAVERSAL_EDGES - examined_edges;
+        let mut edges = q
+            .relations()
+            .list_for_assets_bounded(&frontier, remaining + 1)?;
+        let edge_limited = edges.len() > remaining;
+        edges.truncate(remaining);
+        examined_edges += edges.len();
         // Deterministic expansion order: without it, which of two equal-depth
         // parents claims a shared child would depend on row order.
         sort_edges(&mut edges);
+
+        let mut wanted = Vec::new();
+        let mut seen = HashSet::new();
+        for relation in &edges {
+            for expanding in frontier_endpoints(relation, &frontier) {
+                if let Some(edge) = orient(relation, expanding, options.direction) {
+                    if options.allows(relation.relation_type)
+                        && !visited.contains(&edge.other)
+                        && seen.insert(edge.other)
+                    {
+                        wanted.push(edge.other);
+                    }
+                }
+            }
+        }
+        let candidates = if wanted.is_empty() {
+            Vec::new()
+        } else {
+            q.assets().get_many(&wanted)?
+        };
+        let eligible: HashSet<_> = candidates
+            .into_iter()
+            .filter(|asset| {
+                asset.lifecycle_state != LifecycleState::Merged
+                    && (options.include_archived
+                        || asset.lifecycle_state != LifecycleState::Archived)
+            })
+            .map(|asset| asset.id)
+            .collect();
+        let to_load: Vec<_> = wanted
+            .into_iter()
+            .filter(|id| eligible.contains(id))
+            .take(MAX_TRAVERSAL_NODES - nodes.len())
+            .collect();
+        let extra = GraphHydration::for_ids(q, &to_load)?;
+        hydration.assets.extend(extra.assets);
+        hydration.summaries.extend(extra.summaries);
 
         let mut next_frontier: Vec<AssetId> = Vec::new();
         for relation in &edges {
@@ -458,18 +502,14 @@ fn run_traversal(
                 if visited.contains(&edge.other) {
                     continue;
                 }
-                let Some(asset) = hydration.asset(edge.other)? else {
-                    continue;
-                };
-                if !options.include_archived && asset.lifecycle_state == LifecycleState::Archived {
-                    continue;
-                }
-                // Merged tombstones are redirects, never independent graph
-                // nodes.
-                if asset.lifecycle_state == LifecycleState::Merged {
+                if !eligible.contains(&edge.other) {
                     continue;
                 }
 
+                if nodes.len() >= MAX_TRAVERSAL_NODES {
+                    budget_truncated = true;
+                    break 'levels;
+                }
                 visited.insert(edge.other);
                 let mut path = paths.get(&expanding).cloned().unwrap_or_default();
                 path.push(RelationPathHop {
@@ -487,6 +527,10 @@ fn run_traversal(
             }
         }
 
+        if edge_limited {
+            budget_truncated = true;
+            break 'levels;
+        }
         if depth == max_depth {
             // The bound stopped the walk. Whether that actually hid anything
             // is only known by looking at what the last level still points at.
@@ -496,8 +540,16 @@ fn run_traversal(
         frontier = next_frontier;
     }
 
-    let truncated = stopped_at_bound
-        && frontier_has_reachable_edges(q, &frontier, &visited, options, &hydration)?;
+    let truncated = budget_truncated
+        || stopped_at_bound
+            && frontier_has_reachable_edges(
+                q,
+                &frontier,
+                &visited,
+                options,
+                &hydration,
+                MAX_TRAVERSAL_EDGES - examined_edges,
+            )?;
 
     nodes.sort_by(|a, b| {
         a.depth
@@ -526,11 +578,17 @@ fn frontier_has_reachable_edges(
     visited: &HashSet<AssetId>,
     options: &TraversalOptions,
     hydration: &GraphHydration,
+    remaining: usize,
 ) -> AppResult<bool> {
     if frontier.is_empty() {
         return Ok(false);
     }
-    let edges = q.relations().list_for_assets(frontier)?;
+    let edges = q
+        .relations()
+        .list_for_assets_bounded(frontier, remaining + 1)?;
+    if edges.len() > remaining {
+        return Ok(true);
+    }
     for relation in &edges {
         for expanding in frontier_endpoints(relation, frontier) {
             let Some(edge) = orient(relation, expanding, options.direction) else {
@@ -539,7 +597,7 @@ fn frontier_has_reachable_edges(
             if !options.allows(relation.relation_type) || visited.contains(&edge.other) {
                 continue;
             }
-            let Some(asset) = hydration.asset(edge.other)? else {
+            let Some(asset) = hydration.asset(edge.other)?.or(q.assets().get(edge.other)?) else {
                 continue;
             };
             if !options.include_archived && asset.lifecycle_state == LifecycleState::Archived {
@@ -675,66 +733,63 @@ fn load_neighbors(
 /// library list, which only contains assets a module owns.
 struct GraphHydration {
     assets: HashMap<AssetId, Asset>,
-    rows: HashMap<AssetId, LibraryRow>,
+    summaries: HashMap<AssetId, AssetSummary>,
 }
 
 impl GraphHydration {
-    /// Hydrates only the given assets, one point lookup each.
-    ///
-    /// Used by the one-hop queries, where the answer touches a handful of
-    /// assets and reading the whole library would be disproportionate.
+    /// Hydrates the reachable frontier through the same batched library port
+    /// as search. Bare shared assets retain their identity and tags.
     fn for_ids(q: &mut dyn QueryUnitOfWork, ids: &[AssetId]) -> AppResult<Self> {
-        let mut assets: HashMap<AssetId, Asset> = HashMap::new();
-        let mut rows: HashMap<AssetId, LibraryRow> = HashMap::new();
-        for id in ids {
-            if assets.contains_key(id) {
-                continue;
-            }
-            let Some(asset) = q.assets().get(*id)? else {
-                continue;
-            };
-            let details = crate::application::library_service::load_details_for(q, &asset)?;
-            let mut tags: Vec<String> = q
-                .tags()
-                .list_for_asset(*id)?
-                .into_iter()
-                .map(|tag| tag.name)
-                .collect();
-            tags.sort();
-            rows.insert(
-                *id,
-                LibraryRow {
-                    asset: asset.clone(),
-                    details,
-                    tags,
-                },
-            );
-            assets.insert(*id, asset);
+        if ids.is_empty() {
+            return Ok(Self {
+                assets: HashMap::new(),
+                summaries: HashMap::new(),
+            });
         }
-        Ok(GraphHydration { assets, rows })
-    }
-
-    /// The full index: every asset plus every library row.
-    ///
-    /// Used by traversal, which can reach any node and therefore needs the
-    /// whole graph's worth of identity in one pass.
-    fn load(q: &mut dyn QueryUnitOfWork) -> AppResult<Self> {
-        let assets = q
+        let assets: HashMap<_, _> = q
             .assets()
-            .list(&AssetFilter {
-                kind: None,
-                lifecycle: Some(LifecycleFilter::All),
-            })?
+            .get_many(ids)?
             .into_iter()
             .map(|asset| (asset.id, asset))
-            .collect::<HashMap<_, _>>();
-        let rows = load_library_rows(q, &LibraryModule::ALL)?
+            .collect();
+        let mut summaries: HashMap<_, _> = q
+            .library()
+            .hydrate_candidates(ids)?
             .into_iter()
-            .map(|row| (row.asset.id, row))
-            .collect::<HashMap<_, _>>();
-        Ok(GraphHydration { assets, rows })
+            .map(|row| (row.id, row))
+            .collect();
+        let missing: Vec<_> = assets
+            .keys()
+            .filter(|id| !summaries.contains_key(id))
+            .copied()
+            .collect();
+        let mut tags: HashMap<AssetId, Vec<String>> = HashMap::new();
+        for (id, tag) in q.tags().list_for_assets(&missing)? {
+            tags.entry(id).or_default().push(tag.name);
+        }
+        for id in missing {
+            let asset = &assets[&id];
+            let mut names = tags.remove(&id).unwrap_or_default();
+            names.sort();
+            summaries.insert(
+                id,
+                AssetSummary {
+                    id,
+                    kind: asset.kind,
+                    name: asset.name.clone(),
+                    lifecycle: asset.lifecycle_state,
+                    revision: asset.revision,
+                    subtitle: None,
+                    tags: names,
+                    updated_at: asset.updated_at,
+                    details: None,
+                },
+            );
+        }
+        Ok(GraphHydration { assets, summaries })
     }
 
+    /// Identity already hydrated for an accepted node.
     fn asset(&self, id: AssetId) -> AppResult<Option<Asset>> {
         Ok(self.assets.get(&id).cloned())
     }
@@ -745,8 +800,8 @@ impl GraphHydration {
         let Some(asset) = self.assets.get(&id) else {
             return Err(AppError::not_found("asset", id));
         };
-        if let Some(row) = self.rows.get(&id) {
-            return Ok(crate::application::library_service::summarize_row(row));
+        if let Some(row) = self.summaries.get(&id) {
+            return Ok(row.clone());
         }
         Ok(AssetSummary {
             id: asset.id,

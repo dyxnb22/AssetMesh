@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { MEDIA_STATUSES } from './media-presentation';
+import React, { useState } from 'react';
 import { Badge } from '../../ui/Badge';
-import { formatRelativeTime, t } from '../../i18n';
+import { t } from '../../i18n';
+import { LedgerRow } from './LedgerRow';
 import type {
   ActiveModule,
   AppCapabilities,
@@ -11,18 +13,8 @@ import type {
   Page,
   SortOption,
 } from './types';
+import { useViewScroll } from './useViewScroll';
 import { SavedFilters, type SavedFilterState } from './SavedFilters';
-
-/** Canonical media statuses, in segmented-control order. */
-const MEDIA_STATUS_KEYS = ['planned', 'in_progress', 'completed', 'paused', 'dropped'] as const;
-
-const statusTint: Record<string, { bg: string; ink: string }> = {
-  planned: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
-  in_progress: { bg: 'var(--color-mesh-bg)', ink: 'var(--color-mesh)' },
-  completed: { bg: 'var(--color-canvas)', ink: 'var(--color-muted)' },
-  paused: { bg: 'var(--color-attention-bg)', ink: 'var(--color-attention)' },
-  dropped: { bg: 'var(--color-danger-bg)', ink: 'var(--color-danger)' },
-};
 
 const podStyle: React.CSSProperties = {
   display: 'flex',
@@ -69,6 +61,7 @@ const selectStyle: React.CSSProperties = {
 };
 
 interface AssetLedgerProps {
+  viewKey: string;
   module: ActiveModule;
   lifecycle: LifecycleOption;
   sort: SortOption;
@@ -102,6 +95,7 @@ interface AssetLedgerProps {
 }
 
 export const AssetLedger: React.FC<AssetLedgerProps> = ({
+  viewKey,
   module,
   lifecycle,
   sort,
@@ -133,29 +127,8 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
   onApplySavedFilter,
   onRetry,
 }) => {
-  const tableRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const { ref: tableRef, onScroll } = useViewScroll(viewKey, !!data && !loading);
   const [savedOpen, setSavedOpen] = useState(false);
-
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      } else if (
-        e.key === '/' &&
-        document.activeElement?.tagName !== 'INPUT' &&
-        document.activeElement?.tagName !== 'TEXTAREA' &&
-        document.activeElement?.tagName !== 'SELECT'
-      ) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, []);
 
   const title =
     module === 'all'
@@ -164,14 +137,18 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
       ? t('Media Library')
       : module === 'software'
       ? t('Software Inventory')
-      : module === 'services'
-      ? t('Services & Subscriptions')
+      : module === 'subscriptions'
+      ? t('Subscriptions')
       : t('Information Library');
 
   // Filter available kinds by active module
   const availableKinds =
     capabilities?.asset_kinds.filter((k) => {
       if (module === 'all') return true;
+      if (module === 'subscriptions') {
+        // The 订阅 page keeps the billed services; local projects live on the 服务 page.
+        return k.startsWith('service.') && k !== 'service.local';
+      }
       return k.startsWith(module);
     }) || [];
 
@@ -366,8 +343,8 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   ? t('Add Media')
                   : module === 'software'
                   ? t('Add Software')
-                  : module === 'services'
-                  ? t('Add Service')
+                  : module === 'subscriptions'
+                  ? t('Add Subscription')
                   : t('New Asset')}
               </button>
             )}
@@ -388,7 +365,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 {t('All')}
                 {allCount !== null && <span style={segCount}>{allCount}</span>}
               </button>
-              {MEDIA_STATUS_KEYS.map((key) => {
+              {MEDIA_STATUSES.map((key) => {
                 const count = statusCounts?.find((c) => c.status === key)?.count;
                 return (
                   <button
@@ -449,107 +426,6 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             <option value="kind_asc">{t('Asset Kind')}</option>
           </select>
 
-          {/* Search Input */}
-          <div
-            style={{
-              position: 'relative',
-              display: 'flex',
-              alignItems: 'center',
-              flex: '1 1 200px',
-              maxWidth: '340px',
-              minWidth: '160px',
-            }}
-          >
-            <span
-              style={{
-                position: 'absolute',
-                left: '10px',
-                color: 'var(--color-muted)',
-                pointerEvents: 'none',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-              aria-hidden="true"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </span>
-            <input
-              ref={searchInputRef}
-              type="search"
-              aria-label={t('Search library assets')}
-              placeholder={t('Search assets (Cmd+K)...')}
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  if (searchQuery) {
-                    onSearchChange('');
-                  } else {
-                    searchInputRef.current?.blur();
-                  }
-                }
-              }}
-              style={{
-                width: '100%',
-                padding: '6px 32px 6px 30px',
-                fontSize: '12px',
-                border: '1px solid var(--color-border)',
-                borderRadius: 999,
-                backgroundColor: 'var(--color-surface)',
-                color: 'var(--color-ink)',
-                outline: 'none',
-                boxShadow: '0 1px 3px rgba(23, 33, 38, 0.06)',
-              }}
-            />
-            {searchQuery ? (
-              <button
-                onClick={() => onSearchChange('')}
-                aria-label={t('Clear search')}
-                style={{
-                  position: 'absolute',
-                  right: '8px',
-                  border: 'none',
-                  background: 'none',
-                  color: 'var(--color-muted)',
-                  cursor: 'pointer',
-                  padding: '2px',
-                  fontSize: '12px',
-                  lineHeight: 1,
-                }}
-              >
-                ✕
-              </button>
-            ) : (
-              <kbd
-                style={{
-                  position: 'absolute',
-                  right: '8px',
-                  padding: '1px 5px',
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  color: 'var(--color-muted)',
-                  backgroundColor: 'var(--color-canvas)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  pointerEvents: 'none',
-                }}
-              >
-                ⌘K
-              </kbd>
-            )}
-          </div>
         </div>
 
         {/* Active Filters Summary Chips */}
@@ -744,6 +620,7 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
       {/* Ledger card */}
       <div
         ref={tableRef}
+        onScroll={onScroll}
         tabIndex={0}
         onKeyDown={handleKeyDown}
         aria-label={t('Asset Ledger')}
@@ -771,8 +648,9 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
             </div>
             <p style={{ fontSize: '12px', marginBottom: '16px' }}>
               {searchQuery.trim()
-                ? `No assets found matching "${searchQuery.trim()}". Try different keywords or reset filters.`
-                : t('No assets match the current view and filter criteria.')}
+                ? t('No matches for “{query}”. Try another keyword or reset filters.', { query: searchQuery.trim() })
+                : isFiltered ? t('No assets match the current view and filter criteria.')
+                : t('Add your first asset to start recording and tracking it.')}
             </p>
             {isFiltered && (
               <button
@@ -788,6 +666,12 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                   fontSize: '12px',
                 }}
               >{t('Reset All Filters')}</button>
+            )}
+            {!isFiltered && onNewAsset && (
+              <button className="empty-state-action" onClick={onNewAsset}>
+                {module === 'software' ? t('Add Software') : module === 'subscriptions' ? t('Add Subscription')
+                  : module === 'info' ? t('Add Information') : t('Add Media')}
+              </button>
             )}
           </div>
         ) : (
@@ -820,179 +704,9 @@ export const AssetLedger: React.FC<AssetLedgerProps> = ({
                 <span style={{ width: 72, textAlign: 'right' }}>{t('Last Updated')}</span>
               </div>
             )}
-            {data?.items.map((asset) => {
-              const isSelected = asset.id === selectedAssetId;
-              const media = asset.details && asset.details.module === 'media' ? asset.details : null;
-              const tint = media ? statusTint[media.status] : undefined;
-              const progressText =
-                media?.progress && (media.progress.current != null || media.progress.total != null)
-                  ? `${media.progress.unit ? `${media.progress.unit} ` : ''}${
-                      media.progress.current ?? '·'
-                    }/${media.progress.total ?? '·'}`
-                  : null;
-              return (
-                <div
-                  key={asset.id}
-                  role="row"
-                  tabIndex={0}
-                  onClick={() => onSelectAsset(asset.id)}
-                  onDoubleClick={() => onOpenDetail?.(asset.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (onOpenDetail) {
-                        onOpenDetail(asset.id);
-                      } else {
-                        onSelectAsset(asset.id);
-                      }
-                    } else if (e.key === ' ') {
-                      e.preventDefault();
-                      onSelectAsset(asset.id);
-                    }
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '11px 16px',
-                    borderBottom: '1px solid var(--color-border-subtle)',
-                    backgroundColor: isSelected ? 'var(--color-mesh-bg)' : 'transparent',
-                    borderLeft: isSelected ? '3px solid var(--color-mesh)' : '3px solid transparent',
-                    cursor: 'pointer',
-                    outline: 'none',
-                    transition: 'background-color 0.1s ease',
-                  }}
-                  className="asset-row"
-                >
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        color: 'var(--color-ink)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontSize: '13px',
-                      }}
-                    >
-                      {asset.name}
-                    </span>
-                    {media && tint && (
-                      <span
-                        style={{
-                          flexShrink: 0,
-                          fontSize: '10px',
-                          fontWeight: 600,
-                          color: tint.ink,
-                          backgroundColor: tint.bg,
-                          padding: '1px 8px',
-                          borderRadius: 999,
-                        }}
-                      >
-                        {t(media.status)}
-                      </span>
-                    )}
-                    <Badge variant="muted">{t(asset.kind)}</Badge>
-                    {asset.lifecycle !== 'active' && (
-                      <Badge variant={asset.lifecycle === 'archived' ? 'attention' : 'danger'}>
-                        {t(asset.lifecycle)}
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {asset.tags.map((tag) => (
-                      <button
-                        key={tag}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectTag(tag);
-                        }}
-                        title={t('Filter by #{tag}', { tag })}
-                        style={{
-                          all: 'unset',
-                          cursor: 'pointer',
-                          fontSize: '11px',
-                          color: 'var(--color-muted)',
-                          backgroundColor: 'var(--color-canvas)',
-                          padding: '2px 6px',
-                          borderRadius: 'var(--radius-sm)',
-                        }}
-                      >
-                        #{tag}
-                      </button>
-                    ))}
-                    {!media && asset.subtitle && (
-                      <span
-                        style={{
-                          fontSize: '11.5px',
-                          color: 'var(--color-muted)',
-                          maxWidth: 200,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {asset.subtitle}
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        width: 48,
-                        fontSize: '11.5px',
-                        color: media?.year != null ? 'var(--color-muted)' : 'transparent',
-                        textAlign: 'right',
-                      }}
-                    >
-                      {media?.year ?? '—'}
-                    </span>
-                    <span
-                      style={{
-                        width: 90,
-                        fontSize: '11.5px',
-                        color: progressText ? 'var(--color-muted)' : 'transparent',
-                        textAlign: 'right',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {progressText ?? '—'}
-                    </span>
-                    <span
-                      style={{
-                        width: 52,
-                        fontSize: '11.5px',
-                        fontWeight: 600,
-                        color:
-                          media?.rating != null ? 'var(--color-attention)' : 'var(--color-border)',
-                        textAlign: 'right',
-                      }}
-                    >
-                      {media?.rating != null ? `★ ${media.rating.toFixed(1)}` : '—'}
-                    </span>
-                    <span
-                      style={{
-                        width: 72,
-                        fontSize: '11px',
-                        color: 'var(--color-muted)',
-                        textAlign: 'right',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {formatRelativeTime(asset.updated_at)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            {data?.items.map((asset) => <LedgerRow key={asset.id} asset={asset}
+              selected={asset.id === selectedAssetId} onSelect={onSelectAsset}
+              onOpen={onOpenDetail} onSelectTag={onSelectTag} />)}
           </div>
         )}
       </div>

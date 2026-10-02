@@ -1,0 +1,39 @@
+{
+  "scope": "Release Tauri startup probe using the existing production frontend and a private copy of the personal SQLite library; does not measure Dock/LaunchServices overhead or prolonged-idle conditions.",
+  "assets": 787,
+  "db_bytes": 1454080,
+  "budget_ms": 1000,
+  "first_observed_process_start": {
+    "first_page_ms": 1568.9,
+    "main_to_first_page_ms": 891.337,
+    "db_init_ms": 3.001,
+    "background_backup_ms": 107.796
+  },
+  "immediate_restarts": [
+    {
+      "first_page_ms": 680.6,
+      "main_to_first_page_ms": 670.052,
+      "db_init_ms": 6.165,
+      "background_backup_ms": 45.76
+    },
+    {
+      "first_page_ms": 399.6,
+      "main_to_first_page_ms": 393.911,
+      "db_init_ms": 0.917,
+      "background_backup_ms": 47.013
+    },
+    {
+      "first_page_ms": 383.4,
+      "main_to_first_page_ms": 376.436,
+      "db_init_ms": 0.717,
+      "background_backup_ms": 39.729
+    }
+  ],
+  "frontend_js_bytes": 469414,
+  "limitations": [
+    "Probe adds DOM observation and two animation-frame callbacks.",
+    "Probe uses the default Tauri window configuration, rather than the installed bundle macOS overlay.",
+    "The first launch was after building a new executable; this does not reproduce the exact idle interval reported by the user."
+  ],
+  "production_source_changed": false
+}

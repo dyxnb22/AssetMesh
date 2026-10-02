@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ActiveModule,
   ActiveSection,
@@ -32,12 +32,20 @@ function parseHash(hash: string): NavigationState {
   const params = new URLSearchParams(queryPart || '');
 
   let section: ActiveSection = 'library';
-  if (pathPart === 'relations') section = 'relations';
+  if (pathPart === 'todos') section = 'todos';
+  else if (pathPart === 'relations') section = 'relations';
   else if (pathPart === 'activity') section = 'activity';
+  else if (pathPart === 'duplicates') section = 'duplicates';
+  else if (pathPart === 'import-export') section = 'import-export';
+  else if (pathPart === 'settings') section = 'settings';
 
   const rawModule = params.get('module');
   const module: ActiveModule =
-    rawModule === 'media' || rawModule === 'software' || rawModule === 'services' || rawModule === 'info'
+    rawModule === 'media' ||
+    rawModule === 'software' ||
+    rawModule === 'services' ||
+    rawModule === 'subscriptions' ||
+    rawModule === 'info'
       ? rawModule
       : 'all';
 
@@ -95,13 +103,35 @@ function serializeHash(state: NavigationState): string {
   return `#/${path}${queryStr ? '?' + queryStr : ''}`;
 }
 
-export function useNavigation() {
-  const [nav, setNav] = useState<NavigationState>(() => {
-    if (typeof window !== 'undefined') {
-      return parseHash(window.location.hash);
+const STORAGE_KEY = 'assetmesh-navigation-v1';
+const viewKey = (state: NavigationState) => state.section === 'library' ? `library:${state.module}` : state.section;
+
+function readMemory(): { current?: string; views: Record<string, string> } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
+    const views: Record<string, string> = {};
+    if (saved.views && typeof saved.views === 'object') {
+      for (const value of Object.values(saved.views)) {
+        if (typeof value === 'string' && value.startsWith('#/')) {
+          const state = parseHash(value);
+          views[viewKey(state)] = serializeHash(state);
+        }
+      }
     }
-    return DEFAULT_STATE;
-  });
+    return { current: typeof saved.current === 'string' && saved.current.startsWith('#/') ? saved.current : undefined, views };
+  } catch { return { views: {} }; }
+}
+
+export function useNavigation() {
+  const [initialMemory] = useState(readMemory);
+  const memory = useRef(initialMemory);
+  const [nav, setNav] = useState<NavigationState>(() => parseHash(window.location.hash || memory.current.current || ''));
+
+  useEffect(() => {
+    memory.current.views[viewKey(nav)] = serializeHash(nav);
+    memory.current.current = serializeHash(nav);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(memory.current)); } catch { /* Navigation still works without storage. */ }
+  }, [nav]);
 
   useEffect(() => {
     const onHashChange = () => {
@@ -113,6 +143,7 @@ export function useNavigation() {
 
   const updateNav = useCallback((updater: (prev: NavigationState) => NavigationState) => {
     setNav((prev) => {
+      memory.current.views[viewKey(prev)] = serializeHash(prev);
       const next = updater(prev);
       if (
         prev.section === next.section &&
@@ -138,22 +169,20 @@ export function useNavigation() {
   }, []);
 
   const setModule = useCallback((module: ActiveModule) => {
-    updateNav((prev) => ({
-      ...prev,
-      section: 'library',
-      module,
-      kind: null,
-      mediaStatus: null,
-      page: 1,
-    }));
+    updateNav((prev) => {
+      if (prev.section === 'library' && prev.module === module) return prev;
+      const saved = memory.current.views[`library:${module}`];
+      return saved ? parseHash(saved) : { ...DEFAULT_STATE, module };
+    });
   }, [updateNav]);
 
   const setSection = useCallback((section: ActiveSection) => {
-    updateNav((prev) => ({
-      ...prev,
-      section,
-      page: 1,
-    }));
+    updateNav((prev) => {
+      if (prev.section === section) return prev;
+      if (section === 'relations') return { ...prev, section, page: 1 };
+      const saved = memory.current.views[section];
+      return saved ? parseHash(saved) : { ...prev, section, page: 1 };
+    });
   }, [updateNav]);
 
   const setLifecycle = useCallback((lifecycle: LifecycleOption) => {
@@ -221,7 +250,6 @@ export function useNavigation() {
   const resetFilters = useCallback(() => {
     updateNav((prev) => ({
       ...prev,
-      module: 'all',
       lifecycle: 'active',
       mediaStatus: null,
       sort: 'updated_desc',

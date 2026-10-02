@@ -1,5 +1,60 @@
 //! Contract tests for Desktop Software workflow commands & discovery (P5-06).
 
+#[test]
+fn discovery_reports_partial_failures_and_keeps_successful_candidates_read_only() {
+    use assetmesh_core::{
+        domain::software::{InstallSource, SoftwareCategory},
+        ports::providers::{SoftwareCandidate, SoftwareDiscoveryProvider},
+        AppError, AppResult,
+    };
+    #[derive(Debug)]
+    struct Source {
+        fails: bool,
+    }
+    impl SoftwareDiscoveryProvider for Source {
+        fn name(&self) -> &'static str {
+            if self.fails {
+                "pipx"
+            } else {
+                "npm_global"
+            }
+        }
+        fn description(&self) -> &'static str {
+            "contract fixture"
+        }
+        fn scan(&self) -> AppResult<Vec<SoftwareCandidate>> {
+            if self.fails {
+                return Err(AppError::provider_unavailable(
+                    "command exceeded its time budget",
+                ));
+            }
+            Ok(vec![SoftwareCandidate {
+                provider: "cli_tools".into(),
+                display_name: "healthy-tool".into(),
+                category: SoftwareCategory::Cli,
+                install_source: InstallSource::NpmGlobal,
+                version: None,
+                install_location: None,
+                executable_path: None,
+                external_refs: Vec::new(),
+                metadata: None,
+            }])
+        }
+    }
+    let state = setup_test_state("partial-discovery");
+    let before = library_list_impl(None, &state).unwrap().total;
+    let report = assetmesh_desktop_lib::commands::software_discover_sources_impl(
+        &state,
+        &[&Source { fails: true }, &Source { fails: false }],
+    )
+    .unwrap();
+    assert_eq!(report.candidates.len(), 1);
+    assert_eq!(report.completed_sources, ["npm_global"]);
+    assert_eq!(report.failed_sources[0].source, "pipx");
+    assert!(report.failed_sources[0].message.contains("time budget"));
+    assert_eq!(library_list_impl(None, &state).unwrap().total, before);
+}
+
 use std::sync::Arc;
 
 use assetmesh_core::ports::{SystemClock, UuidV7Generator};
@@ -57,12 +112,30 @@ fn software_workflow_create_and_read_back() {
     assert_eq!(detail.name, "Visual Studio Code");
     assert_eq!(detail.kind, "software.app");
     assert_eq!(detail.revision, 1);
-    assert_eq!(detail.details["module"], "software");
-    assert_eq!(detail.details["version"], "1.85.0");
-    assert_eq!(detail.details["install_source"], "homebrew_cask");
-    assert_eq!(detail.details["purpose"], "Primary development editor");
-    assert_eq!(detail.details["notes"], "Configured with Rust Analyzer");
-    assert_eq!(detail.details["architecture"], "arm64");
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["module"],
+        "software"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["version"],
+        "1.85.0"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["install_source"],
+        "homebrew_cask"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["purpose"],
+        "Primary development editor"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["notes"],
+        "Configured with Rust Analyzer"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["architecture"],
+        "arm64"
+    );
 }
 
 #[test]
@@ -90,13 +163,13 @@ fn software_workflow_update_metadata_and_conflict() {
         asset_id: asset_id.clone(),
         expected_revision: Some(1),
         name: Some("Sublime Text 4".into()),
-        summary: Some("Sophisticated text editor".into()),
-        version: Some("4.1.0".into()),
-        install_location: None,
-        executable_path: None,
-        purpose: Some("Secondary text editor".into()),
-        notes: Some("License active".into()),
-        architecture: Some("universal".into()),
+        summary: (Some("Sophisticated text editor".into())).into(),
+        version: (Some("4.1.0".into())).into(),
+        install_location: None.into(),
+        executable_path: None.into(),
+        purpose: (Some("Secondary text editor".into())).into(),
+        notes: (Some("License active".into())).into(),
+        architecture: (Some("universal".into())).into(),
     };
     let update_receipt = software_command_impl(update_cmd, &state).expect("update");
     assert_eq!(update_receipt.operation, "software.update_metadata");
@@ -106,21 +179,27 @@ fn software_workflow_update_metadata_and_conflict() {
     // Read back
     let detail = library_get_impl(&asset_id, &state).expect("get");
     assert_eq!(detail.name, "Sublime Text 4");
-    assert_eq!(detail.details["purpose"], "Secondary text editor");
-    assert_eq!(detail.details["notes"], "License active");
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["purpose"],
+        "Secondary text editor"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["notes"],
+        "License active"
+    );
 
     // 2. Stale revision conflict
     let stale_cmd = SoftwareCommandDto::UpdateMetadata {
         asset_id: asset_id.clone(),
         expected_revision: Some(1), // Actual is 2
         name: Some("Conflict Text".into()),
-        summary: None,
-        version: None,
-        install_location: None,
-        executable_path: None,
-        purpose: None,
-        notes: None,
-        architecture: None,
+        summary: None.into(),
+        version: None.into(),
+        install_location: None.into(),
+        executable_path: None.into(),
+        purpose: None.into(),
+        notes: None.into(),
+        architecture: None.into(),
     };
     let err = software_command_impl(stale_cmd, &state).unwrap_err();
     assert_eq!(err.category, "stale_revision");
@@ -130,13 +209,13 @@ fn software_workflow_update_metadata_and_conflict() {
         asset_id: asset_id.clone(),
         expected_revision: Some(2),
         name: None,
-        summary: None,
-        version: None,
-        install_location: None,
-        executable_path: None,
-        purpose: None,
-        notes: None,
-        architecture: None,
+        summary: None.into(),
+        version: None.into(),
+        install_location: None.into(),
+        executable_path: None.into(),
+        purpose: None.into(),
+        notes: None.into(),
+        architecture: None.into(),
     };
     let mut stale_noop = noop_cmd.clone();
     if let SoftwareCommandDto::UpdateMetadata {
@@ -186,7 +265,7 @@ fn software_workflow_discover_readonly() {
     );
 
     // Verify candidates have classification status
-    for c in &candidates {
+    for c in &candidates.candidates {
         assert!(!c.candidate.display_name.is_empty());
         assert!(!c.candidate.provider.is_empty());
     }
@@ -229,13 +308,22 @@ fn software_workflow_adopt_candidate_preserves_user_purpose_and_notes() {
     let asset_id = &receipt.asset_ids[0];
     let detail = library_get_impl(asset_id, &state).expect("get");
     assert_eq!(detail.name, "ripgrep");
-    assert_eq!(detail.details["purpose"], "Fast project code search");
     assert_eq!(
-        detail.details["notes"],
+        serde_json::to_value(&detail.details).unwrap()["purpose"],
+        "Fast project code search"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["notes"],
         "Replaces ack and grep in daily workflow"
     );
-    assert_eq!(detail.details["version"], "14.1.0");
-    assert_eq!(detail.details["install_source"], "homebrew_formula");
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["version"],
+        "14.1.0"
+    );
+    assert_eq!(
+        serde_json::to_value(&detail.details).unwrap()["install_source"],
+        "homebrew_formula"
+    );
 }
 
 #[test]
@@ -358,4 +446,45 @@ fn software_stale_revision_is_rejected_with_stale_revision_category() {
     // Still active
     let d = library_get_impl(&asset_id, &state).expect("get");
     assert_eq!(d.lifecycle, "active");
+}
+
+#[test]
+fn batch_style_auto_adoption_refuses_a_candidate_that_now_matches() {
+    let state = setup_test_state("batch-adopt-recheck");
+    let candidate = SoftwareCandidateDto {
+        provider: "brew".into(),
+        display_name: "Batch tool".into(),
+        category: "cli".into(),
+        install_source: "homebrew_formula".into(),
+        version: Some("1.0".into()),
+        install_location: None,
+        executable_path: None,
+        external_refs: vec![CandidateRefDto {
+            namespace: "homebrew_formula".into(),
+            external_id: "batch-tool".into(),
+        }],
+        metadata: None,
+    };
+    let command = |version: &str| {
+        let mut candidate = candidate.clone();
+        candidate.version = Some(version.into());
+        SoftwareCommandDto::AdoptCandidate {
+            candidate,
+            target: Some("auto".into()),
+            expected_revision: None,
+            purpose: None,
+            notes: None,
+            tags: Vec::new(),
+        }
+    };
+    let added = software_command_impl(command("1.0"), &state).unwrap();
+    // Simulates another action creating the match after the discovery scan.
+    let error = software_command_impl(command("2.0"), &state).unwrap_err();
+    assert_eq!(error.category, "invalid_input");
+    let unchanged = library_get_impl(&added.asset_ids[0], &state).unwrap();
+    assert_eq!(unchanged.revision, 1);
+    assert_eq!(
+        serde_json::to_value(&unchanged.details).unwrap()["version"],
+        "1.0"
+    );
 }

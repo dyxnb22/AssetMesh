@@ -585,6 +585,41 @@ impl ExternalRefRepository for MemStore {
 }
 
 impl ActivityReader for MemStore {
+    fn query(
+        &mut self,
+        query: &assetmesh_core::application::activity_service::ActivityQuery,
+    ) -> AppResult<Page<assetmesh_core::application::activity_service::ActivityView>> {
+        let mut events: Vec<_> = self
+            .activity
+            .iter()
+            .filter(|event| {
+                let asset = event
+                    .asset_id
+                    .and_then(|id| self.assets.get(&id.to_string()));
+                query.matches(event, asset)
+            })
+            .collect();
+        events.sort_by_key(|event| std::cmp::Reverse((event.occurred_at, event.id)));
+        let total = events.len();
+        let items = events
+            .into_iter()
+            .skip(query.page.offset)
+            .take(query.page.effective_limit())
+            .map(|event| {
+                let name = event
+                    .asset_id
+                    .and_then(|id| self.assets.get(&id.to_string()))
+                    .map(|asset| asset.name.clone());
+                assetmesh_core::application::activity_service::ActivityView::from_event(event, name)
+            })
+            .collect();
+        Ok(Page {
+            items,
+            offset: query.page.offset,
+            limit: query.page.effective_limit(),
+            total: Some(total),
+        })
+    }
     fn list_for_asset(&mut self, asset_id: AssetId, limit: usize) -> AppResult<Vec<ActivityEvent>> {
         let mut events: Vec<ActivityEvent> = self
             .activity
@@ -929,13 +964,34 @@ impl QueryUnitOfWork for MemStore {
 
 impl LibraryReadPort for MemStore {
     fn hydrate_candidates(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetSummary>> {
-        use assetmesh_core::application::library_service::{load_library_rows, summarize_row};
-        let rows = load_library_rows(self, &assetmesh_core::ports::repos::LibraryModule::ALL)?;
-        Ok(rows
-            .into_iter()
-            .filter(|row| ids.contains(&row.asset.id))
-            .map(|row| summarize_row(&row))
-            .collect())
+        use assetmesh_core::application::library_service::{summarize_row, LibraryRow};
+        use assetmesh_core::ports::repos::AssetDetails;
+        let mut summaries = Vec::new();
+        for id in ids {
+            let key = id.to_string();
+            let Some(asset) = self.assets.get(&key).cloned() else {
+                continue;
+            };
+            let details = match asset.kind.module() {
+                "media" => self.media.get(&key).cloned().map(AssetDetails::Media),
+                "software" => self.software.get(&key).cloned().map(AssetDetails::Software),
+                "services" => self.services.get(&key).cloned().map(AssetDetails::Service),
+                "info" => self.info.get(&key).cloned().map(AssetDetails::Info),
+                _ => None,
+            };
+            if let Some(details) = details {
+                let tags = TagReader::list_for_asset(self, *id)?
+                    .into_iter()
+                    .map(|tag| tag.name)
+                    .collect();
+                summaries.push(summarize_row(&LibraryRow {
+                    asset,
+                    details,
+                    tags,
+                }));
+            }
+        }
+        Ok(summaries)
     }
 
     fn count_media_status(
@@ -1137,17 +1193,13 @@ impl TestEnv {
         assetmesh_core::application::asset_service::AssetService::new(
             self.factory.clone(),
             self.clock.clone(),
-            self.ids.clone(),
         )
     }
 
     pub fn search_service(
         &self,
     ) -> assetmesh_core::application::search_service::SearchService<MemFactory> {
-        assetmesh_core::application::search_service::SearchService::new(
-            self.factory.clone(),
-            self.clock.clone(),
-        )
+        assetmesh_core::application::search_service::SearchService::new(self.factory.clone())
     }
 
     pub fn import_service(

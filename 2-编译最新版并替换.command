@@ -26,19 +26,34 @@ fi
 APP_SRC="target/release/bundle/macos/AssetMesh.app"
 [ -d "$APP_SRC" ] || fail "没找到构建产物 $APP_SRC"
 
+# 为本地应用包补齐签名封装,验证后再替换安装版。
+codesign --force --deep --sign - "$APP_SRC" > /dev/null 2>&1 || fail "本地应用签名失败"
+codesign --verify --deep --strict "$APP_SRC" > /dev/null 2>&1 || fail "应用签名验证失败"
+
 echo "==> [3/3] 替换 /Applications/AssetMesh.app…"
+INSTALL_STAGE=$(mktemp -d /Applications/.assetmesh-install.XXXXXXXX) || fail "无法创建安装暂存目录"
+trap 'rm -rf "$INSTALL_STAGE"' EXIT
+STAGED_APP="$INSTALL_STAGE/AssetMesh.app"
+ditto "$APP_SRC" "$STAGED_APP" || fail "无法暂存新应用"
+codesign --verify --deep --strict "$STAGED_APP" > /dev/null 2>&1 || fail "暂存应用签名验证失败"
+APP_EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$STAGED_APP/Contents/Info.plist") || fail "无法读取应用入口"
 osascript -e 'quit app "AssetMesh"' > /dev/null 2>&1
-sleep 1
+for attempt in {1..50}; do
+  pgrep -x "$APP_EXECUTABLE" > /dev/null || break
+  sleep 0.2
+done
+pgrep -x "$APP_EXECUTABLE" > /dev/null && fail "AssetMesh 尚未退出，请退出应用后重新运行"
+PREVIOUS_APP="$PWD/target/previous-bundles/AssetMesh.previous.app"
+mkdir -p "$(dirname "$PREVIOUS_APP")" || fail "无法创建旧版保留目录"
 if [ -d "/Applications/AssetMesh.app" ]; then
-  rm -rf "/Applications/AssetMesh.app.bak"
-  mv "/Applications/AssetMesh.app" "/Applications/AssetMesh.app.bak" ||
+  rm -rf "$PREVIOUS_APP"
+  mv "/Applications/AssetMesh.app" "$PREVIOUS_APP" ||
     fail "无法移动旧应用(检查是否被 Finder/安全软件占用)"
 fi
-cp -R "$APP_SRC" /Applications/ || {
-  [ -d "/Applications/AssetMesh.app.bak" ] && mv "/Applications/AssetMesh.app.bak" "/Applications/AssetMesh.app"
-  fail "复制新应用失败,已恢复旧版"
+mv "$STAGED_APP" /Applications/AssetMesh.app || {
+  [ -d "$PREVIOUS_APP" ] && mv "$PREVIOUS_APP" "/Applications/AssetMesh.app"
+  fail "安装新应用失败,已恢复旧版"
 }
-rm -rf "/Applications/AssetMesh.app.bak"
 
 echo
 echo "✅ 已更新到最新版。双击「1-打开AssetMesh.command」启动。"

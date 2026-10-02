@@ -117,6 +117,9 @@ export const DuplicateReview: React.FC<DuplicateReviewProps> = ({
               )}
             </div>
             <div style={{ fontSize: '12px', color: 'var(--color-muted)', marginTop: '2px' }}>{t('Deterministic evidence-based candidates. Review and merge explicitly without automated winner selection.')}</div>
+            {!loading && !error && total === null && <p role="status" style={{ fontSize: '12px', color: 'var(--color-muted)', marginBottom: 0 }}>
+              {t('This scan reached its limit. Results are partial; filter by asset kind to narrow the review.')}
+            </p>}
           </div>
           <button
             type="button"

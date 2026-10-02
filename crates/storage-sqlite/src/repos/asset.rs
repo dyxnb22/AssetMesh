@@ -58,6 +58,25 @@ pub(crate) fn row_to_asset(row: &rusqlite::Row) -> rusqlite::Result<Asset> {
 }
 
 impl AssetReader for SqliteAssetRepo<'_> {
+    fn get_many(&mut self, ids: &[AssetId]) -> AppResult<Vec<Asset>> {
+        let mut assets = Vec::new();
+        for chunk in ids.chunks(250) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            let sql = format!("SELECT id,kind,name,summary,lifecycle_state,revision,created_at,updated_at,archived_at,merged_into_asset_id FROM assets WHERE id IN ({placeholders}) ORDER BY id");
+            let params: Vec<_> = chunk
+                .iter()
+                .map(|id| uuid_to_string(id.as_uuid()))
+                .collect();
+            let mut statement = self.conn.prepare(&sql).map_err(crate::map_error)?;
+            let rows = statement
+                .query_map(rusqlite::params_from_iter(params), row_to_asset)
+                .map_err(crate::map_error)?;
+            for row in rows {
+                assets.push(row.map_err(crate::map_error)?);
+            }
+        }
+        Ok(assets)
+    }
     fn get(&mut self, id: AssetId) -> AppResult<Option<Asset>> {
         let mut stmt = self
             .conn

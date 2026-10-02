@@ -84,6 +84,9 @@ fn record_params(record: &SoftwareRecord) -> Vec<Box<dyn rusqlite::ToSql>> {
 }
 
 impl SoftwareReader for SqliteSoftwareRepo<'_> {
+    fn existing_ids(&mut self, ids: &[AssetId]) -> AppResult<Vec<AssetId>> {
+        crate::repos::existing_module_ids(self.conn, "software_records", ids)
+    }
     fn get(&mut self, asset_id: AssetId) -> AppResult<Option<SoftwareRecord>> {
         let mut stmt = self
             .conn

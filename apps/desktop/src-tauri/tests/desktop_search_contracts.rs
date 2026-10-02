@@ -123,6 +123,9 @@ fn desktop_search_contracts_cover_cjk_substring_archived_merged_and_filters() {
             expires_at: None,
             auto_renew: None,
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
             tags: vec!["ai".into(), "cloud".into()],
             external_refs: Vec::new(),
         })
@@ -151,7 +154,6 @@ fn desktop_search_contracts_cover_cjk_substring_archived_merged_and_filters() {
     let mut asset_svc = assetmesh_core::application::asset_service::AssetService::new(
         factory.clone(),
         clock.clone(),
-        ids.clone(),
     );
     asset_svc.archive_asset(m1.entry.asset.id).unwrap();
 
@@ -371,4 +373,47 @@ fn desktop_search_contracts_cover_cjk_substring_archived_merged_and_filters() {
     assert_eq!(paged_res.limit, 1);
     assert_eq!(paged_res.offset, 0);
     assert!(paged_res.items.len() <= 1);
+}
+
+#[test]
+fn desktop_search_validates_status_and_sort_without_changing_default_ranking() {
+    use assetmesh_core::application::library_service::LibrarySearchQuery;
+    use assetmesh_core::domain::media::MediaStatus;
+    use assetmesh_core::ports::repos::LibrarySort;
+
+    let default_query = LibrarySearchQuery::try_from(LibrarySearchQueryDto {
+        text: "watch".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(default_query.sort, None);
+    assert_eq!(default_query.media_status, None);
+    let query = LibrarySearchQuery::try_from(LibrarySearchQueryDto {
+        text: "watch".into(),
+        media_status: Some("in_progress".into()),
+        sort: Some("name_desc".into()),
+        offset: Some(25),
+        limit: Some(25),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(query.media_status, Some(MediaStatus::InProgress));
+    assert_eq!(query.sort, Some(LibrarySort::NameDesc));
+    assert_eq!(query.page.offset, 25);
+    assert_eq!(query.page.limit, 25);
+    for invalid in [
+        LibrarySearchQueryDto {
+            media_status: Some("not-a-status".into()),
+            ..Default::default()
+        },
+        LibrarySearchQueryDto {
+            sort: Some("random".into()),
+            ..Default::default()
+        },
+    ] {
+        assert_eq!(
+            LibrarySearchQuery::try_from(invalid).unwrap_err().category,
+            "invalid_input"
+        );
+    }
 }

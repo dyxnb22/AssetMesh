@@ -15,7 +15,7 @@ fn col<T: rusqlite::types::FromSql>(row: &rusqlite::Row, idx: usize) -> AppResul
     row.get(idx).map_err(crate::map_error)
 }
 
-fn parse_relation(row: &rusqlite::Row) -> AppResult<Relation> {
+pub(crate) fn parse_relation(row: &rusqlite::Row) -> AppResult<Relation> {
     let id: String = col(row, 0)?;
     let source: String = col(row, 1)?;
     let target: String = col(row, 2)?;
@@ -44,6 +44,25 @@ fn parse_row(row: rusqlite::Result<Relation>) -> AppResult<Relation> {
 }
 
 impl RelationReader for SqliteRelationRepo<'_> {
+    fn find(
+        &mut self,
+        source: AssetId,
+        target: AssetId,
+        relation_type: RelationType,
+    ) -> AppResult<Option<Relation>> {
+        let mut statement = self.conn.prepare("SELECT id,source_asset_id,target_asset_id,relation_type,note,provenance,created_at FROM relations WHERE source_asset_id=?1 AND target_asset_id=?2 AND relation_type=?3").map_err(crate::map_error)?;
+        let mut rows = statement
+            .query_map(
+                [
+                    source.to_string(),
+                    target.to_string(),
+                    relation_type.as_str().to_string(),
+                ],
+                |row| crate::repos::app_row(parse_relation(row)),
+            )
+            .map_err(crate::map_error)?;
+        rows.next().map(parse_row).transpose()
+    }
     fn get(&mut self, id: RelationId) -> AppResult<Option<Relation>> {
         let mut stmt = self
             .conn
@@ -85,6 +104,13 @@ impl RelationReader for SqliteRelationRepo<'_> {
     }
 
     fn list_for_assets(&mut self, asset_ids: &[AssetId]) -> AppResult<Vec<Relation>> {
+        self.list_for_assets_bounded(asset_ids, i64::MAX as usize)
+    }
+    fn list_for_assets_bounded(
+        &mut self,
+        asset_ids: &[AssetId],
+        limit: usize,
+    ) -> AppResult<Vec<Relation>> {
         if asset_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -97,16 +123,21 @@ impl RelationReader for SqliteRelationRepo<'_> {
         let mut relations = Vec::new();
 
         for chunk in asset_ids.chunks(CHUNK_SIZE) {
+            let remaining = limit.saturating_sub(relations.len());
+            if remaining == 0 {
+                break;
+            }
             let placeholders = vec!["?"; chunk.len()].join(", ");
             let sql = format!(
                 "SELECT id, source_asset_id, target_asset_id, relation_type, note, provenance, \
                  created_at FROM relations \
                  WHERE source_asset_id IN ({placeholders}) OR target_asset_id IN ({placeholders}) \
-                 ORDER BY id"
+                 ORDER BY id LIMIT {remaining}"
             );
             let params: Vec<String> = chunk
                 .iter()
-                .flat_map(|id| [uuid_to_string(id.as_uuid()), uuid_to_string(id.as_uuid())])
+                .chain(chunk.iter())
+                .map(|id| uuid_to_string(id.as_uuid()))
                 .collect();
             let mut stmt = self.conn.prepare(&sql).map_err(crate::map_error)?;
             let refs: Vec<&dyn rusqlite::ToSql> =

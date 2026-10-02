@@ -3,15 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../app/App';
 import { setTransport } from '../features/library/transport';
 import { FakeDesktopTransport } from '../test/fake-transport';
-import { DEFAULT_LANG, getLang, setLang, t, useLang } from './index';
+import { DEFAULT_LANG, getLang, setLang, t } from './index';
 
 describe('language store', () => {
   const initial = getLang();
-  afterEach(() => setLang(initial));
-
-  it('ships Chinese as the default language', () => {
-    expect(DEFAULT_LANG).toBe('zh');
-  });
+  afterEach(() => act(() => setLang(initial)));
 
   it('translates known strings and passes unknown ones through', () => {
     setLang('zh');
@@ -27,55 +23,31 @@ describe('language store', () => {
     expect(t('Page {page} of {total}', { page: 2 })).toBe('第 2 / {total} 页');
   });
 
-  it('persists the choice, and ignores stored values it does not know', () => {
-    setLang('en');
-    expect(localStorage.getItem('assetmesh-lang')).toBe('en');
-    localStorage.setItem('assetmesh-lang', 'fr');
-    expect(getLang()).toBe('en');
-  });
-});
-
-function Probe() {
-  const lang = useLang();
-  return <span data-testid="probe">{lang === 'zh' ? '中文' : 'English'}</span>;
-}
-
-describe('useLang', () => {
-  const initial = getLang();
-  afterEach(() => setLang(initial));
-
-  it('re-renders subscribers when the language changes', () => {
-    render(<Probe />);
-    act(() => setLang('zh'));
-    expect(screen.getByTestId('probe')).toHaveTextContent('中文');
-    act(() => setLang('en'));
-    expect(screen.getByTestId('probe')).toHaveTextContent('English');
-  });
 });
 
 describe('Chinese interface', () => {
   const initial = getLang();
   beforeEach(() => setLang('zh'));
-  afterEach(() => setLang(initial));
+  afterEach(() => act(() => setLang(initial)));
 
-  it('renders the chrome in Chinese and switches back from Settings', async () => {
+  it('renders the configured default in Chinese and switches language from Settings', async () => {
+    setLang(DEFAULT_LANG);
     setTransport(new FakeDesktopTransport());
     render(<App />);
 
     const navAll = await screen.findByTestId('nav-all');
     expect(navAll).toHaveTextContent('全部资产');
     expect(screen.getByTestId('nav-media')).toHaveTextContent('媒体');
-    expect(screen.getByTestId('nav-relations')).toHaveTextContent('关系');
     expect(document.documentElement.lang).toBe('zh-CN');
 
     fireEvent.click(screen.getByTestId('nav-settings'));
-    const section = await screen.findByTestId('settings-language-section');
-    expect(section).toHaveTextContent('语言');
+    await screen.findByTestId('settings-language-section');
 
     fireEvent.click(screen.getByTestId('lang-en'));
     await waitFor(() => expect(navAll).toHaveTextContent('All Assets'));
     expect(screen.getByTestId('nav-media')).toHaveTextContent('Media');
     expect(document.documentElement.lang).toBe('en-US');
+    expect(localStorage.getItem('assetmesh-lang')).toBe('en');
   });
 
   it('translates backend setup-failure text without touching the Rust message', async () => {

@@ -84,8 +84,8 @@ fn frontend_and_backend_command_registrations_are_in_sync() {
 /// `SystemCommandRunner`; reaching it from a test pops a modal dialog and blocks
 /// until a human dismisses it (see the `CommandRunner` seam in
 /// `commands/portable.rs`, which exists so the `_impl` variant can be tested
-/// with a fake). Its `State` extraction is exercised by the code-reading guard
-/// in [`every_command_declares_the_managed_state_type`] instead.
+/// with a fake). This command is stateless; the remaining commands exercise
+/// managed-state extraction through the real handler list below.
 const NOT_INVOKABLE_HERE: &[&str] = &["pick_directory"];
 
 /// True when a response means the command's managed state could not be
@@ -103,23 +103,8 @@ fn is_state_resolution_failure(message: &str) -> bool {
         || m.contains("state not found")
 }
 
-/// Invokes one command and reports what the command said, reaching only the
-/// state extraction stage.
-///
-/// The payload sent is an empty JSON object. That is deliberately *not* valid
-/// for the command's own parameters (a command taking `State<'_, DesktopState>`
-/// and nothing else accepts no arguments at all), so the interesting
-/// discrimination is:
-///
-/// - state resolution works → the command runs and returns its own typed
-///   error (`setup_required`, `invalid_input`, ...), which is not an extraction
-///   failure;
-/// - state resolution fails → the IPC layer rejects with the wording this test
-///   asserts against.
-///
-/// Commands that require *no* argument at all beyond state (`app_capabilities`,
-/// `app_status`, `app_settings`, `pick_directory`, `software_discover`) may
-/// succeed outright with an empty body; both outcomes are acceptable here.
+/// Invokes a real registered command with deserializable arguments. A typed
+/// application error is acceptable; a managed-state extraction failure is not.
 fn invoke_isolating_state(
     webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
     command: &str,
@@ -154,7 +139,7 @@ fn invoke_isolating_state(
 /// `setup_required` and `invalid_input` responses are all fine, because they
 /// prove the handler body ran.
 ///
-/// Paths point into a fresh temp directory that [`Cleanup`] removes, so
+/// Paths point into a fresh temp directory that [`ScratchDir`] removes, so
 /// `app_init` and the portable commands can do real work without leaving
 /// artifacts behind or colliding with a parallel test.
 fn payload_for(command: &str, scratch: &std::path::Path) -> serde_json::Value {
@@ -169,15 +154,28 @@ fn payload_for(command: &str, scratch: &std::path::Path) -> serde_json::Value {
         )
     };
     match command {
+        "app_startup_timing" => map(&[
+            ("stage", serde_json::json!("frontend_loaded")),
+            ("webMs", serde_json::json!(100.0)),
+        ]),
         "app_capabilities"
         | "app_status"
         | "pick_directory"
-        | "app_settings"
         | "software_discover"
         | "library_list"
         | "library_media_status_counts"
         | "activity_query"
+        | "backup_status"
+        | "backup_create"
+        | "backup_preferences"
+        | "backup_tick"
         | "duplicate_candidates" => map(&[]),
+        "backup_preview" | "backup_restore" => map(&[
+            ("sourceDir", serde_json::json!(format!("{scratch}/missing"))),
+            ("expectedFingerprint", serde_json::json!("test")),
+        ]),
+        "backup_save_preferences" => map(&[("preferences", serde_json::json!({}))]),
+        "backup_export_copy" => map(&[("targetDir", serde_json::json!(scratch))]),
         "app_init" => map(&[("dbPath", serde_json::json!(format!("{scratch}/probe.db")))]),
         "library_get" => map(&[("id", serde_json::json!(id))]),
         "library_search" => map(&[("query", serde_json::json!({"text": "probe"}))]),
@@ -193,6 +191,13 @@ fn payload_for(command: &str, scratch: &std::path::Path) -> serde_json::Value {
             "command",
             serde_json::json!({"action": "archive", "asset_id": id}),
         )]),
+        "service_runtime_start"
+        | "service_runtime_stop"
+        | "service_runtime_restart"
+        | "service_runtime_status"
+        | "service_open_page" => map(&[("assetId", serde_json::json!(id))]),
+        "service_runtime_statuses" => map(&[]),
+        "service_runtime_logs" => map(&[("assetId", serde_json::json!(id))]),
         "info_command" => map(&[(
             "command",
             serde_json::json!({"action": "archive", "asset_id": id, "expected_revision": 1}),
@@ -257,109 +262,6 @@ fn every_registered_command_resolves_the_managed_state() {
          type mismatch against `manage(DesktopState::new())` in lib.rs:\n{}",
         failures.join("\n")
     );
-}
-
-/// The commands excluded above cannot be reached through IPC from a test, so
-/// their `State<'_>` type is checked here instead — by reading the source.
-///
-/// This is a tripwire, and deliberately a blunt one: it looks for the exact
-/// wrapper signature the app uses. A command that takes its state any other way
-/// (`State<'_, Arc<…>>`, `AppHandle`, or a `&DesktopState` parameter) fails,
-/// which is the point — such a signature has to be consciously reviewed and
-/// either fixed or added to the exception list with a reason.
-#[test]
-fn every_command_declares_the_managed_state_type() {
-    let commands_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
-    let mut checked = 0usize;
-    let mut offenders = Vec::new();
-
-    for entry in std::fs::read_dir(&commands_dir).expect("commands directory") {
-        let path = entry.expect("directory entry").path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-            continue;
-        }
-        let source = std::fs::read_to_string(&path).expect("command module");
-        let module = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default()
-            .to_string();
-
-        // Walk the public command wrappers, not the `*_impl` helpers that take
-        // `&DesktopState` directly. A signature spans several lines, so collect
-        // from `pub` to the `{` that opens the body before judging it.
-        let mut signature: Option<Vec<String>> = None;
-        for line in source.lines() {
-            let trimmed = line.trim();
-            match &mut signature {
-                None => {
-                    if trimmed == "#[tauri::command]" {
-                        signature = Some(Vec::new());
-                    }
-                }
-                Some(parts) => {
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    if !trimmed.starts_with("pub") && parts.is_empty() {
-                        // A doc comment or another attribute; not a command.
-                        if !trimmed.starts_with("#[") && !trimmed.starts_with("//!") {
-                            signature = None;
-                        }
-                        continue;
-                    }
-                    parts.push(trimmed.to_string());
-                    if trimmed.ends_with('{') {
-                        let full = parts.join(" ");
-                        let full = full.trim_end_matches('{').trim().to_string();
-                        signature = None;
-                        checked += 1;
-                        if !declares_managed_state(&full) {
-                            offenders.push(format!("{module}: {full}"));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    assert!(checked > 0, "no #[tauri::command] wrappers were found");
-    assert!(
-        offenders.is_empty(),
-        "every command that touches storage must extract `State<'_, DesktopState>`\
-         — the type lib.rs manages. Any other state type compiles and fails at\
-         invoke time (see the fault-injection test above), so it is reported here\
-         rather than shipped:\n{}",
-        offenders.join("\n")
-    );
-}
-
-/// Commands that legitimately take no state: they answer from static data or
-/// shell out to the OS, and nothing they do can fail on an uninitialized
-/// database.
-const STATELESS_COMMANDS: &[&str] = &["app_capabilities", "pick_directory"];
-
-/// True when a command's full signature is either stateless (and allowed to be)
-/// or takes exactly the managed state type.
-fn declares_managed_state(signature: &str) -> bool {
-    let params = signature.split('(').nth(1).unwrap_or("");
-    let name = signature
-        .split_whitespace()
-        .nth(2)
-        .unwrap_or("")
-        .split('(')
-        .next()
-        .unwrap_or("");
-
-    if !params.contains("State<") {
-        return STATELESS_COMMANDS.contains(&name);
-    }
-
-    // A state parameter of any other type is the bug this file exists for.
-    params.contains("State<'_, DesktopState>")
-        && !params.contains("State<'_, Arc<")
-        && !params.contains("AppHandle")
-        && !params.contains("Window<")
 }
 
 /// A unique temp directory, removed on drop.

@@ -124,7 +124,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Relations & Impact Explorer')}</span>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-ink)' }}>{t('Linked assets')}</span>
           <Badge variant="mesh">{rootAsset.name}</Badge>
         </div>
 
@@ -147,6 +147,27 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
             >{t('+ Add Relation')}</button>
           )}
 
+
+        </div>
+      </div>
+
+      {/* Mode Controls Bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '8px',
+          padding: '8px 12px',
+          backgroundColor: 'var(--color-canvas)',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: '12px',
+        }}
+      >
+        <details className="quiet-details">
+          <summary>{t('Advanced analysis')}</summary>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, paddingTop: 8 }}>
           <div
             style={{
               display: 'flex',
@@ -186,23 +207,6 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
               }}
             >{t('☊ Graph')}</button>
           </div>
-        </div>
-      </div>
-
-      {/* Mode Controls Bar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '8px',
-          padding: '8px 12px',
-          backgroundColor: 'var(--color-canvas)',
-          borderRadius: 'var(--radius-sm)',
-          fontSize: '12px',
-        }}
-      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ color: 'var(--color-muted)', fontWeight: 500 }}>{t('Mode:')}</span>
           <select
@@ -226,7 +230,7 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
               backgroundColor: 'var(--color-surface)',
             }}
           >
-            <option value="neighbors">{t('Direct Neighbors')}</option>
+            <option value="neighbors">{t('Linked assets')}</option>
             <option value="impact">{t('Impact Analysis')}</option>
             <option value="dependencies">{t('Dependencies (Outgoing)')}</option>
             <option value="dependents">{t('Dependents (Incoming)')}</option>
@@ -289,6 +293,8 @@ export const RelationExplorer: React.FC<RelationExplorerProps> = ({
           />
           <label htmlFor="include-archived-rel" style={{ cursor: 'pointer', color: 'var(--color-ink)' }}>{t('Include Archived')}</label>
         </div>
+          </div>
+        </details>
       </div>
 
       {/* Error state */}

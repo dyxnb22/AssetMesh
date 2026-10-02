@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方案 A · 紧凑高效</title>
+<style>
+:root {
+  --color-canvas: #F3F5F6;
+  --color-surface: #FFFFFF;
+  --color-surface-hover: #F8FAFA;
+  --color-surface-active: #EEF2F3;
+  --color-border: #E2E6E8;
+  --color-border-subtle: #EDF1F2;
+  --color-ink: #172126;
+  --color-muted: #66747B;
+  --color-mesh: #147D78;
+  --color-mesh-bg: #E8F5F4;
+  --color-attention: #A86716;
+  --color-danger: #B63B32;
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;
+  /* kind tints */
+  --media-bg: #ECEEFB; --media-ink: #4750AE;
+  --software-bg: #E7F1FB; --software-ink: #1E63A8;
+  --service-bg: #FBF2E3; --service-ink: #8F5E0B;
+  --info-bg: #E1F3F1; --info-ink: #0F6B66;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+  font-size: 13px; line-height: 1.5; color: var(--color-ink);
+  background: var(--color-canvas); -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column;
+}
+.mono { font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace; }
+
+/* ---- titlebar ---- */
+.titlebar {
+  height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+  background: var(--color-canvas); border-bottom: 1px solid var(--color-border-subtle);
+}
+.lights { display: flex; gap: 7px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.l-red { background: #FF5F57; } .l-yel { background: #FEBC2E; } .l-grn { background: #28C840; }
+.tb-title { font-size: 12px; font-weight: 600; color: var(--color-muted); margin-left: 4px; }
+
+/* ---- shell ---- */
+.shell { flex: 1; display: flex; min-height: 0; }
+
+/* ---- sidebar ---- */
+.rail {
+  width: 200px; flex-shrink: 0; background: var(--color-canvas);
+  border-right: 1px solid var(--color-border); padding: 10px 10px 12px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.rail .brand { padding: 2px 8px 12px; }
+.rail .brand .name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.rail .brand .ver { font-size: 11px; color: var(--color-muted); }
+.nav-item {
+  display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
+  border-radius: var(--radius-md); font-size: 13px; color: var(--color-ink); cursor: default;
+}
+.nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+.nav-item .n-count { margin-left: auto; font-size: 11px; color: var(--color-muted); }
+.nav-item.active { background: var(--color-mesh-bg); color: var(--color-mesh); font-weight: 600; }
+.nav-item.active .n-count { color: var(--color-mesh); }
+.nav-label {
+  font-size: 10.5px; font-weight: 600; color: var(--color-muted); letter-spacing: 0.06em;
+  padding: 14px 8px 4px; text-transform: uppercase;
+}
+.rail .spacer { flex: 1; }
+.rail hr { border: none; border-top: 1px solid var(--color-border-subtle); margin: 10px 4px; }
+
+/* ---- workspace ---- */
+.workspace { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--color-surface); }
+.toolbar {
+  height: 50px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.toolbar h1 { font-size: 15px; font-weight: 650; }
+.count-pill {
+  font-size: 11px; font-weight: 600; color: var(--color-muted); background: var(--color-canvas);
+  border: 1px solid var(--color-border); border-radius: 99px; padding: 0 8px; line-height: 18px;
+}
+.toolbar .grow { flex: 1; }
+.search {
+  display: flex; align-items: center; gap: 6px; width: 250px; height: 30px; padding: 0 8px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-muted);
+  font-size: 12.5px; background: var(--color-surface);
+}
+.search kbd {
+  margin-left: auto; font-size: 10px; color: var(--color-muted); background: var(--color-canvas);
+  border: 1px solid var(--color-border); border-radius: 4px; padding: 0 4px; line-height: 16px;
+  font-family: inherit;
+}
+.ghost-btn {
+  display: flex; align-items: center; gap: 5px; height: 30px; padding: 0 9px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);
+  font-size: 12.5px; color: var(--color-ink); cursor: default; white-space: nowrap;
+}
+.ghost-btn svg { width: 13px; height: 13px; }
+.ghost-btn .chev { color: var(--color-muted); }
+.icon-btn {
+  display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);
+  color: var(--color-muted); cursor: default;
+}
+.icon-btn svg { width: 14px; height: 14px; }
+.primary-btn {
+  display: flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px;
+  background: var(--color-mesh); color: #fff; border: none; border-radius: var(--radius-md);
+  font-size: 12.5px; font-weight: 600; white-space: nowrap;
+}
+.primary-btn svg { width: 13px; height: 13px; }
+
+/* filter chips row */
+.chips-row {
+  height: 36px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 0 14px;
+  border-bottom: 1px solid var(--color-border-subtle); background: var(--color-surface);
+}
+.chip {
+  display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px;
+  background: var(--color-mesh-bg); color: var(--color-mesh); border-radius: 99px; font-size: 11.5px; font-weight: 500;
+}
+.chip .x { font-weight: 700; opacity: 0.7; }
+.chip.ghost-chip { background: transparent; border: 1px dashed var(--color-border); color: var(--color-muted); font-weight: 400; }
+.chips-row .hint { font-size: 11px; color: var(--color-muted); margin-left: 4px; }
+
+/* ---- list ---- */
+.list { flex: 1; overflow: hidden; }
+.row {
+  display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.row.selected { background: var(--color-mesh-bg); box-shadow: inset 3px 0 0 var(--color-mesh); }
+.kind-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.row .name { font-weight: 550; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .kind-label { font-size: 11.5px; color: var(--color-muted); flex-shrink: 0; }
+.row .lifecycle { font-size: 10.5px; font-weight: 600; color: var(--color-attention); background: #FDF6EC; padding: 0 6px; border-radius: 99px; line-height: 17px; }
+.row .grow { flex: 1; min-width: 0; }
+.meta-end { display: flex; align-items: center; gap: 12px; flex-shrink: 0; color: var(--color-muted); font-size: 11.5px; }
+.meta-end .rating { color: var(--color-attention); font-weight: 600; min-width: 44px; text-align: right; }
+.meta-end .rating.na { color: var(--color-border); font-weight: 400; }
+.meta-end .sub { min-width: 72px; text-align: right; }
+.meta-end .time { min-width: 52px; text-align: right; font-size: 11px; }
+
+/* ---- pager ---- */
+.pager {
+  height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+  border-top: 1px solid var(--color-border); background: var(--color-canvas);
+  font-size: 12px; color: var(--color-muted);
+}
+.pager .grow { flex: 1; }
+.pager-btn {
+  height: 26px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); font-size: 12px; color: var(--color-ink);
+}
+.pager-btn.disabled { color: var(--color-border); }
+.pager .jump input { width: 34px; height: 26px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); text-align: center; font-size: 12px; background: var(--color-surface); }
+
+/* ---- inspector ---- */
+.inspector {
+  width: 320px; flex-shrink: 0; border-left: 1px solid var(--color-border); background: var(--color-canvas);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;
+}
+.insp-head { display: flex; align-items: flex-start; gap: 8px; }
+.insp-head .kind-tag { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; }
+.insp-head .kind-dot { width: 7px; height: 7px; }
+.insp-close { margin-left: auto; color: var(--color-muted); font-size: 14px; }
+.insp-title { font-size: 17px; font-weight: 650; line-height: 1.3; letter-spacing: -0.01em; }
+.insp-meta { font-size: 12px; color: var(--color-muted); margin-top: 3px; }
+.facts { display: flex; flex-direction: column; gap: 9px; background: var(--color-surface); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); padding: 12px 14px; }
+.fact { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fact .k { font-size: 11.5px; color: var(--color-muted); flex-shrink: 0; }
+.fact .v { font-size: 12.5px; font-weight: 550; text-align: right; }
+.progress { flex: 1; max-width: 110px; height: 4px; border-radius: 99px; background: var(--color-border-subtle); overflow: hidden; margin-left: 10px; }
+.progress i { display: block; height: 100%; width: 50%; background: var(--color-mesh); border-radius: 99px; }
+.fact.with-bar { justify-content: flex-start; }
+.sec-title { font-size: 12px; font-weight: 650; margin-bottom: 2px; }
+.rel-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.rel-row + .rel-row { border-top: 1px solid var(--color-border-subtle); }
+.rel-type {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10px; color: var(--color-muted);
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; padding: 0 5px; line-height: 16px;
+}
+.rel-target { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rel-kind { margin-left: auto; font-size: 11px; color: var(--color-muted); flex-shrink: 0; }
+.rel-link { font-size: 11.5px; color: var(--color-mesh); font-weight: 550; margin-top: 6px; }
+.tag-chip { display: inline-block; font-size: 11.5px; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 99px; padding: 1px 9px; margin-right: 5px; }
+.insp-meta-card { font-size: 11px; color: var(--color-muted); display: flex; align-items: center; gap: 6px; }
+.insp-meta-card .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.copy-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--color-mesh); font-size: 10.5px; font-weight: 550; }
+.copy-btn svg { width: 10px; height: 10px; }
+.insp-actions { margin-top: auto; display: flex; gap: 8px; }
+.insp-actions .primary-btn { flex: 1; justify-content: center; }
+.secondary-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; height: 30px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);
+  font-size: 12.5px; font-weight: 550; color: var(--color-ink);
+}
+.detail-link { text-align: center; font-size: 12px; color: var(--color-mesh); font-weight: 550; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="lights"><i class="l-red"></i><i class="l-yel"></i><i class="l-grn"></i></div>
+  <span class="tb-title">AssetMesh</span>
+</div>
+
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand"><div class="name">AssetMesh</div><div class="ver">v0.3.0</div></div>
+    <div class="nav-item active"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>全部资产<span class="n-count">785</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M1.5 5.5h13M5 2.5v3"/></svg>媒体<span class="n-count">741</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2" width="13" height="12" rx="2"/><path d="M1.5 5h13M5.5 8.5l-2 1.75 2 1.75M10.5 8.5l2 1.75-2 1.75"/></svg>软件<span class="n-count">29</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 10a2.5 2.5 0 0 0 0-5 4 4 0 0 0-7.8 1A2.75 2.75 0 0 0 4.5 10.5h7Z"/><path d="M6.5 12.5 5 15M9.5 12.5 8 15M12.5 12.5 11 15"/></svg>服务<span class="n-count">12</span></div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="4.5" r="2.5"/><path d="m9.2 6.3-6.7 6.7v1.5h2l1-1v-1.3h1.3v-1.3h1.4l1-1V8.6"/><path d="m10.6 4.9.01 0"/></svg>常用信息<span class="n-count">3</span></div>
+    <hr>
+    <div class="nav-label">库</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="4" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><path d="M6 4h4M4 6v4M12 6v4M6 12h4"/></svg>关系</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8h3l2-4.5 3 9 2-4.5h3"/></svg>动态</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/><path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1"/></svg>重复项</div>
+    <div class="spacer"></div>
+    <div class="nav-label">数据</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5.5h12v8a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-8Z"/><path d="M1.5 3h13v2.5h-13zM6.5 8h3"/></svg>便携数据</div>
+    <div class="nav-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M13 8c0-.5-.05-1-.15-1.45l1.35-1.05-1.5-2.6-1.6.65A5.5 5.5 0 0 0 9.65 2.2L9.4.55H6.6L6.35 2.2a5.5 5.5 0 0 0-1.45.85l-1.6-.65-1.5 2.6 1.35 1.05a5.6 5.6 0 0 0 0 2.9l-1.35 1.05 1.5 2.6 1.6-.65c.43.36.92.65 1.45.85l.25 1.65h2.8l.25-1.65a5.5 5.5 0 0 0 1.45-.85l1.6.65 1.5-2.6-1.35-1.05c.1-.45.15-.95.15-1.45Z"/></svg>设置</div>
+  </aside>
+
+  <main class="workspace">
+    <div class="toolbar">
+      <h1>全部资产</h1><span class="count-pill">785</span>
+      <div class="grow"></div>
+      <div class="search"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/></svg>搜索资产<kbd>⌘K</kbd></div>
+      <div class="ghost-btn">仅显示在用 <span class="chev">▾</span></div>
+      <div class="ghost-btn">类型 <span class="chev">▾</span></div>
+      <div class="ghost-btn">最近更新 <span class="chev">▾</span></div>
+      <div class="icon-btn" title="已保存的筛选"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h8a1 1 0 0 1 1 1v12l-5-3-5 3v-12a1 1 0 0 1 1-1Z"/></svg></div>
+      <div class="primary-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2.5v11M2.5 8h11"/></svg>新建资产</div>
+    </div>
+    <div class="chips-row">
+      <span class="hint">筛选:</span>
+      <span class="chip">仅显示在用 <span class="x">×</span></span>
+      <span class="chip ghost-chip">+ 保存此筛选</span>
+    </div>
+
+    <div class="list">
+      <div class="row selected"><span class="kind-dot" style="background:#4750AE"></span><span class="name">黑袍纠察队 第五季</span><span class="kind-label">剧集</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 8.5</span><span class="sub">在看 E04/08</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">幕府将军 第一季</span><span class="kind-label">剧集</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 9.0</span><span class="sub">看完</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">毒液:最后一舞</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 7.5</span><span class="sub">看过</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">蜘蛛侠:英雄无归</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 8.0</span><span class="sub">看过</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">马粥街残酷史</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating na">—</span><span class="sub">想看</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">蜘蛛侠:纵横宇宙</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 8.5</span><span class="sub">看过</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">落叶归根</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 8.5</span><span class="sub">看过</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">寄生虫</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 9.0</span><span class="sub">看过</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">八恶人</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 8.5</span><span class="sub">看过</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">你想活出怎样的人生</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 8.0</span><span class="sub">看过</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">名侦探柯南:黑铁的鱼影</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 7.0</span><span class="sub">看过</span><span class="time mono">6 天前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">沙丘:第二部</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 8.5</span><span class="sub">看过</span><span class="time mono">1 周前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">奥本海默</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 9.0</span><span class="sub">看过</span><span class="time mono">2 周前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">瞬息全宇宙</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating">★ 8.0</span><span class="sub">看过</span><span class="time mono">2 周前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#4750AE"></span><span class="name">疯狂动物城 2</span><span class="kind-label">电影</span><div class="grow"></div><div class="meta-end"><span class="rating na">—</span><span class="sub">想看</span><span class="time mono">3 周前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#0F6B66"></span><span class="name">GitHub PAT</span><span class="kind-label">信息</span><div class="grow"></div><div class="meta-end"><span class="rating na">—</span><span class="sub">API key · 关联 4 项</span><span class="time mono">3 周前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#8F5E0B"></span><span class="name">Fastmail</span><span class="kind-label">服务</span><div class="grow"></div><div class="meta-end"><span class="rating">¥15/月</span><span class="sub">续费 10-14</span><span class="time mono">3 周前</span></div></div>
+      <div class="row"><span class="kind-dot" style="background:#1E63A8"></span><span class="name">Homebrew</span><span class="kind-label">软件</span><div class="grow"></div><div class="meta-end"><span class="rating na">—</span><span class="sub">/opt/homebrew</span><span class="time mono">4 周前</span></div></div>
+    </div>
+
+    <div class="pager">
+      <span>第 1–18 项,共 785 项</span>
+      <div class="grow"></div>
+      <span>每页 25 <b style="color:var(--color-muted)">▾</b></span>
+      <span class="jump">跳至 <input value="1"> 页</span>
+      <button class="pager-btn disabled">‹ 上一页</button>
+      <button class="pager-btn">下一页 ›</button>
+    </div>
+  </main>
+
+  <aside class="inspector">
+    <div class="insp-head">
+      <span class="kind-tag"><span class="kind-dot" style="background:#4750AE"></span><span style="color:#4750AE">剧集</span></span>
+      <span class="insp-close">✕</span>
+    </div>
+    <div>
+      <div class="insp-title">黑袍纠察队 第五季</div>
+      <div class="insp-meta">2026 · Amazon · 8 集</div>
+    </div>
+    <div class="facts">
+      <div class="fact"><span class="k">状态</span><span class="v">在看</span></div>
+      <div class="fact with-bar"><span class="k">进度</span><span class="v">S05 · E04/08</span><span class="progress"><i></i></span></div>
+      <div class="fact"><span class="k">我的评分</span><span class="v" style="color:var(--color-attention)">★ 8.5</span></div>
+      <div class="fact"><span class="k">年份</span><span class="v">2026</span></div>
+    </div>
+    <div>
+      <div class="sec-title">关系 · 3</div>
+      <div class="rel-row"><span class="rel-type">uses</span><span class="rel-target">Prime Video 年度订阅</span><span class="rel-kind">服务</span></div>
+      <div class="rel-row"><span class="rel-type">related_to</span><span class="rel-target">追剧清单</span><span class="rel-kind">信息</span></div>
+      <div class="rel-row"><span class="rel-type">related_to</span><span class="rel-target">黑袍纠察队 第四季</span><span class="rel-kind">剧集</span></div>
+      <div class="rel-link">在关系图中查看 →</div>
+    </div>
+    <div>
+      <div class="sec-title" style="margin-bottom:6px">标签</div>
+      <span class="tag-chip">#超英</span><span class="tag-chip">#亚马逊</span>
+    </div>
+    <div class="insp-meta-card"><span class="id">01a0d380…6aa9</span><span class="copy-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1"/></svg>复制</span><span>·</span><span>更新于 6 天前</span></div>
+    <div class="insp-actions">
+      <div class="primary-btn">编辑</div>
+      <div class="secondary-btn">标记看完</div>
+    </div>
+    <div class="detail-link">查看完整详情 →</div>
+  </aside>
+
+</div>
+
+</body>
+</html>

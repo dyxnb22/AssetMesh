@@ -22,7 +22,12 @@ use std::fmt;
 /// Services module data schema version (ADR 0008). Owned by the Services
 /// module; independent of the database migration version and the portable
 /// export format version.
-pub const SCHEMA_VERSION: i64 = 1;
+///
+/// Version 2 added the local-service launch fields (`project_dir`,
+/// `start_command`); every launch field stays optional, so a version 1
+/// record is a valid version 2 record with both absent.
+/// Version 3 adds an optional service-specific stop command.
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Recommended V1 text bounds (docs/10 "Text and URL invariants").
 const PROVIDER_MAX: usize = 256;
@@ -31,6 +36,8 @@ const URL_MAX: usize = 2048;
 const DOMAIN_NAME_MAX: usize = 253;
 const PLAN_MAX: usize = 256;
 const NOTES_MAX: usize = 8192;
+const PATH_MAX: usize = 1024;
+const COMMAND_MAX: usize = 2048;
 
 /// What kind of durable service an asset records. Maps 1:1 to an Asset kind:
 /// a `service.saas` asset owns exactly a `SaaS` record (docs/10).
@@ -199,6 +206,13 @@ pub struct ServiceRecord {
     pub auto_renew: Option<bool>,
     /// User-owned notes; never secrets.
     pub notes: Option<String>,
+    /// Project directory a local service is started from; local-service
+    /// launch metadata like `domain_name` is domain-service metadata.
+    pub project_dir: Option<String>,
+    /// The command the user saves and starts manually. AssetMesh runs it as
+    /// typed; it is launch metadata, never a credential.
+    pub start_command: Option<String>,
+    pub stop_command: Option<String>,
 }
 
 impl ServiceRecord {
@@ -219,6 +233,9 @@ impl ServiceRecord {
             expires_at: None,
             auto_renew: None,
             notes: None,
+            project_dir: None,
+            start_command: None,
+            stop_command: None,
         }
     }
 
@@ -273,7 +290,7 @@ impl ServiceRecord {
         };
 
         // Money: integer minor units, never floating point. `cost_minor` and
-        // `currency` are paired — both present or both absent (ADR 0010).
+        // `currency` are a pair — both present or both absent (ADR 0010).
         if let Some(cost) = self.cost_minor {
             if cost < 0 {
                 return Err(AppError::validation(
@@ -289,6 +306,31 @@ impl ServiceRecord {
             }
             (Some(_), Some(raw)) => self.currency = Some(normalize_currency(raw)?),
             (None, None) => {}
+        }
+
+        // Local launch metadata belongs to a local service only, mirroring
+        // the `domain_name` rule: recording it on another type is canonical-
+        // metadata misuse, and "convert" happens through an explicit edit.
+        for (raw_value, name, max) in [
+            (&mut self.project_dir, "project_dir", PATH_MAX),
+            (&mut self.start_command, "start_command", COMMAND_MAX),
+            (&mut self.stop_command, "stop_command", COMMAND_MAX),
+        ] {
+            let value = optional_text(raw_value, name)?;
+            *raw_value = match value {
+                None => None,
+                Some(_) if self.service_type != ServiceType::Local => {
+                    return Err(AppError::validation(format!(
+                        "{name} is launch metadata of a local service and cannot be set on \
+                         a {} service",
+                        self.service_type
+                    )));
+                }
+                Some(text) => {
+                    bounded(&text, max, name)?;
+                    Some(text)
+                }
+            };
         }
 
         Ok(())

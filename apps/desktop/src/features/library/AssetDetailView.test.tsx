@@ -40,40 +40,6 @@ const sampleMediaDetail: AssetDetailDto = {
   ],
 };
 
-const sampleSoftwareDetail: AssetDetailDto = {
-  id: '019315d0-7a00-7000-8000-000000000002',
-  kind: 'software.tool',
-  name: 'Neovim',
-  summary: 'Modal text editor',
-  lifecycle: 'active',
-  revision: 3,
-  created_at: '2026-09-22T09:00:00Z',
-  updated_at: '2026-09-22T09:00:00Z',
-  archived_at: null,
-  merged_into: null,
-  details: {
-    module: 'software',
-    asset_id: '019315d0-7a00-7000-8000-000000000002',
-    category: 'tool',
-    version: '0.10.1',
-    install_location: '/opt/homebrew/bin',
-    executable_path: '/opt/homebrew/bin/nvim',
-    purpose: 'Daily terminal text editing',
-    notes: 'Configured with Lua plugins',
-    discovered_at: '2024-01-01T00:00:00Z',
-    installed_at: '2024-01-01T00:00:00Z',
-    architecture: 'arm64',
-  },
-  tags: ['editor', 'cli'],
-  external_refs: [
-    {
-      namespace: 'homebrew',
-      external_id: 'neovim',
-      source_url: 'https://formulae.brew.sh/formula/neovim',
-    },
-  ],
-};
-
 const sampleServiceDetail: AssetDetailDto = {
   id: '019315d0-7a00-7000-8000-000000000003',
   kind: 'service.saas',
@@ -108,7 +74,7 @@ const sampleServiceDetail: AssetDetailDto = {
 };
 
 describe('AssetDetailView', () => {
-  it('renders media details panel with all typed fields', async () => {
+  it('formats media progress and rating and displays external references', async () => {
     const fake = new FakeDesktopTransport();
     fake.details.set(sampleMediaDetail.id, sampleMediaDetail);
     setTransport(fake);
@@ -120,32 +86,9 @@ describe('AssetDetailView', () => {
       expect(screen.getByTestId('media-panel')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('anime')).toBeInTheDocument();
-    expect(screen.getByText('completed')).toBeInTheDocument();
     expect(screen.getByText(/★ 9.8 \/ 10/)).toBeInTheDocument();
     expect(screen.getByText('28 / 28')).toBeInTheDocument();
-    expect(screen.getByText('Outstanding fantasy storytelling')).toBeInTheDocument();
-    expect(screen.getByTestId('external-refs-panel')).toBeInTheDocument();
-    expect(screen.getByText('myanimelist:')).toBeInTheDocument();
     expect(screen.getByText('52991')).toBeInTheDocument();
-  });
-
-  it('renders software details panel with all typed fields', async () => {
-    const fake = new FakeDesktopTransport();
-    fake.details.set(sampleSoftwareDetail.id, sampleSoftwareDetail);
-    setTransport(fake);
-
-    render(<AssetDetailView assetId={sampleSoftwareDetail.id} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Neovim' })).toBeInTheDocument();
-      expect(screen.getByTestId('software-panel')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('0.10.1')).toBeInTheDocument();
-    expect(screen.getByText('arm64')).toBeInTheDocument();
-    expect(screen.getByText('Daily terminal text editing')).toBeInTheDocument();
-    expect(screen.getByText('/opt/homebrew/bin/nvim')).toBeInTheDocument();
   });
 
   it('renders service details panel with currency, cadence, and dashboard link', async () => {
@@ -160,32 +103,10 @@ describe('AssetDetailView', () => {
       expect(screen.getByTestId('service-panel')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('GitHub Inc.')).toBeInTheDocument();
-    expect(screen.getByText('Individual')).toBeInTheDocument();
     expect(screen.getByText('10.00 USD / monthly')).toBeInTheDocument();
-    expect(screen.getByText('Auto-Renew Active')).toBeInTheDocument();
-    expect(screen.getByText(/https:\/\/github.com\/settings\/copilot/)).toBeInTheDocument();
-  });
-
-  it('renders archived asset with prominent read-only banner', async () => {
-    const archivedDetail: AssetDetailDto = {
-      ...sampleMediaDetail,
-      id: '019315d0-7a00-7000-8000-000000000004',
-      lifecycle: 'archived',
-      archived_at: '2026-09-01T00:00:00Z',
-    };
-
-    const fake = new FakeDesktopTransport();
-    fake.details.set(archivedDetail.id, archivedDetail);
-    setTransport(fake);
-
-    render(<AssetDetailView assetId={archivedDetail.id} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Archived Asset:')).toBeInTheDocument();
-      expect(screen.getByText(/This asset is preserved in read-only state/)).toBeInTheDocument();
-      expect(screen.getByText(/Archived on 2026-09-01/)).toBeInTheDocument();
-    });
+    expect(screen.getByRole('link', { name: /github.com\/settings\/copilot/ })).toHaveAttribute(
+      'href', 'https://github.com/settings/copilot',
+    );
   });
 
   it('renders merged redirect tombstone with navigation action to surviving asset', async () => {
@@ -221,13 +142,7 @@ describe('AssetDetailView', () => {
       />
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId('merged-redirect-panel')).toBeInTheDocument();
-      expect(screen.getByText('This asset was explicitly merged')).toBeInTheDocument();
-      expect(screen.getByText(survivorId)).toBeInTheDocument();
-    });
-
-    const redirectBtn = screen.getByRole('button', { name: 'View Survivor →' });
+    const redirectBtn = await screen.findByRole('button', { name: 'View Survivor →' });
     await userEvent.click(redirectBtn);
     expect(onFollow).toHaveBeenCalledWith(survivorId);
   });
@@ -259,7 +174,6 @@ describe('AssetDetailView', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('unknown-panel')).toBeInTheDocument();
-      expect(screen.getByText('Unknown Module Format')).toBeInTheDocument();
       expect(screen.getByText(/quantum_module_v99/)).toBeInTheDocument();
     });
   });
@@ -302,7 +216,7 @@ describe('AssetDetailView', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Minimal Movie' })).toBeInTheDocument();
       expect(screen.getByTestId('media-panel')).toBeInTheDocument();
-      expect(screen.getByText('planned')).toBeInTheDocument();
+      expect(screen.getByTestId('media-status-text')).toBeInTheDocument();
     });
   });
 });

@@ -6,8 +6,9 @@ use assetmesh_core::application::software_service::{
 use assetmesh_core::domain::ids::AssetId;
 use assetmesh_core::domain::software::{InstallSource, SoftwareCategory};
 use assetmesh_core::ports::providers::SoftwareCandidate;
+use assetmesh_core::ports::providers::SoftwareDiscoveryProvider;
 use assetmesh_providers::{CliToolsProvider, HomebrewProvider, MacosApplicationsProvider};
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::dto::{ClassifiedCandidateDto, MutationReceiptDto, SoftwareCommandDto};
 use crate::error::DesktopError;
@@ -22,49 +23,73 @@ pub fn software_command(
 }
 
 #[tauri::command]
-pub fn software_discover(
-    state: State<'_, DesktopState>,
-) -> Result<Vec<ClassifiedCandidateDto>, DesktopError> {
-    software_discover_impl(&state)
+pub async fn software_discover<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<DiscoveryReportDto, DesktopError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        software_discover_impl(&app.state::<DesktopState>())
+    })
+    .await
+    .map_err(|error| DesktopError::internal(error.to_string()))?
 }
 
-pub fn software_discover_impl(
+#[derive(Debug, serde::Serialize)]
+pub struct DiscoveryFailureDto {
+    pub source: String,
+    pub message: String,
+}
+
+#[derive(Debug, Default, serde::Serialize)]
+pub struct DiscoveryReportDto {
+    pub candidates: Vec<ClassifiedCandidateDto>,
+    pub completed_sources: Vec<String>,
+    pub failed_sources: Vec<DiscoveryFailureDto>,
+}
+
+pub fn software_discover_impl(state: &DesktopState) -> Result<DiscoveryReportDto, DesktopError> {
+    let mut providers: Vec<Box<dyn SoftwareDiscoveryProvider>> = Vec::new();
+    let mut failures = Vec::new();
+    match MacosApplicationsProvider::system_default() {
+        Ok(provider) => providers.push(Box::new(provider)),
+        Err(error) => failures.push(DiscoveryFailureDto {
+            source: "macos_applications".into(),
+            message: error.to_string(),
+        }),
+    }
+    providers.push(Box::new(HomebrewProvider::system_default()));
+    providers.push(Box::new(CliToolsProvider::npm_default()));
+    providers.push(Box::new(CliToolsProvider::pipx_default()));
+    let sources: Vec<_> = providers.iter().map(|provider| provider.as_ref()).collect();
+    let mut report = software_discover_sources_impl(state, &sources)?;
+    report.failed_sources.extend(failures);
+    Ok(report)
+}
+
+pub fn software_discover_sources_impl(
     state: &DesktopState,
-) -> Result<Vec<ClassifiedCandidateDto>, DesktopError> {
+    providers: &[&dyn SoftwareDiscoveryProvider],
+) -> Result<DiscoveryReportDto, DesktopError> {
     state.with_modules(|modules| {
         let mut svc = modules.software();
-
-        let mut all_classified = Vec::new();
-        if let Ok(macos_prov) = MacosApplicationsProvider::system_default() {
-            if let Ok(report) = svc.discover(&macos_prov) {
-                all_classified.extend(
-                    report
-                        .candidates
-                        .into_iter()
-                        .map(ClassifiedCandidateDto::from),
-                );
+        let mut result = DiscoveryReportDto::default();
+        for provider in providers {
+            match svc.discover(*provider) {
+                Ok(report) => {
+                    result.completed_sources.push(provider.name().into());
+                    result.candidates.extend(
+                        report
+                            .candidates
+                            .into_iter()
+                            .map(ClassifiedCandidateDto::from),
+                    );
+                }
+                Err(error) => result.failed_sources.push(DiscoveryFailureDto {
+                    source: provider.name().into(),
+                    message: error.to_string(),
+                }),
             }
         }
-        let brew_prov = HomebrewProvider::system_default();
-        if let Ok(report) = svc.discover(&brew_prov) {
-            all_classified.extend(
-                report
-                    .candidates
-                    .into_iter()
-                    .map(ClassifiedCandidateDto::from),
-            );
-        }
-        let cli_prov = CliToolsProvider::system_default();
-        if let Ok(report) = svc.discover(&cli_prov) {
-            all_classified.extend(
-                report
-                    .candidates
-                    .into_iter()
-                    .map(ClassifiedCandidateDto::from),
-            );
-        }
-
-        Ok(all_classified)
+        Ok(result)
     })
 }
 
@@ -154,13 +179,13 @@ pub fn software_command_impl(
                 .map_err(|e| DesktopError::invalid_input(format!("invalid asset ID: {e}")))?;
 
             if name.is_none()
-                && summary.is_none()
-                && version.is_none()
-                && install_location.is_none()
-                && executable_path.is_none()
-                && purpose.is_none()
-                && notes.is_none()
-                && architecture.is_none()
+                && summary.is_leave()
+                && version.is_leave()
+                && install_location.is_leave()
+                && executable_path.is_leave()
+                && purpose.is_leave()
+                && notes.is_leave()
+                && architecture.is_leave()
             {
                 return state.with_modules(|modules| {
                     let view = modules.software().get_software(id)?;

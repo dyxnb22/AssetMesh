@@ -578,7 +578,6 @@ fn relation_workflow_merged_tombstone_redirect_error() {
             let mut svc = assetmesh_core::application::asset_service::AssetService::new(
                 factory.clone(),
                 state.clock.clone(),
-                state.ids.clone(),
             );
             svc.merge_assets(
                 assetmesh_core::domain::ids::AssetId::from_uuid(dup_id),

@@ -283,40 +283,19 @@ Discovery output clearly separates candidates (`[new] FixtureStudio …`) from
 canonical records; a discovery-only command never mutates state. Exit codes and
 ID-prefix handling follow the established CLI conventions.
 
-## Required tests
+## Verification
 
-Delivered alongside the implementation:
-
-1. domain invariants (category/kind mapping, install-source parsing, field
-   bounds, control-character rejection);
-2. use cases over in-memory ports — CRUD, filters, scan-never-writes,
-   classification (new/exact/duplicate/conflict), adoption create/update,
-   purpose preservation, rollback, activity counts, strict no-op re-adoption,
-   inverse-relation deduplication, direct-write category/kind rejection;
-3. provider tests with fixtures — `.app` normalization, malformed metadata,
-   bundle-id dedupe, Homebrew JSON (formula/cask/partial/malformed/unavailable),
-   npm/pipx outputs, read-only command assertions;
-4. SQLite contract tests — software CRUD, ref uniqueness, search + rebuild,
-   migration 1 → latest with Media data intact, reopen, relation constraints,
-   portable round trip including software;
-5. portable tests — software/relations round trip, legacy Phase 1 bundle
-   compatibility, undeclared-section rejection, unsupported schema version,
-   malformed/dangling/duplicate rows, idempotent restore, dry-run/commit
-   symmetry, rebuild-after-wipe;
-6. CLI end-to-end — add → list → get → update → search → discover (fixture
-   root) → adopt → re-adopt → relations → export → restore → verify, plus
-   read-only discovery and error behavior.
+Provider fixtures, adoption rollback and user-owned-field preservation remain
+behavioral coverage. Test ownership lives in
+[DEVELOPMENT.md](../DEVELOPMENT.md#test-ownership).
 
 ## Known limitations / deferred
 
-- No durable discovery snapshots, background scans, or job queue (Phase 6 may
-  introduce a job boundary if workloads demand it).
+- No durable discovery snapshots, background scans, or job queue.
 - No runtime/process/port monitoring, install/uninstall actions, or automatic
-  reconciliation (Phase 6; explicitly out of scope).
+  reconciliation.
 - Homebrew semantics: formulae are categorized `package` uniformly; casks
   `application`. Refining categories per formula is future work.
 - `installed_at` is never inferred from discovery; only explicit input sets it.
 - CLI-tool discovery covers npm/pipx only; PATH crawling is deliberately
   avoided.
-- Relation query services, traversal, and impact analysis are Phase 4.
-- Desktop UI for software is Phase 5.

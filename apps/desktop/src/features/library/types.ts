@@ -40,6 +40,8 @@ export interface LibrarySearchQuery {
   modules?: string[];
   kinds?: string[];
   tags?: string[];
+  media_status?: string;
+  sort?: SortOption;
   limit?: number;
   offset?: number;
 }
@@ -55,6 +57,8 @@ export interface AppCapabilities {
     projects: boolean;
     agent_capabilities: boolean;
     knowledge_collections: boolean;
+    /** Whether this platform can start/stop local-service processes. */
+    local_service_runtime: boolean;
   };
 }
 
@@ -83,9 +87,16 @@ export interface DesktopError {
   message: string;
 }
 
-export type ActiveModule = 'all' | 'media' | 'software' | 'services' | 'info';
+export type ActiveModule =
+  | 'all'
+  | 'media'
+  | 'software'
+  | 'services'
+  | 'subscriptions'
+  | 'info';
 export type ActiveSection =
   | 'library'
+  | 'todos'
   | 'relations'
   | 'activity'
   | 'duplicates'
@@ -124,8 +135,8 @@ export interface MediaRecordDto {
   year?: number | null;
   platform?: string | null;
   progress?: {
-    unit?: string;
-    current?: number;
+    unit?: string | null;
+    current?: number | null;
     total?: number | null;
   } | null;
   notes?: string | null;
@@ -137,7 +148,7 @@ export interface SoftwareRecordDto {
   module: 'software';
   asset_id: string;
   category: string;
-  install_source?: unknown;
+  install_source?: string | null;
   version?: string | null;
   install_location?: string | null;
   executable_path?: string | null;
@@ -165,10 +176,51 @@ export interface ServiceRecordDto {
   expires_at?: string | null;
   auto_renew?: boolean | null;
   notes?: string | null;
+  /** Local-service launch metadata: where the command runs. */
+  project_dir?: string | null;
+  /** Local-service launch metadata: the command the user starts. */
+  start_command?: string | null;
+  stop_command?: string | null;
+}
+
+/**
+ * Lifecycle of a locally started service process, reported by the backend.
+ * `external` is not a managed lifecycle state: AssetMesh holds no process,
+ * but the service's access address answers on loopback, so an instance
+ * appears to be running outside AssetMesh. It can be controlled using an explicitly configured stop command.
+ */
+export type ServiceRuntimeState =
+  | 'stopped'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'failed'
+  | 'external';
+
+export interface ServiceRuntimeStatusDto {
+  asset_id: string;
+  state: ServiceRuntimeState;
+  pid: number | null;
+  started_at: string | null;
+  exit_code: number | null;
+  exit_signal: number | null;
+  error: string | null;
+}
+
+export interface ServiceRuntimeLogLineDto {
+  seq: number;
+  timestamp: string;
+  stream: 'stdout' | 'stderr';
+  text: string;
+}
+
+export interface ServiceRuntimeLogsDto {
+  run_id: string | null;
+  lines: ServiceRuntimeLogLineDto[];
+  dropped: boolean;
 }
 
 export type InfoType = 'email' | 'url' | 'api_key' | 'text';
-
 export interface InfoRecordDto {
   module: 'info';
   asset_id: string;
@@ -247,6 +299,12 @@ export interface ClassifiedCandidateDto {
   disposition: string;
   matched_asset_ids: string[];
   message?: string | null;
+}
+
+export interface DiscoveryReport {
+  candidates: ClassifiedCandidateDto[];
+  completed_sources: string[];
+  failed_sources: { source: string; message: string }[];
 }
 
 export type SoftwareCommand =
@@ -363,6 +421,9 @@ export type ServiceCommand =
       expires_at?: string | null;
       auto_renew?: boolean | null;
       notes?: string | null;
+      project_dir?: string | null;
+      start_command?: string | null;
+      stop_command?: string | null;
       tags?: string[];
     }
   | {
@@ -384,6 +445,9 @@ export type ServiceCommand =
       expires_at?: string | null;
       auto_renew?: boolean | null;
       notes?: string | null;
+      project_dir?: string | null;
+      start_command?: string | null;
+      stop_command?: string | null;
     }
   | {
       action: 'record_renewal';
@@ -502,10 +566,16 @@ export interface ActivityQuery {
 // Duplicate Review & Merge Types (P5-08)
 // =========================================================================
 
+export type DuplicateEvidenceDto =
+  | { evidence: 'same_normalized_name'; normalized_name: string; kind: string }
+  | { evidence: 'same_provider'; provider: string }
+  | { evidence: 'same_domain'; domain: string }
+  | { evidence: 'same_install_location'; location: string };
+
 export interface DuplicateCandidateDto {
   left: AssetSummary;
   right: AssetSummary;
-  evidence: Array<Record<string, unknown>>;
+  evidence: DuplicateEvidenceDto[];
   evidence_labels: string[];
 }
 
@@ -594,17 +664,32 @@ export interface ImportReceipt {
   report: ImportReport;
 }
 
-export interface ProviderStatus {
-  name: string;
-  display_name: string;
-  available: boolean;
-  details: string | null;
+
+
+
+export interface BackupEntry {
+  id: string;
+  source_dir: string;
+  created_at: string;
+  kind: 'snapshot' | 'portable';
+  reason: string;
+  asset_count: number;
+  contains_api_keys: boolean;
+  fingerprint: string;
 }
 
-export interface AppSettings {
-  db_path: string | null;
-  db_status: string;
-  app_version: string;
-  providers: ProviderStatus[];
-  capabilities: AppCapabilities;
+export interface BackupStatus {
+    directory: string;
+  entries: BackupEntry[];
+  issues: Array<{ source_dir: string; message: string }>;
+  storage_bytes: number;
+  budget_bytes: number;
+  last_error: string | null;
+  restore_pending: boolean;
+}
+
+export interface RestoreReceipt {
+  db_path: string;
+  preferences: Record<string, string>;
+  restart_required: boolean;
 }
